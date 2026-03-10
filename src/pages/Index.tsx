@@ -624,7 +624,13 @@ const Index = () => {
           }}
         />
 
-        {/* Local Model Manager - shown only when local engine selected */}
+        {/* Batch Upload */}
+        <BatchUploader
+          onTranscribeFile={batchTranscribeFile}
+          onSaveTranscript={batchSaveTranscript}
+          engineName={engine}
+          isDisabled={isLoading}
+        />
         {engine === 'local' && (
           <Collapsible>
             <CollapsibleTrigger asChild>
