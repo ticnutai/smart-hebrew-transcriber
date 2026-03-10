@@ -188,6 +188,15 @@ const Dashboard = () => {
           </Card>
         )}
 
+        {/* Folder Manager */}
+        {isAuthenticated && transcripts.length > 0 && (
+          <FolderManager
+            transcripts={transcripts}
+            onUpdate={(id, updates) => updateTranscript(id, updates)}
+            onDelete={deleteTranscript}
+          />
+        )}
+
         {/* Empty state for non-authenticated */}
         {!isAuthenticated && (
           <Card className="border-dashed">
