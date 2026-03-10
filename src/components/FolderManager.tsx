@@ -392,7 +392,7 @@ const TranscriptItem = ({
           <Checkbox checked={isSelected} onCheckedChange={onToggleSelect} />
           <button onClick={onToggleFavorite} className="hover:scale-110 transition-transform">
             {t.is_favorite
-              ? <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
+              ? <Star className="w-4 h-4 text-amber-500 fill-amber-500" />
               : <StarOff className="w-4 h-4 text-muted-foreground" />}
           </button>
           <Badge variant="outline" className="text-xs">{t.engine}</Badge>
