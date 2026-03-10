@@ -3,8 +3,10 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { Wand2, BookOpen, FileText, Copy, Download, Loader2, Upload, Settings2 } from "lucide-react";
+import { Wand2, BookOpen, FileText, Copy, Loader2, Upload, Settings2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
+import { ExportButton } from "@/components/ExportButton";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Dialog,
