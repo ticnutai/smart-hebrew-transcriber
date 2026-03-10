@@ -10,7 +10,7 @@ import { Settings as SettingsIcon, ArrowRight, LogOut, Eye, EyeOff } from "lucid
 import { supabase } from "@/integrations/supabase/client";
 
 const Settings = () => {
-  const { isAuthenticated, logout } = useAuth();
+  const { isAuthenticated, logout, isLoading } = useAuth();
   const navigate = useNavigate();
   const [openaiKey, setOpenaiKey] = useState("");
   const [googleKey, setGoogleKey] = useState("");
@@ -27,6 +27,7 @@ const Settings = () => {
   const [userIdentifier, setUserIdentifier] = useState("");
 
   useEffect(() => {
+    if (isLoading) return;
     if (!isAuthenticated) {
       navigate("/login");
       return;
@@ -42,7 +43,7 @@ const Settings = () => {
 
     // Load from cloud first, then fallback to localStorage
     loadKeysFromCloud(identifier);
-  }, [isAuthenticated, navigate]);
+  }, [isAuthenticated, isLoading, navigate]);
 
   const loadKeysFromCloud = async (identifier: string) => {
     try {
