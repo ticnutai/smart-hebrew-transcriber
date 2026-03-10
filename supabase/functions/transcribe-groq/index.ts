@@ -116,9 +116,9 @@ serve(async (req) => {
     const msg = error instanceof Error ? error.message : 'Unknown error';
     
     if (msg === 'RATE_LIMIT') {
-      return new Response(JSON.stringify({ error: 'חרגת ממגבלת הבקשות של Groq. נסה שוב מאוחר יותר.' }), {
+      return new Response(JSON.stringify({ error: 'חרגת ממגבלת הבקשות של Groq. נסה שוב מאוחר יותר.', retryAfter: 60 }), {
         status: 429,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Retry-After': '60' },
       });
     }
     if (msg === 'AUTH_ERROR') {
