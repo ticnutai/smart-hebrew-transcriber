@@ -114,7 +114,7 @@ export function BatchUploader({ onTranscribeFile, onSaveTranscript, engineName, 
   const totalProgress = files.length > 0 ? Math.round((doneCount / files.length) * 100) : 0;
 
   return (
-    <Card>
+    <Card dir="rtl">
       <CardHeader className="pb-3">
         <CardTitle className="text-lg flex items-center gap-2">
           <Files className="w-5 h-5" />
