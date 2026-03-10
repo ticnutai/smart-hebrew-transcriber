@@ -28,7 +28,6 @@ const Index = () => {
   const [transcript, setTranscript] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [transcriptHistory, setTranscriptHistory] = useState<Array<{text: string, timestamp: number, engine: string, tags?: string[], notes?: string}>>([]);
   
   // Formatting settings
   const [fontSize, setFontSize] = useState(16);
