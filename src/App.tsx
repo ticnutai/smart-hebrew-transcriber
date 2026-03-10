@@ -9,6 +9,7 @@ import Login from "./pages/Login";
 import Settings from "./pages/Settings";
 import TextEditor from "./pages/TextEditor";
 import NotFound from "./pages/NotFound";
+import UserFloatingBadge from "./components/UserFloatingBadge";
 
 const queryClient = new QueryClient();
 
