@@ -163,6 +163,24 @@ const Settings = () => {
               התנתק
             </Button>
           </div>
+        </div>
+
+        {showDevTools && isAdmin && (
+          <Card className="mb-6">
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Wrench className="w-6 h-6 text-accent" />
+                <CardTitle className="text-2xl">כלי פיתוח</CardTitle>
+              </div>
+              <CardDescription>
+                הרצת מיגרציות, דיבאג ולוגים מתקדמים
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <DevToolsPanel />
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader>
