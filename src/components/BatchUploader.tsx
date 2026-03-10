@@ -21,7 +21,7 @@ function isAudioOrVideo(file: File): boolean {
   return ["mp3", "wav", "m4a", "ogg", "flac", "aac", "wma", "opus", "mp4", "webm", "avi", "mov", "mkv", "wmv"].includes(ext);
 }
 
-export function BatchUploader({ onSubmitBatch, onSaveTranscript, jobs, isDisabled, isAuthenticated }: BatchUploaderProps) {
+export function BatchUploader({ onSubmitBatch, onSaveTranscript, onRetryJob, jobs, isDisabled, isAuthenticated }: BatchUploaderProps) {
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [submittedJobIds, setSubmittedJobIds] = useState<Set<string>>(new Set());
   const [savedJobIds, setSavedJobIds] = useState<Set<string>>(new Set());
