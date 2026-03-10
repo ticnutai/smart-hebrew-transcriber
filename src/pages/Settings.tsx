@@ -1,0 +1,336 @@
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
+import { Settings as SettingsIcon, ArrowRight, LogOut, Eye, EyeOff } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+
+const Settings = () => {
+  const { isAuthenticated, logout } = useAuth();
+  const navigate = useNavigate();
+  const [openaiKey, setOpenaiKey] = useState("");
+  const [googleKey, setGoogleKey] = useState("");
+  const [groqKey, setGroqKey] = useState("");
+  const [claudeKey, setClaudeKey] = useState("");
+  const [assemblyaiKey, setAssemblyaiKey] = useState("");
+  const [deepgramKey, setDeepgramKey] = useState("");
+  const [showOpenai, setShowOpenai] = useState(false);
+  const [showGoogle, setShowGoogle] = useState(false);
+  const [showGroq, setShowGroq] = useState(false);
+  const [showClaude, setShowClaude] = useState(false);
+  const [showAssemblyAI, setShowAssemblyAI] = useState(false);
+  const [showDeepgram, setShowDeepgram] = useState(false);
+  const [userIdentifier, setUserIdentifier] = useState("");
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      navigate("/login");
+      return;
+    }
+
+    // Get or create user identifier
+    let identifier = localStorage.getItem("user_identifier");
+    if (!identifier) {
+      identifier = crypto.randomUUID();
+      localStorage.setItem("user_identifier", identifier);
+    }
+    setUserIdentifier(identifier);
+
+    // Load from cloud first, then fallback to localStorage
+    loadKeysFromCloud(identifier);
+  }, [isAuthenticated, navigate]);
+
+  const loadKeysFromCloud = async (identifier: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('user_api_keys')
+        .select('*')
+        .eq('user_identifier', identifier)
+        .single();
+
+      if (error && error.code !== 'PGRST116') { // PGRST116 = not found
+        console.error("Error loading keys from cloud:", error);
+      }
+
+      if (data) {
+        if (data.openai_key) setOpenaiKey(data.openai_key);
+        if (data.google_key) setGoogleKey(data.google_key);
+        if (data.groq_key) setGroqKey(data.groq_key);
+        if (data.claude_key) setClaudeKey(data.claude_key);
+        if (data.assemblyai_key) setAssemblyaiKey(data.assemblyai_key);
+        if (data.deepgram_key) setDeepgramKey(data.deepgram_key);
+      } else {
+        // Fallback to localStorage
+        const savedOpenAI = localStorage.getItem("openai_api_key");
+        const savedGoogle = localStorage.getItem("google_api_key");
+        const savedGroq = localStorage.getItem("groq_api_key");
+        const savedClaude = localStorage.getItem("claude_api_key");
+        const savedAssemblyAI = localStorage.getItem("assemblyai_api_key");
+        const savedDeepgram = localStorage.getItem("deepgram_api_key");
+        
+        if (savedOpenAI) setOpenaiKey(savedOpenAI);
+        if (savedGoogle) setGoogleKey(savedGoogle);
+        if (savedGroq) setGroqKey(savedGroq);
+        if (savedClaude) setClaudeKey(savedClaude);
+        if (savedAssemblyAI) setAssemblyaiKey(savedAssemblyAI);
+        if (savedDeepgram) setDeepgramKey(savedDeepgram);
+      }
+    } catch (error) {
+      console.error("Error loading keys:", error);
+      toast.error("שגיאה בטעינת המפתחות");
+    }
+  };
+
+  const handleSave = async () => {
+    try {
+      // Save to localStorage
+      if (openaiKey) localStorage.setItem("openai_api_key", openaiKey);
+      if (googleKey) localStorage.setItem("google_api_key", googleKey);
+      if (groqKey) localStorage.setItem("groq_api_key", groqKey);
+      if (claudeKey) localStorage.setItem("claude_api_key", claudeKey);
+      if (assemblyaiKey) localStorage.setItem("assemblyai_api_key", assemblyaiKey);
+      if (deepgramKey) localStorage.setItem("deepgram_api_key", deepgramKey);
+
+      // Save to cloud
+      const { error } = await supabase
+        .from('user_api_keys')
+        .upsert({
+          user_identifier: userIdentifier,
+          openai_key: openaiKey || null,
+          google_key: googleKey || null,
+          groq_key: groqKey || null,
+          claude_key: claudeKey || null,
+          assemblyai_key: assemblyaiKey || null,
+          deepgram_key: deepgramKey || null,
+        }, {
+          onConflict: 'user_identifier'
+        });
+
+      if (error) {
+        console.error("Error saving to cloud:", error);
+        toast.error("שגיאה בשמירת המפתחות בענן");
+        return;
+      }
+
+      toast.success("המפתחות נשמרו בהצלחה בענן ובמכשיר!");
+    } catch (error) {
+      console.error("Error saving keys:", error);
+      toast.error("שגיאה בשמירת המפתחות");
+    }
+  };
+
+  const handleLogout = () => {
+    logout();
+    navigate("/login");
+  };
+
+  const handleBack = () => {
+    navigate("/");
+  };
+
+  if (!isAuthenticated) {
+    return null;
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-background to-secondary/20 p-4" dir="rtl">
+      <div className="max-w-2xl mx-auto py-8">
+        <div className="flex items-center justify-between mb-6">
+          <Button variant="outline" onClick={handleBack}>
+            <ArrowRight className="ml-2 h-4 w-4" />
+            חזרה
+          </Button>
+          <Button variant="outline" onClick={handleLogout}>
+            <LogOut className="ml-2 h-4 w-4" />
+            התנתק
+          </Button>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <SettingsIcon className="w-6 h-6 text-primary" />
+              <CardTitle className="text-2xl">הגדרות API</CardTitle>
+            </div>
+            <CardDescription>
+              הכנס את מפתחות ה-API שלך לשירותי התמלול
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="space-y-2">
+              <Label htmlFor="openai">OpenAI API Key</Label>
+              <div className="relative">
+                <Input
+                  id="openai"
+                  type={showOpenai ? "text" : "password"}
+                  placeholder="sk-..."
+                  value={openaiKey}
+                  onChange={(e) => setOpenaiKey(e.target.value)}
+                  dir="ltr"
+                  className="pr-10"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="absolute left-0 top-0 h-full px-3 hover:bg-transparent"
+                  onClick={() => setShowOpenai(!showOpenai)}
+                >
+                  {showOpenai ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground text-right">
+                מפתח API עבור Whisper של OpenAI
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="groq">Groq API Key (מומלץ - מהיר מאוד!)</Label>
+              <div className="relative">
+                <Input
+                  id="groq"
+                  type={showGroq ? "text" : "password"}
+                  placeholder="gsk_..."
+                  value={groqKey}
+                  onChange={(e) => setGroqKey(e.target.value)}
+                  dir="ltr"
+                  className="pr-10"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="absolute left-0 top-0 h-full px-3 hover:bg-transparent"
+                  onClick={() => setShowGroq(!showGroq)}
+                >
+                  {showGroq ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground text-right">
+                מפתח API עבור Groq Whisper - מהיר במיוחד ואיכותי
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="google">Google Cloud API Key</Label>
+              <div className="relative">
+                <Input
+                  id="google"
+                  type={showGoogle ? "text" : "password"}
+                  placeholder="AIza..."
+                  value={googleKey}
+                  onChange={(e) => setGoogleKey(e.target.value)}
+                  dir="ltr"
+                  className="pr-10"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="absolute left-0 top-0 h-full px-3 hover:bg-transparent"
+                  onClick={() => setShowGoogle(!showGoogle)}
+                >
+                  {showGoogle ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground text-right">
+                מפתח API עבור Google Speech-to-Text
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="assemblyai">AssemblyAI API Key</Label>
+              <div className="relative">
+                <Input
+                  id="assemblyai"
+                  type={showAssemblyAI ? "text" : "password"}
+                  placeholder="..."
+                  value={assemblyaiKey}
+                  onChange={(e) => setAssemblyaiKey(e.target.value)}
+                  dir="ltr"
+                  className="pr-10"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="absolute left-0 top-0 h-full px-3 hover:bg-transparent"
+                  onClick={() => setShowAssemblyAI(!showAssemblyAI)}
+                >
+                  {showAssemblyAI ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground text-right">
+                מפתח API עבור AssemblyAI - תמלול מהיר ואיכותי
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="deepgram">Deepgram API Key</Label>
+              <div className="relative">
+                <Input
+                  id="deepgram"
+                  type={showDeepgram ? "text" : "password"}
+                  placeholder="..."
+                  value={deepgramKey}
+                  onChange={(e) => setDeepgramKey(e.target.value)}
+                  dir="ltr"
+                  className="pr-10"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="absolute left-0 top-0 h-full px-3 hover:bg-transparent"
+                  onClick={() => setShowDeepgram(!showDeepgram)}
+                >
+                  {showDeepgram ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground text-right">
+                מפתח API עבור Deepgram - מהיר במיוחד
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="claude">Anthropic Claude API Key</Label>
+              <div className="relative">
+                <Input
+                  id="claude"
+                  type={showClaude ? "text" : "password"}
+                  placeholder="sk-ant-..."
+                  value={claudeKey}
+                  onChange={(e) => setClaudeKey(e.target.value)}
+                  dir="ltr"
+                  className="pr-10"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="absolute left-0 top-0 h-full px-3 hover:bg-transparent"
+                  onClick={() => setShowClaude(!showClaude)}
+                >
+                  {showClaude ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground text-right">
+                מפתח API עבור Claude (בקרוב!)
+              </p>
+            </div>
+
+            <Button onClick={handleSave} className="w-full" size="lg">
+              שמור הגדרות
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+};
+
+export default Settings;

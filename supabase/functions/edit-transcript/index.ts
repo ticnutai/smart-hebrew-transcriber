@@ -1,0 +1,105 @@
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
+serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  try {
+    const { text, action, customPrompt, model } = await req.json();
+    
+    if (!text || !action) {
+      throw new Error('Missing text or action parameter');
+    }
+
+    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+    if (!LOVABLE_API_KEY) {
+      throw new Error('LOVABLE_API_KEY is not configured');
+    }
+
+    let systemPrompt = '';
+    
+    // אם יש פרומפט מותאם, השתמש בו
+    if (customPrompt) {
+      systemPrompt = customPrompt;
+    } else {
+      // אחרת, השתמש בפרומפטים הקבועים
+      switch (action) {
+        case 'improve':
+          systemPrompt = 'אתה עורך מקצועי. שפר את הניסוח של הטקסט הבא כך שיהיה ברור ומקצועי יותר. השאר את המשמעות והתוכן זהים, רק שפר את הניסוח והדקדוק.';
+          break;
+        case 'sources':
+          systemPrompt = 'אתה עורך מחקרי. הוסף הערות ומקורות אפשריים לטקסט הבא. סמן מקומות שבהם כדאי להוסיף מקורות או ציטוטים עם [מקור נדרש]. אל תמציא מקורות, רק ציין היכן הם נחוצים.';
+          break;
+        case 'readable':
+          systemPrompt = 'אתה עורך מקצועי. עשה את הטקסט הבא קריא וזורם יותר. חלק למשפטים קצרים, הוסף סימני פיסוק מתאימים, וודא שהטקסט קל לקריאה ולהבנה.';
+          break;
+        case 'custom':
+          systemPrompt = 'בצע את המשימה המבוקשת על הטקסט הבא.';
+          break;
+        default:
+          throw new Error('Invalid action');
+      }
+    }
+
+    console.log(`Processing ${action} action for text of length:`, text.length);
+
+    const aiModel = model || 'google/gemini-2.5-flash';
+    
+    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: aiModel,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: text }
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      if (response.status === 429) {
+        throw new Error('חרגת ממגבלת הבקשות. נסה שוב מאוחר יותר.');
+      }
+      if (response.status === 402) {
+        throw new Error('יש להוסיף קרדיט לחשבון Lovable שלך.');
+      }
+      const errorText = await response.text();
+      console.error('AI gateway error:', response.status, errorText);
+      throw new Error('שגיאה בעיבוד AI');
+    }
+
+    const data = await response.json();
+    const editedText = data.choices?.[0]?.message?.content;
+
+    if (!editedText) {
+      throw new Error('No response from AI');
+    }
+
+    console.log('Text editing completed successfully');
+
+    return new Response(
+      JSON.stringify({ text: editedText }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+
+  } catch (error) {
+    console.error('Error in edit-transcript:', error);
+    return new Response(
+      JSON.stringify({ error: error instanceof Error ? error.message : 'שגיאה לא ידועה' }),
+      {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      }
+    );
+  }
+});
