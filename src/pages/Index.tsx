@@ -19,6 +19,9 @@ import { useLocalTranscription } from "@/hooks/useLocalTranscription";
 import { useCloudTranscripts } from "@/hooks/useCloudTranscripts";
 import { Settings, FileEdit, ChevronDown } from "lucide-react";
 import { BatchUploader } from "@/components/BatchUploader";
+import { BackgroundJobsPanel } from "@/components/BackgroundJobsPanel";
+import { useTranscriptionJobs } from "@/hooks/useTranscriptionJobs";
+import { useAuth } from "@/contexts/AuthContext";
 
 type Engine = 'openai' | 'groq' | 'google' | 'local' | 'assemblyai' | 'deepgram';
 type SourceLanguage = 'auto' | 'he' | 'yi' | 'en';
