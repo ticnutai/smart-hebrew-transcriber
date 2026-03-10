@@ -550,6 +550,16 @@ const Index = () => {
           />
         </div>
 
+        {/* Live Transcription */}
+        <LiveTranscriber
+          onTranscriptComplete={(text) => {
+            setTranscript(text);
+            saveToHistory(text, 'Live (Web Speech API)');
+            toast({ title: "תמלול חי הושלם!" });
+            setTimeout(() => navigate('/text-editor', { state: { text } }), 1000);
+          }}
+        />
+
         {/* Local Model Manager - shown only when local engine selected */}
         {engine === 'local' && (
           <Collapsible>
