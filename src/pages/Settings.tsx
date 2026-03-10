@@ -43,7 +43,7 @@ const Settings = () => {
 
     // Load from cloud first, then fallback to localStorage
     loadKeysFromCloud(identifier);
-  }, [isAuthenticated, navigate]);
+  }, [isAuthenticated, isLoading, navigate]);
 
   const loadKeysFromCloud = async (identifier: string) => {
     try {
