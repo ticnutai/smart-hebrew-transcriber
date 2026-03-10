@@ -14,8 +14,32 @@ interface AIEditorDualProps {
   onTextChange: (text: string, source: string, customPrompt?: string) => void;
 }
 
-type AIModel = 'gemini-flash' | 'gemini-pro';
+type AIModel = 'gemini-flash' | 'gemini-pro' | 'gemini-flash-lite' | 'gpt-5' | 'gpt-5-mini' | 'gpt-5-nano';
 type EditAction = 'improve' | 'sources' | 'readable' | 'summarize' | 'translate' | 'custom';
+
+const modelToApiId = (model: AIModel): string => {
+  const map: Record<AIModel, string> = {
+    'gemini-flash': 'google/gemini-2.5-flash',
+    'gemini-pro': 'google/gemini-2.5-pro',
+    'gemini-flash-lite': 'google/gemini-2.5-flash-lite',
+    'gpt-5': 'openai/gpt-5',
+    'gpt-5-mini': 'openai/gpt-5-mini',
+    'gpt-5-nano': 'openai/gpt-5-nano',
+  };
+  return map[model] || 'google/gemini-2.5-flash';
+};
+
+const modelDisplayName = (model: AIModel): string => {
+  const map: Record<AIModel, string> = {
+    'gemini-flash': 'Gemini Flash',
+    'gemini-pro': 'Gemini Pro',
+    'gemini-flash-lite': 'Gemini Flash Lite',
+    'gpt-5': 'GPT-5',
+    'gpt-5-mini': 'GPT-5 Mini',
+    'gpt-5-nano': 'GPT-5 Nano',
+  };
+  return map[model] || model;
+};
 
 export const AIEditorDual = ({ text, onTextChange }: AIEditorDualProps) => {
   const [isEditing1, setIsEditing1] = useState(false);
@@ -62,7 +86,7 @@ export const AIEditorDual = ({ text, onTextChange }: AIEditorDualProps) => {
           text, 
           action,
           customPrompt: action === 'custom' ? customPrompt : undefined,
-          model: model === 'gemini-pro' ? 'google/gemini-2.5-pro' : 'google/gemini-2.5-flash'
+          model: modelToApiId(model)
         }
       });
 
@@ -72,7 +96,7 @@ export const AIEditorDual = ({ text, onTextChange }: AIEditorDualProps) => {
         setResult(data.text);
         toast({
           title: "הצלחה",
-          description: `עריכה עם ${model === 'gemini-pro' ? 'Gemini Pro' : 'Gemini Flash'} הושלמה`,
+          description: `עריכה עם ${modelDisplayName(model)} הושלמה`,
         });
       }
     } catch (error) {
@@ -116,6 +140,10 @@ export const AIEditorDual = ({ text, onTextChange }: AIEditorDualProps) => {
               <SelectContent dir="rtl">
                 <SelectItem value="gemini-flash">Gemini Flash</SelectItem>
                 <SelectItem value="gemini-pro">Gemini Pro</SelectItem>
+                <SelectItem value="gemini-flash-lite">Gemini Flash Lite</SelectItem>
+                <SelectItem value="gpt-5">GPT-5</SelectItem>
+                <SelectItem value="gpt-5-mini">GPT-5 Mini</SelectItem>
+                <SelectItem value="gpt-5-nano">GPT-5 Nano</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -216,6 +244,10 @@ export const AIEditorDual = ({ text, onTextChange }: AIEditorDualProps) => {
               <SelectContent dir="rtl">
                 <SelectItem value="gemini-flash">Gemini Flash</SelectItem>
                 <SelectItem value="gemini-pro">Gemini Pro</SelectItem>
+                <SelectItem value="gemini-flash-lite">Gemini Flash Lite</SelectItem>
+                <SelectItem value="gpt-5">GPT-5</SelectItem>
+                <SelectItem value="gpt-5-mini">GPT-5 Mini</SelectItem>
+                <SelectItem value="gpt-5-nano">GPT-5 Nano</SelectItem>
               </SelectContent>
             </Select>
           </div>
