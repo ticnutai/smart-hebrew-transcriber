@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
+import { splitFileIntoChunks } from '@/utils/audioChunker';
 
 export interface TranscriptionJob {
   id: string;
@@ -16,14 +17,18 @@ export interface TranscriptionJob {
   progress: number;
   created_at: string;
   updated_at: string;
+  partial_result: string | null;
+  total_chunks: number | null;
+  completed_chunks: number | null;
 }
+
+const MAX_CONCURRENT_JOBS = 3;
 
 export const useTranscriptionJobs = () => {
   const { user } = useAuth();
   const [jobs, setJobs] = useState<TranscriptionJob[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Load existing jobs
   const loadJobs = useCallback(async () => {
     if (!user) return;
     setIsLoading(true);
@@ -43,97 +48,84 @@ export const useTranscriptionJobs = () => {
     }
   }, [user]);
 
-  useEffect(() => {
-    loadJobs();
-  }, [loadJobs]);
+  useEffect(() => { loadJobs(); }, [loadJobs]);
 
-  // Subscribe to realtime changes
+  // Realtime subscription
   useEffect(() => {
     if (!user) return;
 
     const channel = supabase
       .channel('transcription-jobs')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'transcription_jobs',
-          filter: `user_id=eq.${user.id}`,
-        },
-        (payload) => {
-          if (payload.eventType === 'INSERT') {
-            setJobs(prev => [payload.new as TranscriptionJob, ...prev]);
-          } else if (payload.eventType === 'UPDATE') {
-            const updated = payload.new as TranscriptionJob;
-            setJobs(prev => prev.map(j => j.id === updated.id ? updated : j));
-            
-            // Show toast on completion
-            if (updated.status === 'completed') {
-              toast({
-                title: "תמלול הושלם! ✅",
-                description: `הקובץ "${updated.file_name}" תומלל בהצלחה`,
-              });
-            } else if (updated.status === 'failed') {
-              toast({
-                title: "שגיאה בתמלול",
-                description: updated.error_message || 'שגיאה לא ידועה',
-                variant: "destructive",
-              });
-            }
-          } else if (payload.eventType === 'DELETE') {
-            setJobs(prev => prev.filter(j => j.id !== payload.old.id));
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'transcription_jobs',
+        filter: `user_id=eq.${user.id}`,
+      }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          setJobs(prev => [payload.new as TranscriptionJob, ...prev]);
+        } else if (payload.eventType === 'UPDATE') {
+          const updated = payload.new as TranscriptionJob;
+          setJobs(prev => prev.map(j => j.id === updated.id ? updated : j));
+          if (updated.status === 'completed') {
+            toast({ title: "תמלול הושלם! ✅", description: `הקובץ "${updated.file_name}" תומלל בהצלחה` });
+          } else if (updated.status === 'failed') {
+            toast({ title: "שגיאה בתמלול", description: updated.error_message || 'שגיאה לא ידועה', variant: "destructive" });
           }
+        } else if (payload.eventType === 'DELETE') {
+          setJobs(prev => prev.filter(j => j.id !== payload.old.id));
         }
-      )
+      })
       .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, [user]);
 
-  // Submit a new background transcription job
+  const triggerProcessing = (jobId: string) => {
+    const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/process-transcription`;
+    fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ jobId }),
+    }).catch(err => console.error('Error triggering processing:', err));
+  };
+
+  // Submit a single job (with chunking for large files)
   const submitJob = useCallback(async (
-    file: File,
-    engine: string,
-    language: string,
-    apiKey?: string
+    file: File, engine: string, language: string
   ): Promise<string | null> => {
     if (!user) {
-      toast({
-        title: "נדרשת התחברות",
-        description: "יש להתחבר כדי להשתמש בתמלול ברקע",
-        variant: "destructive",
-      });
+      toast({ title: "נדרשת התחברות", description: "יש להתחבר כדי להשתמש בתמלול ברקע", variant: "destructive" });
       return null;
     }
 
     try {
-      // 1. Create job record
+      const chunks = splitFileIntoChunks(file);
+
       const { data: job, error: jobError } = await supabase
         .from('transcription_jobs')
         .insert({
           user_id: user.id,
-          status: 'uploading',
+          status: 'uploading' as string,
           engine,
           file_name: file.name,
           language,
           progress: 0,
+          total_chunks: chunks.length,
+          completed_chunks: 0,
+          partial_result: '',
         })
         .select()
         .single();
 
-      if (jobError || !job) {
-        throw new Error('Failed to create job');
-      }
+      if (jobError || !job) throw new Error('Failed to create job');
 
-      toast({
-        title: "מעלה קובץ ברקע...",
-        description: `"${file.name}" - התמלול ימשיך גם אם תעזוב את העמוד`,
-      });
+      toast({ title: "מעלה קובץ ברקע...", description: `"${file.name}" - ${chunks.length > 1 ? `${chunks.length} חלקים` : 'חלק אחד'}` });
 
-      // 2. Upload file to storage
+      // Upload file to storage
       const filePath = `${user.id}/${job.id}_${Date.now()}.${file.name.split('.').pop()}`;
       const { error: uploadError } = await supabase.storage
         .from('audio-files')
@@ -146,62 +138,76 @@ export const useTranscriptionJobs = () => {
         throw new Error('Failed to upload file');
       }
 
-      // 3. Update job with file path and set to pending
       await supabase.from('transcription_jobs')
         .update({ file_path: filePath, status: 'pending', progress: 20 })
         .eq('id', job.id);
 
-      // 4. Trigger the processing edge function (fire-and-forget)
-      // We use fetch directly to avoid waiting for the response
-      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/process-transcription`;
-      fetch(url, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ jobId: job.id }),
-      }).catch(err => {
-        console.error('Error triggering processing:', err);
-        // Job will stay in 'pending' - user can retry
-      });
-
+      triggerProcessing(job.id);
       return job.id;
     } catch (error) {
       console.error('Error submitting job:', error);
-      toast({
-        title: "שגיאה",
-        description: error instanceof Error ? error.message : "שגיאה בשליחת העבודה",
-        variant: "destructive",
-      });
+      toast({ title: "שגיאה", description: error instanceof Error ? error.message : "שגיאה בשליחת העבודה", variant: "destructive" });
       return null;
     }
   }, [user]);
 
-  // Retry a failed job
+  // Submit multiple jobs with concurrency limit
+  const submitBatchJobs = useCallback(async (
+    files: File[], engine: string, language: string
+  ): Promise<string[]> => {
+    if (!user) {
+      toast({ title: "נדרשת התחברות", variant: "destructive" });
+      return [];
+    }
+
+    const ids: string[] = [];
+    let nextIdx = 0;
+
+    async function worker() {
+      while (nextIdx < files.length) {
+        const idx = nextIdx++;
+        const id = await submitJob(files[idx], engine, language);
+        if (id) ids.push(id);
+      }
+    }
+
+    const workers = Array.from(
+      { length: Math.min(MAX_CONCURRENT_JOBS, files.length) },
+      () => worker()
+    );
+    await Promise.all(workers);
+
+    toast({ title: `${ids.length} עבודות נשלחו לתמלול ברקע` });
+    return ids;
+  }, [user, submitJob]);
+
   const retryJob = useCallback(async (jobId: string) => {
     try {
+      const job = jobs.find(j => j.id === jobId);
+      // Resume from partial - keep completed_chunks and partial_result
+      const updates: Record<string, unknown> = {
+        status: 'pending',
+        error_message: null,
+        progress: 20,
+      };
+
+      // If no partial progress, reset
+      if (!job?.completed_chunks || job.completed_chunks === 0) {
+        updates.completed_chunks = 0;
+        updates.partial_result = '';
+      }
+
       await supabase.from('transcription_jobs')
-        .update({ status: 'pending', error_message: null, progress: 20 })
+        .update(updates)
         .eq('id', jobId);
 
-      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/process-transcription`;
-      fetch(url, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ jobId }),
-      }).catch(console.error);
-
-      toast({ title: "ניסיון חוזר...", description: "שולח את העבודה מחדש" });
+      triggerProcessing(jobId);
+      toast({ title: "ניסיון חוזר...", description: job?.completed_chunks ? `ממשיך מחלק ${job.completed_chunks}` : "שולח מחדש" });
     } catch (err) {
       console.error('Error retrying job:', err);
     }
-  }, []);
+  }, [jobs]);
 
-  // Delete a job
   const deleteJob = useCallback(async (jobId: string) => {
     try {
       const job = jobs.find(j => j.id === jobId);
@@ -214,20 +220,12 @@ export const useTranscriptionJobs = () => {
     }
   }, [jobs]);
 
-  // Get active (non-completed) jobs
-  const activeJobs = jobs.filter(j => j.status === 'pending' || j.status === 'uploading' || j.status === 'processing');
+  const activeJobs = jobs.filter(j => ['pending', 'uploading', 'processing'].includes(j.status));
   const completedJobs = jobs.filter(j => j.status === 'completed');
   const failedJobs = jobs.filter(j => j.status === 'failed');
 
   return {
-    jobs,
-    activeJobs,
-    completedJobs,
-    failedJobs,
-    isLoading,
-    submitJob,
-    retryJob,
-    deleteJob,
-    loadJobs,
+    jobs, activeJobs, completedJobs, failedJobs,
+    isLoading, submitJob, submitBatchJobs, retryJob, deleteJob, loadJobs,
   };
 };

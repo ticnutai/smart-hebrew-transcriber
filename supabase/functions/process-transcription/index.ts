@@ -28,6 +28,68 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 2000): 
   throw lastError;
 }
 
+const CHUNK_SIZE = 20 * 1024 * 1024; // 20MB
+
+async function transcribeBlob(
+  blob: Blob,
+  engine: string,
+  language: string,
+  fileName: string
+): Promise<string> {
+  const safeFileName = sanitizeFileName(fileName);
+
+  if (engine === 'groq') {
+    const apiKey = Deno.env.get('GROQ_API_KEY');
+    if (!apiKey) throw new Error('GROQ_API_KEY not configured');
+
+    return await withRetry(async () => {
+      const fd = new FormData();
+      fd.append('file', blob, safeFileName);
+      fd.append('model', 'whisper-large-v3');
+      fd.append('language', language || 'he');
+      fd.append('response_format', 'text');
+
+      const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}` },
+        body: fd,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Groq API error:', response.status, errorText);
+        throw new Error(`Groq API error: ${response.status}`);
+      }
+      return await response.text();
+    });
+  } else if (engine === 'openai') {
+    const apiKey = Deno.env.get('OPENAI_API_KEY');
+    if (!apiKey) throw new Error('OPENAI_API_KEY not configured');
+
+    return await withRetry(async () => {
+      const fd = new FormData();
+      fd.append('file', blob, safeFileName);
+      fd.append('model', 'whisper-1');
+      fd.append('language', language || 'he');
+      fd.append('response_format', 'text');
+
+      const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}` },
+        body: fd,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
+      }
+      return await response.text();
+    });
+  }
+
+  throw new Error(`Unsupported engine: ${engine}`);
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -43,137 +105,101 @@ serve(async (req) => {
 
     console.log('Processing transcription job:', jobId);
 
-    // Get job details
     const { data: job, error: jobError } = await adminClient
       .from('transcription_jobs')
       .select('*')
       .eq('id', jobId)
       .single();
 
-    if (jobError || !job) {
-      throw new Error(`Job not found: ${jobId}`);
-    }
-
+    if (jobError || !job) throw new Error(`Job not found: ${jobId}`);
     if (job.status === 'completed') {
       return new Response(JSON.stringify({ status: 'already_completed' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    // Update status to processing
     await adminClient.from('transcription_jobs')
       .update({ status: 'processing', progress: 30, updated_at: new Date().toISOString() })
       .eq('id', jobId);
 
-    // Download file from storage
+    // Download file
     const { data: fileData, error: dlError } = await adminClient.storage
       .from('audio-files')
       .download(job.file_path);
 
-    if (dlError || !fileData) {
-      throw new Error(`Failed to download file: ${dlError?.message}`);
-    }
+    if (dlError || !fileData) throw new Error(`Failed to download file: ${dlError?.message}`);
 
     await adminClient.from('transcription_jobs')
       .update({ progress: 50, updated_at: new Date().toISOString() })
       .eq('id', jobId);
 
-    // Determine which API to call based on engine
     const engine = job.engine || 'groq';
-    let transcriptionText = '';
+    const totalChunks = job.total_chunks || 1;
+    const startChunk = job.completed_chunks || 0;
+    let partialResult = job.partial_result || '';
 
-    if (engine === 'groq') {
-      // Get API key from the job metadata or env
-      const apiKey = Deno.env.get('GROQ_API_KEY');
-      if (!apiKey) throw new Error('GROQ_API_KEY not configured');
-
-      const safeFileName = sanitizeFileName(job.file_name || 'audio.webm');
+    if (totalChunks <= 1 || fileData.size <= CHUNK_SIZE) {
+      // Single chunk - simple path
+      const text = await transcribeBlob(fileData, engine, job.language || 'he', job.file_name || 'audio.webm');
+      partialResult = text;
+    } else {
+      // Multi-chunk processing with resume
+      const actualChunks = Math.ceil(fileData.size / CHUNK_SIZE);
       
-      transcriptionText = await withRetry(async () => {
-        const fd = new FormData();
-        fd.append('file', fileData, safeFileName);
-        fd.append('model', 'whisper-large-v3');
-        fd.append('language', job.language || 'he');
-        fd.append('response_format', 'text');
+      for (let i = startChunk; i < actualChunks; i++) {
+        const start = i * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, fileData.size);
+        const chunkBlob = fileData.slice(start, end, fileData.type || 'audio/webm');
 
-        const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${apiKey}` },
-          body: fd,
-        });
+        console.log(`Processing chunk ${i + 1}/${actualChunks}`);
+        
+        const chunkText = await transcribeBlob(
+          chunkBlob, engine, job.language || 'he', job.file_name || 'audio.webm'
+        );
 
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('Groq API error:', response.status, errorText);
-          throw new Error(`Groq API error: ${response.status}`);
-        }
+        partialResult += (partialResult ? ' ' : '') + chunkText;
 
-        return await response.text();
-      });
-    } else if (engine === 'openai') {
-      const apiKey = Deno.env.get('OPENAI_API_KEY');
-      if (!apiKey) throw new Error('OPENAI_API_KEY not configured');
-
-      const safeFileName = sanitizeFileName(job.file_name || 'audio.webm');
-
-      transcriptionText = await withRetry(async () => {
-        const fd = new FormData();
-        fd.append('file', fileData, safeFileName);
-        fd.append('model', 'whisper-1');
-        fd.append('language', job.language || 'he');
-        fd.append('response_format', 'text');
-
-        const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${apiKey}` },
-          body: fd,
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
-        }
-
-        return await response.text();
-      });
+        // Save partial progress
+        const chunkProgress = 50 + Math.round(((i + 1) / actualChunks) * 40);
+        await adminClient.from('transcription_jobs')
+          .update({
+            partial_result: partialResult,
+            completed_chunks: i + 1,
+            progress: chunkProgress,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', jobId);
+      }
     }
 
-    await adminClient.from('transcription_jobs')
-      .update({ progress: 90, updated_at: new Date().toISOString() })
-      .eq('id', jobId);
-
-    // Update job with result
+    // Complete
     await adminClient.from('transcription_jobs')
       .update({
         status: 'completed',
-        result_text: transcriptionText,
+        result_text: partialResult,
         progress: 100,
+        completed_chunks: totalChunks,
         updated_at: new Date().toISOString(),
       })
       .eq('id', jobId);
 
-    // Clean up audio file from storage
+    // Cleanup
     await adminClient.storage.from('audio-files').remove([job.file_path]);
 
-    console.log('Job completed successfully:', jobId);
+    console.log('Job completed:', jobId);
 
-    return new Response(JSON.stringify({ status: 'completed', text: transcriptionText }), {
+    return new Response(JSON.stringify({ status: 'completed', text: partialResult }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (error) {
     console.error('Error processing job:', error);
     const msg = error instanceof Error ? error.message : 'Unknown error';
 
-    // Try to update the job as failed
     try {
       const { jobId } = await req.clone().json().catch(() => ({ jobId: null }));
       if (jobId) {
         await adminClient.from('transcription_jobs')
-          .update({
-            status: 'failed',
-            error_message: msg,
-            updated_at: new Date().toISOString(),
-          })
+          .update({ status: 'failed', error_message: msg, updated_at: new Date().toISOString() })
           .eq('id', jobId);
       }
     } catch {}
