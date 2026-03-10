@@ -17,6 +17,30 @@ interface AIEditorDualProps {
 type AIModel = 'gemini-flash' | 'gemini-pro' | 'gemini-flash-lite' | 'gpt-5' | 'gpt-5-mini' | 'gpt-5-nano';
 type EditAction = 'improve' | 'sources' | 'readable' | 'summarize' | 'translate' | 'custom';
 
+const modelToApiId = (model: AIModel): string => {
+  const map: Record<AIModel, string> = {
+    'gemini-flash': 'google/gemini-2.5-flash',
+    'gemini-pro': 'google/gemini-2.5-pro',
+    'gemini-flash-lite': 'google/gemini-2.5-flash-lite',
+    'gpt-5': 'openai/gpt-5',
+    'gpt-5-mini': 'openai/gpt-5-mini',
+    'gpt-5-nano': 'openai/gpt-5-nano',
+  };
+  return map[model] || 'google/gemini-2.5-flash';
+};
+
+const modelDisplayName = (model: AIModel): string => {
+  const map: Record<AIModel, string> = {
+    'gemini-flash': 'Gemini Flash',
+    'gemini-pro': 'Gemini Pro',
+    'gemini-flash-lite': 'Gemini Flash Lite',
+    'gpt-5': 'GPT-5',
+    'gpt-5-mini': 'GPT-5 Mini',
+    'gpt-5-nano': 'GPT-5 Nano',
+  };
+  return map[model] || model;
+};
+
 export const AIEditorDual = ({ text, onTextChange }: AIEditorDualProps) => {
   const [isEditing1, setIsEditing1] = useState(false);
   const [isEditing2, setIsEditing2] = useState(false);
