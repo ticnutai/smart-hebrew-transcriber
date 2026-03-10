@@ -481,12 +481,12 @@ const TranscriptItem = ({
           <StickyNote className="w-3 h-3 ml-1" />הערה
         </Button>
         {/* Category dropdown */}
-        <Select value={t.category || ''} onValueChange={onCategoryChange}>
+        <Select value={t.category || 'none'} onValueChange={v => onCategoryChange(v === 'none' ? '' : v)}>
           <SelectTrigger className="h-7 w-[100px] text-xs">
             <SelectValue placeholder="קטגוריה" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">ללא</SelectItem>
+            <SelectItem value="none">ללא</SelectItem>
             {CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
           </SelectContent>
         </Select>
