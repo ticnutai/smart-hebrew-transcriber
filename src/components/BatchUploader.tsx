@@ -96,16 +96,8 @@ export function BatchUploader({ onTranscribeFile, onSaveTranscript, engineName, 
         return false;
       }
     }
-    return false;
-
-      setFiles((prev) => prev.map((f, idx) => idx === index ? { ...f, status: "done", progress: 100 } : f));
-      return true;
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : "שגיאה לא ידועה";
-      setFiles((prev) => prev.map((f, idx) => idx === index ? { ...f, status: "error", error: errorMsg } : f));
-      return false;
-    }
   };
+
 
   const startProcessing = async () => {
     if (isRunning || files.length === 0) return;
