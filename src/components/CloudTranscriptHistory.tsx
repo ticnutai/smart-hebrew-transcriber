@@ -36,6 +36,39 @@ export const CloudTranscriptHistory = ({
   const [dateFilter, setDateFilter] = useState<string>("all");
   const [showFilters, setShowFilters] = useState(false);
 
+  // Get unique engines for filter
+  const engines = useMemo(() => 
+    [...new Set(transcripts.map(t => t.engine))],
+    [transcripts]
+  );
+
+  // Filter by date range
+  const getDateThreshold = (filter: string): Date | null => {
+    const now = new Date();
+    switch (filter) {
+      case 'today': return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      case 'week': { const d = new Date(now); d.setDate(d.getDate() - 7); return d; }
+      case 'month': { const d = new Date(now); d.setMonth(d.getMonth() - 1); return d; }
+      default: return null;
+    }
+  };
+
+  const filtered = useMemo(() => {
+    const q = searchQuery.toLowerCase();
+    const dateThreshold = getDateThreshold(dateFilter);
+
+    return transcripts.filter(t => {
+      const matchesSearch = !q || 
+        t.text.toLowerCase().includes(q) ||
+        t.engine.toLowerCase().includes(q) ||
+        t.title.toLowerCase().includes(q) ||
+        t.tags?.some(tag => tag.toLowerCase().includes(q));
+      const matchesEngine = engineFilter === "all" || t.engine === engineFilter;
+      const matchesDate = !dateThreshold || new Date(t.created_at) >= dateThreshold;
+      return matchesSearch && matchesEngine && matchesDate;
+    });
+  }, [transcripts, searchQuery, engineFilter, dateFilter]);
+
   if (transcripts.length === 0 && !isLoading) return null;
 
   const formatDate = (dateStr: string) => {
