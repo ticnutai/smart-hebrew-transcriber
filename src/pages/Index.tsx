@@ -36,6 +36,7 @@ const Index = () => {
   const [lineHeight, setLineHeight] = useState(1.6);
 
   const { transcribe: localTranscribe, isLoading: isLocalLoading, progress: localProgress } = useLocalTranscription();
+  const { transcripts, isLoading: isCloudLoading, saveTranscript, updateTranscript, deleteTranscript, deleteAll, isCloud } = useCloudTranscripts();
 
   // Load history and settings from localStorage
   useEffect(() => {
