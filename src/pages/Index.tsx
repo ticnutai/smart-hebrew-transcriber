@@ -38,17 +38,8 @@ const Index = () => {
   const { transcribe: localTranscribe, isLoading: isLocalLoading, progress: localProgress } = useLocalTranscription();
   const { transcripts, isLoading: isCloudLoading, saveTranscript, updateTranscript, deleteTranscript, deleteAll, isCloud } = useCloudTranscripts();
 
-  // Load history and settings from localStorage
+  // Load formatting settings from localStorage
   useEffect(() => {
-    const saved = localStorage.getItem('transcript_history');
-    if (saved) {
-      try {
-        setTranscriptHistory(JSON.parse(saved));
-      } catch (e) {
-        console.error('Failed to load history:', e);
-      }
-    }
-
     const savedFontSize = localStorage.getItem('transcript_fontSize');
     const savedFontFamily = localStorage.getItem('transcript_fontFamily');
     const savedTextColor = localStorage.getItem('transcript_textColor');
