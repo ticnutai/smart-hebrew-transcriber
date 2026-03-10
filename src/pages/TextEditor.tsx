@@ -7,7 +7,9 @@ import { AIEditorDual } from "@/components/AIEditorDual";
 import { TextComparisonMulti } from "@/components/TextComparisonMulti";
 import { TextStyleControl } from "@/components/TextStyleControl";
 import { TextEditHistory, TextVersion } from "@/components/TextEditHistory";
-import { ArrowRight, Home } from "lucide-react";
+import { ArrowRight, Home, Wand2, SplitSquareVertical, SpellCheck, Loader2 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "@/hooks/use-toast";
 
 const TextEditor = () => {
   const navigate = useNavigate();
