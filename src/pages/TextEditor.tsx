@@ -235,6 +235,15 @@ const TextEditor = () => {
             </div>
           </TabsContent>
 
+          <TabsContent value="templates" className="space-y-4">
+            <EditingTemplates
+              text={text}
+              onApply={(newText, templateName) => {
+                addVersion(newText, 'ai-custom', templateName);
+              }}
+            />
+          </TabsContent>
+
           <TabsContent value="ai" className="space-y-4">
             <TextStyleControl
               fontSize={fontSize}
