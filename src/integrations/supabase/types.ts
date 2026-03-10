@@ -139,6 +139,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      exec_sql: { Args: { query: string }; Returns: Json }
       execute_sql_admin: { Args: { sql_text: string }; Returns: Json }
       has_role: {
         Args: {
