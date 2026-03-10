@@ -9,6 +9,7 @@ import { TranscriptionJob } from "@/hooks/useTranscriptionJobs";
 interface BatchUploaderProps {
   onSubmitBatch: (files: File[]) => Promise<string[]>;
   onSaveTranscript: (text: string, engine: string, title: string) => Promise<void>;
+  onRetryJob: (jobId: string) => Promise<void>;
   jobs: TranscriptionJob[];
   isDisabled?: boolean;
   isAuthenticated?: boolean;
