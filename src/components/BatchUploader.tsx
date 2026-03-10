@@ -212,9 +212,20 @@ export function BatchUploader({ onSubmitBatch, onSaveTranscript, onRetryJob, job
                 )}
 
                 {job.status === "failed" && (
-                  <span className="text-xs text-destructive truncate max-w-[120px]" title={job.error_message || ''}>
-                    {job.error_message}
-                  </span>
+                  <>
+                    <span className="text-xs text-destructive truncate max-w-[100px]" title={job.error_message || ''}>
+                      {job.error_message}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 shrink-0"
+                      onClick={() => onRetryJob(job.id)}
+                      title="נסה שוב"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                    </Button>
+                  </>
                 )}
               </div>
             ))}
