@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCloudTranscripts } from "@/hooks/useCloudTranscripts";
+import { FolderManager } from "@/components/FolderManager";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -12,7 +13,7 @@ import {
 const Dashboard = () => {
   const navigate = useNavigate();
   const { isAuthenticated, user } = useAuth();
-  const { transcripts, stats, isLoading } = useCloudTranscripts();
+  const { transcripts, stats, isLoading, updateTranscript, deleteTranscript } = useCloudTranscripts();
 
   const recentTranscripts = transcripts.slice(0, 5);
 
@@ -185,6 +186,15 @@ const Dashboard = () => {
               ))}
             </CardContent>
           </Card>
+        )}
+
+        {/* Folder Manager */}
+        {isAuthenticated && transcripts.length > 0 && (
+          <FolderManager
+            transcripts={transcripts}
+            onUpdate={(id, updates) => updateTranscript(id, updates)}
+            onDelete={deleteTranscript}
+          />
         )}
 
         {/* Empty state for non-authenticated */}

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { TranscriptionEngine } from "@/components/TranscriptionEngine";
 import { FileUploader } from "@/components/FileUploader";
 import { AudioRecorder } from "@/components/AudioRecorder";
+import { LiveTranscriber } from "@/components/LiveTranscriber";
 import { TranscriptEditor } from "@/components/TranscriptEditor";
 import { CloudTranscriptHistory } from "@/components/CloudTranscriptHistory";
 import { TranscriptSummary } from "@/components/TranscriptSummary";
@@ -548,6 +549,16 @@ const Index = () => {
             isTranscribing={isLoading}
           />
         </div>
+
+        {/* Live Transcription */}
+        <LiveTranscriber
+          onTranscriptComplete={(text) => {
+            setTranscript(text);
+            saveToHistory(text, 'Live (Web Speech API)');
+            toast({ title: "תמלול חי הושלם!" });
+            setTimeout(() => navigate('/text-editor', { state: { text } }), 1000);
+          }}
+        />
 
         {/* Local Model Manager - shown only when local engine selected */}
         {engine === 'local' && (
