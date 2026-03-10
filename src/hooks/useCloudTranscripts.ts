@@ -113,7 +113,7 @@ export const useCloudTranscripts = () => {
 
   const updateTranscript = useCallback(async (
     id: string,
-    updates: Partial<Pick<CloudTranscript, 'text' | 'tags' | 'notes' | 'title' | 'folder'>>
+    updates: Partial<Pick<CloudTranscript, 'text' | 'tags' | 'notes' | 'title' | 'folder' | 'category' | 'is_favorite'>>
   ) => {
     try {
       const { error } = await supabase
