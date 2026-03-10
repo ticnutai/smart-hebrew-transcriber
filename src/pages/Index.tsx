@@ -62,20 +62,9 @@ const Index = () => {
     localStorage.setItem('transcript_sourceLanguage', sourceLanguage);
   }, [fontSize, fontFamily, textColor, lineHeight, sourceLanguage]);
 
-  // Save to history
-  const saveToHistory = (text: string, engineUsed: string) => {
-    const newEntry = { text, timestamp: Date.now(), engine: engineUsed, tags: [], notes: '' };
-    const newHistory = [newEntry, ...transcriptHistory].slice(0, 50); // Keep last 50
-    setTranscriptHistory(newHistory);
-    localStorage.setItem('transcript_history', JSON.stringify(newHistory));
-  };
-
-  // Update history entry
-  const updateHistoryEntry = (index: number, entry: typeof transcriptHistory[0]) => {
-    const newHistory = [...transcriptHistory];
-    newHistory[index] = entry;
-    setTranscriptHistory(newHistory);
-    localStorage.setItem('transcript_history', JSON.stringify(newHistory));
+  // Save to cloud history
+  const saveToHistory = async (text: string, engineUsed: string) => {
+    await saveTranscript(text, engineUsed);
   };
 
   // Helper: invoke edge function with real upload progress via XHR and multipart form
