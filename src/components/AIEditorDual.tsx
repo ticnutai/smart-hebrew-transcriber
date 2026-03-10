@@ -14,7 +14,7 @@ interface AIEditorDualProps {
   onTextChange: (text: string, source: string, customPrompt?: string) => void;
 }
 
-type AIModel = 'gemini-flash' | 'gemini-pro';
+type AIModel = 'gemini-flash' | 'gemini-pro' | 'gemini-flash-lite' | 'gpt-5' | 'gpt-5-mini' | 'gpt-5-nano';
 type EditAction = 'improve' | 'sources' | 'readable' | 'summarize' | 'translate' | 'custom';
 
 export const AIEditorDual = ({ text, onTextChange }: AIEditorDualProps) => {
