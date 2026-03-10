@@ -137,22 +137,22 @@ const DevToolsPanel = () => {
 
       const executionTime = Date.now() - startTime;
 
-      if (error) throw error;
+      const rpcResult = data as Record<string, unknown> | null;
 
       const result = {
-        status: data?.success ? "success" : "error",
-        result: data?.success
-          ? JSON.stringify(data, null, 2)
+        status: rpcResult?.success ? "success" : "error",
+        result: rpcResult?.success
+          ? JSON.stringify(rpcResult, null, 2)
           : "",
-        error: data?.success ? undefined : data?.error,
-        executionTime: data?.duration_ms ?? executionTime,
+        error: rpcResult?.success ? undefined : String(rpcResult?.error || ""),
+        executionTime: Number(rpcResult?.duration_ms ?? executionTime),
       };
 
       setActiveResult(result);
-      if (data?.success) {
+      if (rpcResult?.success) {
         toast.success(mode === "debug" ? "ניתוח הושלם" : "מיגרציה הורצה בהצלחה");
       } else {
-        toast.error(data?.error || "שגיאה בהרצה");
+        toast.error(String(rpcResult?.error || "שגיאה בהרצה"));
       }
 
       await loadLogs();
