@@ -83,14 +83,31 @@ const Index = () => {
       xhr.setRequestHeader('Authorization', `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`);
       xhr.setRequestHeader('x-client-info', 'xhr-upload');
 
+      // Upload progress = 0-50%
       xhr.upload.onprogress = (e) => {
         if (e.lengthComputable) {
-          const percent = Math.round((e.loaded / e.total) * 100);
+          const percent = Math.round((e.loaded / e.total) * 50);
           onProgress(percent);
         }
       };
 
+      // Once upload is done, animate processing progress 50-90%
+      let processingInterval: ReturnType<typeof setInterval> | null = null;
+      xhr.upload.onloadend = () => {
+        onProgress(50);
+        let current = 50;
+        processingInterval = setInterval(() => {
+          current = Math.min(current + 2, 90);
+          onProgress(current);
+          if (current >= 90 && processingInterval) {
+            clearInterval(processingInterval);
+          }
+        }, 500);
+      };
+
       xhr.onload = () => {
+        if (processingInterval) clearInterval(processingInterval);
+        onProgress(100);
         try {
           const json = JSON.parse(xhr.responseText || '{}');
           if (xhr.status >= 200 && xhr.status < 300) {
@@ -107,6 +124,7 @@ const Index = () => {
       };
 
       xhr.onerror = () => {
+        if (processingInterval) clearInterval(processingInterval);
         resolve({ error: { message: 'Network error' } });
       };
 
