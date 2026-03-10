@@ -285,12 +285,15 @@ const TextEditor = () => {
               onLineHeightChange={setLineHeight}
             />
             {versions.length >= 2 ? (
-              <TextComparisonMulti 
+              <AdvancedDiffView 
                 versions={versions}
                 fontSize={fontSize}
                 fontFamily={fontFamily}
                 textColor={textColor}
                 lineHeight={lineHeight}
+                onApplyVersion={(newText) => {
+                  setText(newText);
+                }}
               />
             ) : (
               <div className="text-center py-12 text-muted-foreground">
