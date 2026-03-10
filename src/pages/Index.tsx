@@ -564,15 +564,17 @@ const Index = () => {
           </Collapsible>
         )}
 
-        <TranscriptHistory
-          history={transcriptHistory}
+        <CloudTranscriptHistory
+          transcripts={transcripts}
+          isCloud={isCloud}
+          isLoading={isCloudLoading}
           onSelect={(text) => setTranscript(text)}
-          onClear={() => {
-            setTranscriptHistory([]);
-            localStorage.removeItem('transcript_history');
+          onClearAll={() => {
+            deleteAll();
             toast({ title: "ההיסטוריה נמחקה" });
           }}
-          onUpdateEntry={updateHistoryEntry}
+          onDelete={deleteTranscript}
+          onUpdate={(id, updates) => updateTranscript(id, updates)}
         />
 
         {transcript && (
