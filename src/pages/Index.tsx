@@ -95,6 +95,9 @@ const Index = () => {
           const json = JSON.parse(xhr.responseText || '{}');
           if (xhr.status >= 200 && xhr.status < 300) {
             resolve({ data: json });
+          } else if (xhr.status === 429) {
+            const retryAfter = parseInt(xhr.getResponseHeader('Retry-After') || '60', 10);
+            resolve({ error: { message: `RATE_LIMIT`, retryAfter } });
           } else {
             resolve({ error: json || { message: `HTTP ${xhr.status}` } });
           }

@@ -65,22 +65,39 @@ export function BatchUploader({ onTranscribeFile, onSaveTranscript, engineName, 
 
     setFiles((prev) => prev.map((f, idx) => idx === index ? { ...f, status: "processing", progress: 0, error: undefined } : f));
 
-    try {
-      const text = await onTranscribeFile(batch.file, (p) => {
-        setFiles((prev) => prev.map((f, idx) => idx === index ? { ...f, progress: p } : f));
-      });
+    // Retry up to 3 times for rate limits
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (abortRef.current) return false;
+      try {
+        const text = await onTranscribeFile(batch.file, (p) => {
+          setFiles((prev) => prev.map((f, idx) => idx === index ? { ...f, progress: p } : f));
+        });
 
-      const title = batch.file.name.replace(/\.[^/.]+$/, "");
-      await onSaveTranscript(text, engineName, title);
+        const title = batch.file.name.replace(/\.[^/.]+$/, "");
+        await onSaveTranscript(text, engineName, title);
 
-      setFiles((prev) => prev.map((f, idx) => idx === index ? { ...f, status: "done", progress: 100 } : f));
-      return true;
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : "שגיאה לא ידועה";
-      setFiles((prev) => prev.map((f, idx) => idx === index ? { ...f, status: "error", error: errorMsg } : f));
-      return false;
+        setFiles((prev) => prev.map((f, idx) => idx === index ? { ...f, status: "done", progress: 100 } : f));
+        return true;
+      } catch (err: any) {
+        const msg = err?.message || '';
+        const retryAfter = err?.retryAfter || 60;
+        
+        if (msg === 'RATE_LIMIT' && attempt < 2) {
+          // Wait and retry
+          setFiles((prev) => prev.map((f, idx) => idx === index 
+            ? { ...f, error: `ממתין ${retryAfter}ש' (rate limit)...`, progress: 0 } 
+            : f));
+          await new Promise(r => setTimeout(r, retryAfter * 1000));
+          continue;
+        }
+
+        const errorMsg = err instanceof Error ? err.message : "שגיאה לא ידועה";
+        setFiles((prev) => prev.map((f, idx) => idx === index ? { ...f, status: "error", error: errorMsg } : f));
+        return false;
+      }
     }
   };
+
 
   const startProcessing = async () => {
     if (isRunning || files.length === 0) return;
