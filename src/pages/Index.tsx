@@ -558,7 +558,11 @@ const Index = () => {
     if (engine === 'openai' || engine === 'groq') form.append('targetLanguage', 'he');
 
     const { data, error } = await xhrInvoke(engineMap[engine], form, onProgress);
-    if (error) throw error;
+    if (error) {
+      const err = new Error(error.message || error.error || 'שגיאה בתמלול');
+      (err as any).retryAfter = error.retryAfter;
+      throw err;
+    }
     if (!data?.text) throw new Error('No transcription received');
     return data.text;
   };
