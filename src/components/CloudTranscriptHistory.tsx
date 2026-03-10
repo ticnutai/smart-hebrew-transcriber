@@ -250,7 +250,7 @@ export const CloudTranscriptHistory = ({
                 <div className="flex items-start gap-2 mb-3">
                   <FileText className="w-4 h-4 mt-1 flex-shrink-0 text-muted-foreground" />
                   <p className="text-sm line-clamp-2 text-right flex-1 text-muted-foreground">
-                    {entry.text.substring(0, 200)}...
+                    {highlightText(entry.text, searchQuery)}
                   </p>
                 </div>
 
