@@ -128,17 +128,31 @@ const DevToolsPanel = () => {
     mode === "debug" ? setIsDebugging(true) : setIsRunning(true);
 
     try {
-      const { data, error } = await supabase.functions.invoke("run-migration", {
-        body: { sql: sqlContent, mode },
-      });
+      const sqlToRun = mode === "debug"
+        ? `EXPLAIN (ANALYZE, COSTS, VERBOSE, BUFFERS, FORMAT JSON) ${sqlContent}`
+        : sqlContent;
+
+      const startTime = Date.now();
+      const { data, error } = await supabase.rpc("exec_sql", { query: sqlToRun });
+
+      const executionTime = Date.now() - startTime;
 
       if (error) throw error;
 
-      setActiveResult(data);
-      if (data.status === "success") {
+      const result = {
+        status: data?.success ? "success" : "error",
+        result: data?.success
+          ? JSON.stringify(data, null, 2)
+          : "",
+        error: data?.success ? undefined : data?.error,
+        executionTime: data?.duration_ms ?? executionTime,
+      };
+
+      setActiveResult(result);
+      if (data?.success) {
         toast.success(mode === "debug" ? "ניתוח הושלם" : "מיגרציה הורצה בהצלחה");
       } else {
-        toast.error("שגיאה בהרצה");
+        toast.error(data?.error || "שגיאה בהרצה");
       }
 
       await loadLogs();
