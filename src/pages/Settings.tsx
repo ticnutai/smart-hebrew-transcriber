@@ -6,11 +6,13 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Settings as SettingsIcon, ArrowRight, LogOut, Eye, EyeOff } from "lucide-react";
+import { Settings as SettingsIcon, ArrowRight, LogOut, Eye, EyeOff, Wrench } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import DevToolsPanel from "@/components/DevToolsPanel";
 
 const Settings = () => {
-  const { isAuthenticated, logout, isLoading } = useAuth();
+  const { isAuthenticated, logout, isLoading, isAdmin } = useAuth();
+  const [showDevTools, setShowDevTools] = useState(false);
   const navigate = useNavigate();
   const [openaiKey, setOpenaiKey] = useState("");
   const [googleKey, setGoogleKey] = useState("");
@@ -145,11 +147,40 @@ const Settings = () => {
             <ArrowRight className="ml-2 h-4 w-4" />
             חזרה
           </Button>
-          <Button variant="outline" onClick={handleLogout}>
-            <LogOut className="ml-2 h-4 w-4" />
-            התנתק
-          </Button>
+          <div className="flex items-center gap-2">
+            {isAdmin && (
+              <Button
+                variant={showDevTools ? "default" : "outline"}
+                onClick={() => setShowDevTools(!showDevTools)}
+                className="gap-2"
+              >
+                <Wrench className="h-4 w-4" />
+                כלי פיתוח
+              </Button>
+            )}
+            <Button variant="outline" onClick={handleLogout}>
+              <LogOut className="ml-2 h-4 w-4" />
+              התנתק
+            </Button>
+          </div>
         </div>
+
+        {showDevTools && isAdmin && (
+          <Card className="mb-6">
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Wrench className="w-6 h-6 text-accent" />
+                <CardTitle className="text-2xl">כלי פיתוח</CardTitle>
+              </div>
+              <CardDescription>
+                הרצת מיגרציות, דיבאג ולוגים מתקדמים
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <DevToolsPanel />
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader>
