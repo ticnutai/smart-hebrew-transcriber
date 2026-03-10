@@ -244,6 +244,10 @@ export const AIEditorDual = ({ text, onTextChange }: AIEditorDualProps) => {
               <SelectContent dir="rtl">
                 <SelectItem value="gemini-flash">Gemini Flash</SelectItem>
                 <SelectItem value="gemini-pro">Gemini Pro</SelectItem>
+                <SelectItem value="gemini-flash-lite">Gemini Flash Lite</SelectItem>
+                <SelectItem value="gpt-5">GPT-5</SelectItem>
+                <SelectItem value="gpt-5-mini">GPT-5 Mini</SelectItem>
+                <SelectItem value="gpt-5-nano">GPT-5 Nano</SelectItem>
               </SelectContent>
             </Select>
           </div>
