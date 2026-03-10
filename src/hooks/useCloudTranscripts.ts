@@ -12,6 +12,8 @@ export interface CloudTranscript {
   notes: string;
   title: string;
   folder: string;
+  category: string;
+  is_favorite: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -111,7 +113,7 @@ export const useCloudTranscripts = () => {
 
   const updateTranscript = useCallback(async (
     id: string,
-    updates: Partial<Pick<CloudTranscript, 'text' | 'tags' | 'notes' | 'title' | 'folder'>>
+    updates: Partial<Pick<CloudTranscript, 'text' | 'tags' | 'notes' | 'title' | 'folder' | 'category' | 'is_favorite'>>
   ) => {
     try {
       const { error } = await supabase

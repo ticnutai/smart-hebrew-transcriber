@@ -79,10 +79,12 @@ export type Database = {
       }
       transcripts: {
         Row: {
+          category: string | null
           created_at: string
           engine: string
           folder: string | null
           id: string
+          is_favorite: boolean | null
           notes: string | null
           tags: string[] | null
           text: string
@@ -91,10 +93,12 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          category?: string | null
           created_at?: string
           engine?: string
           folder?: string | null
           id?: string
+          is_favorite?: boolean | null
           notes?: string | null
           tags?: string[] | null
           text: string
@@ -103,10 +107,12 @@ export type Database = {
           user_id: string
         }
         Update: {
+          category?: string | null
           created_at?: string
           engine?: string
           folder?: string | null
           id?: string
+          is_favorite?: boolean | null
           notes?: string | null
           tags?: string[] | null
           text?: string
