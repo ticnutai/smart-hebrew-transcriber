@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { FolderUp, Files, Play, X, CheckCircle, AlertCircle, Loader2, Upload } from "lucide-react";
+import { FolderUp, Files, Play, X, CheckCircle, AlertCircle, Loader2, Upload, RotateCcw } from "lucide-react";
 import { TranscriptionJob } from "@/hooks/useTranscriptionJobs";
 
 interface BatchUploaderProps {
