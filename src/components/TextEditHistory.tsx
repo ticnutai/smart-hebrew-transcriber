@@ -9,7 +9,7 @@ export interface TextVersion {
   id: string;
   text: string;
   timestamp: Date;
-  source: 'original' | 'manual' | 'ai-improve' | 'ai-sources' | 'ai-readable' | 'ai-custom';
+  source: 'original' | 'manual' | 'ai-improve' | 'ai-sources' | 'ai-readable' | 'ai-custom' | 'ai-fix';
   customPrompt?: string;
 }
 
