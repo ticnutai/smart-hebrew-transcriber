@@ -196,7 +196,7 @@ export function BatchUploader({ onTranscribeFile, onSaveTranscript, engineName, 
               <div key={i} className="flex items-center gap-2 p-2 rounded-md bg-muted/50 text-sm">
                 {bf.status === "pending" && <Badge variant="secondary" className="shrink-0">ממתין</Badge>}
                 {bf.status === "processing" && <Loader2 className="w-4 h-4 animate-spin text-primary shrink-0" />}
-                {bf.status === "done" && <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />}
+                {bf.status === "done" && <CheckCircle className="w-4 h-4 text-primary shrink-0" />}
                 {bf.status === "error" && <AlertCircle className="w-4 h-4 text-destructive shrink-0" />}
 
                 <span className="truncate flex-1" title={bf.file.name}>{bf.file.name}</span>
