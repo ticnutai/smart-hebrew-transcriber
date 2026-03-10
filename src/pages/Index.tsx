@@ -18,6 +18,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useLocalTranscription } from "@/hooks/useLocalTranscription";
 import { useCloudTranscripts } from "@/hooks/useCloudTranscripts";
 import { Settings, FileEdit, ChevronDown } from "lucide-react";
+import { BatchUploader } from "@/components/BatchUploader";
 
 type Engine = 'openai' | 'groq' | 'google' | 'local' | 'assemblyai' | 'deepgram';
 type SourceLanguage = 'auto' | 'he' | 'yi' | 'en';
@@ -495,6 +496,69 @@ const Index = () => {
   const isLoading = isUploading || isLocalLoading;
   const progress = engine === 'local' ? localProgress : (isUploading ? uploadProgress : undefined);
 
+  // Batch transcription wrapper - transcribes a single file and returns text
+  const batchTranscribeFile = async (file: File, onProgress: (p: number) => void): Promise<string> => {
+    if (file.size > 25 * 1024 * 1024) throw new Error("הקובץ גדול מדי (מקסימום 25MB)");
+
+    const getKey = (name: string) => {
+      const key = localStorage.getItem(name);
+      if (!key) throw new Error(`נדרש מפתח API - הגדר בהגדרות`);
+      return key;
+    };
+
+    const engineMap: Record<string, string> = {
+      openai: 'transcribe-openai',
+      groq: 'transcribe-groq',
+      assemblyai: 'transcribe-assemblyai',
+      deepgram: 'transcribe-deepgram',
+    };
+
+    if (engine === 'local') {
+      return await localTranscribe(file);
+    }
+
+    if (engine === 'google') {
+      const googleKey = getKey('google_api_key');
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const b64 = reader.result?.toString().split(',')[1];
+          b64 ? resolve(b64) : reject(new Error('Failed to convert'));
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const { data, error } = await supabase.functions.invoke('transcribe-google', {
+        body: { audio: base64, fileName: file.name, apiKey: googleKey, language: sourceLanguage, targetLanguage: 'he' }
+      });
+      if (error) throw error;
+      if (!data?.text) throw new Error('No transcription received');
+      return data.text;
+    }
+
+    // OpenAI, Groq, AssemblyAI, Deepgram
+    const keyMap: Record<string, string> = {
+      openai: 'openai_api_key', groq: 'groq_api_key',
+      assemblyai: 'assemblyai_api_key', deepgram: 'deepgram_api_key',
+    };
+    const apiKey = getKey(keyMap[engine]);
+    const form = new FormData();
+    form.append('file', file, file.name);
+    form.append('fileName', file.name);
+    form.append('apiKey', apiKey);
+    form.append('language', sourceLanguage);
+    if (engine === 'openai' || engine === 'groq') form.append('targetLanguage', 'he');
+
+    const { data, error } = await xhrInvoke(engineMap[engine], form, onProgress);
+    if (error) throw error;
+    if (!data?.text) throw new Error('No transcription received');
+    return data.text;
+  };
+
+  const batchSaveTranscript = async (text: string, engineUsed: string, title: string) => {
+    await saveTranscript(text, engineUsed);
+  };
+
   return (
     <div className="min-h-screen bg-background p-4 md:p-8" dir="rtl">
       <div className="max-w-6xl mx-auto space-y-6">
@@ -560,7 +624,13 @@ const Index = () => {
           }}
         />
 
-        {/* Local Model Manager - shown only when local engine selected */}
+        {/* Batch Upload */}
+        <BatchUploader
+          onTranscribeFile={batchTranscribeFile}
+          onSaveTranscript={batchSaveTranscript}
+          engineName={engine}
+          isDisabled={isLoading}
+        />
         {engine === 'local' && (
           <Collapsible>
             <CollapsibleTrigger asChild>
