@@ -18,6 +18,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useLocalTranscription } from "@/hooks/useLocalTranscription";
 import { useCloudTranscripts } from "@/hooks/useCloudTranscripts";
 import { Settings, FileEdit, ChevronDown } from "lucide-react";
+import { BatchUploader } from "@/components/BatchUploader";
 
 type Engine = 'openai' | 'groq' | 'google' | 'local' | 'assemblyai' | 'deepgram';
 type SourceLanguage = 'auto' | 'he' | 'yi' | 'en';

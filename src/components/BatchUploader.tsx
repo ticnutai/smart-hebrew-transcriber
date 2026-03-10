@@ -229,7 +229,7 @@ export function BatchUploader({ onTranscribeFile, onSaveTranscript, engineName, 
         {/* Summary */}
         {summary && (
           <div className="p-3 rounded-md bg-muted text-sm flex items-center gap-3">
-            <CheckCircle className="w-5 h-5 text-green-600" />
+            <CheckCircle className="w-5 h-5 text-primary" />
             <span>
               הושלם: {summary.done} הצליחו
               {summary.errors > 0 && <>, <span className="text-destructive">{summary.errors} נכשלו</span></>}
