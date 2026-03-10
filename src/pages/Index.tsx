@@ -43,7 +43,7 @@ const Index = () => {
 
   const { transcribe: localTranscribe, isLoading: isLocalLoading, progress: localProgress } = useLocalTranscription();
   const { transcripts, isLoading: isCloudLoading, saveTranscript, updateTranscript, deleteTranscript, deleteAll, isCloud } = useCloudTranscripts();
-  const { jobs, submitJob, retryJob, deleteJob } = useTranscriptionJobs();
+  const { jobs, submitJob, submitBatchJobs, retryJob, deleteJob } = useTranscriptionJobs();
 
   // Load formatting settings from localStorage
   useEffect(() => {
@@ -698,10 +698,11 @@ const Index = () => {
 
         {/* Batch Upload */}
         <BatchUploader
-          onTranscribeFile={batchTranscribeFile}
+          onSubmitBatch={(files) => submitBatchJobs(files, engine, sourceLanguage)}
           onSaveTranscript={batchSaveTranscript}
-          engineName={engine}
+          jobs={jobs}
           isDisabled={isLoading}
+          isAuthenticated={isAuthenticated}
         />
         {engine === 'local' && (
           <Collapsible>

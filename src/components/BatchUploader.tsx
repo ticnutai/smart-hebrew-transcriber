@@ -1,25 +1,17 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { FolderUp, Files, Play, X, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
-
-type FileStatus = "pending" | "processing" | "done" | "error";
-
-interface BatchFile {
-  file: File;
-  status: FileStatus;
-  progress: number;
-  error?: string;
-}
+import { FolderUp, Files, Play, X, CheckCircle, AlertCircle, Loader2, Upload } from "lucide-react";
+import { TranscriptionJob } from "@/hooks/useTranscriptionJobs";
 
 interface BatchUploaderProps {
-  onTranscribeFile: (file: File, onProgress: (p: number) => void) => Promise<string>;
+  onSubmitBatch: (files: File[]) => Promise<string[]>;
   onSaveTranscript: (text: string, engine: string, title: string) => Promise<void>;
-  engineName: string;
+  jobs: TranscriptionJob[];
   isDisabled?: boolean;
-  concurrency?: number;
+  isAuthenticated?: boolean;
 }
 
 function isAudioOrVideo(file: File): boolean {
@@ -28,11 +20,11 @@ function isAudioOrVideo(file: File): boolean {
   return ["mp3", "wav", "m4a", "ogg", "flac", "aac", "wma", "opus", "mp4", "webm", "avi", "mov", "mkv", "wmv"].includes(ext);
 }
 
-export function BatchUploader({ onTranscribeFile, onSaveTranscript, engineName, isDisabled, concurrency = 3 }: BatchUploaderProps) {
-  const [files, setFiles] = useState<BatchFile[]>([]);
-  const [isRunning, setIsRunning] = useState(false);
-  const [summary, setSummary] = useState<{ done: number; errors: number } | null>(null);
-  const abortRef = useRef(false);
+export function BatchUploader({ onSubmitBatch, onSaveTranscript, jobs, isDisabled, isAuthenticated }: BatchUploaderProps) {
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [submittedJobIds, setSubmittedJobIds] = useState<Set<string>>(new Set());
+  const [savedJobIds, setSavedJobIds] = useState<Set<string>>(new Set());
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const filesInputRef = useRef<HTMLInputElement>(null);
 
@@ -40,106 +32,73 @@ export function BatchUploader({ onTranscribeFile, onSaveTranscript, engineName, 
     if (!fileList) return;
     const audioFiles = Array.from(fileList).filter(isAudioOrVideo);
     if (audioFiles.length === 0) return;
-    setFiles((prev) => [
-      ...prev,
-      ...audioFiles.map((f) => ({ file: f, status: "pending" as FileStatus, progress: 0 })),
-    ]);
-    setSummary(null);
+    setPendingFiles((prev) => [...prev, ...audioFiles]);
   }, []);
 
   const removeFile = (index: number) => {
-    setFiles((prev) => prev.filter((_, i) => i !== index));
+    setPendingFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const clearAll = () => {
-    if (isRunning) return;
-    setFiles([]);
-    setSummary(null);
+  const clearPending = () => {
+    if (isSubmitting) return;
+    setPendingFiles([]);
   };
-
-  const processFile = async (index: number): Promise<boolean> => {
-    if (abortRef.current) return false;
-
-    const batch = files[index];
-    if (!batch || batch.status === "done") return true;
-
-    setFiles((prev) => prev.map((f, idx) => idx === index ? { ...f, status: "processing", progress: 0, error: undefined } : f));
-
-    // Retry up to 3 times for rate limits
-    for (let attempt = 0; attempt < 3; attempt++) {
-      if (abortRef.current) return false;
-      try {
-        const text = await onTranscribeFile(batch.file, (p) => {
-          setFiles((prev) => prev.map((f, idx) => idx === index ? { ...f, progress: p } : f));
-        });
-
-        const title = batch.file.name.replace(/\.[^/.]+$/, "");
-        await onSaveTranscript(text, engineName, title);
-
-        setFiles((prev) => prev.map((f, idx) => idx === index ? { ...f, status: "done", progress: 100 } : f));
-        return true;
-      } catch (err: any) {
-        const msg = err?.message || '';
-        const retryAfter = err?.retryAfter || 60;
-        
-        if (msg === 'RATE_LIMIT' && attempt < 2) {
-          // Wait and retry
-          setFiles((prev) => prev.map((f, idx) => idx === index 
-            ? { ...f, error: `ממתין ${retryAfter}ש' (rate limit)...`, progress: 0 } 
-            : f));
-          await new Promise(r => setTimeout(r, retryAfter * 1000));
-          continue;
-        }
-
-        const errorMsg = err instanceof Error ? err.message : "שגיאה לא ידועה";
-        setFiles((prev) => prev.map((f, idx) => idx === index ? { ...f, status: "error", error: errorMsg } : f));
-        return false;
-      }
-    }
-  };
-
 
   const startProcessing = async () => {
-    if (isRunning || files.length === 0) return;
-    setIsRunning(true);
-    abortRef.current = false;
-    setSummary(null);
+    if (isSubmitting || pendingFiles.length === 0) return;
+    setIsSubmitting(true);
 
-    // Build list of indices to process
-    const indices = files.map((f, i) => ({ i, status: f.status }))
-      .filter(x => x.status !== "done")
-      .map(x => x.i);
+    const ids = await onSubmitBatch(pendingFiles);
+    setSubmittedJobIds((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => next.add(id));
+      return next;
+    });
 
-    let done = files.filter(f => f.status === "done").length;
-    let errors = 0;
-    let nextIdx = 0;
+    setPendingFiles([]);
+    setIsSubmitting(false);
+  };
 
-    async function worker() {
-      while (nextIdx < indices.length && !abortRef.current) {
-        const idx = indices[nextIdx++];
-        const success = await processFile(idx);
-        if (success) done++;
-        else errors++;
+  // Auto-save completed jobs
+  const batchJobs = jobs.filter((j) => submittedJobIds.has(j.id));
+
+  // Auto-save completed jobs as transcripts
+  useEffect(() => {
+    batchJobs.forEach((job) => {
+      if (job.status === 'completed' && job.result_text && !savedJobIds.has(job.id)) {
+        setSavedJobIds((prev) => {
+          const next = new Set(prev);
+          next.add(job.id);
+          return next;
+        });
+        const title = job.file_name?.replace(/\.[^/.]+$/, "") || "תמלול";
+        onSaveTranscript(job.result_text, job.engine, title);
       }
-    }
+    });
+  }, [batchJobs, savedJobIds, onSaveTranscript]);
 
-    const workers = Array.from(
-      { length: Math.min(concurrency, indices.length) },
-      () => worker()
+  const completedCount = batchJobs.filter((j) => j.status === "completed").length;
+  const failedCount = batchJobs.filter((j) => j.status === "failed").length;
+  const totalBatch = batchJobs.length;
+  const overallProgress = totalBatch > 0
+    ? Math.round(batchJobs.reduce((sum, j) => sum + (j.progress || 0), 0) / totalBatch)
+    : 0;
+
+  if (!isAuthenticated) {
+    return (
+      <Card dir="rtl">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Files className="w-5 h-5" />
+            העלאה מרובה / תיקיה
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">יש להתחבר כדי להשתמש בהעלאה מרובה עם מעקב התקדמות אמיתי</p>
+        </CardContent>
+      </Card>
     );
-    await Promise.all(workers);
-
-    setSummary({ done, errors });
-    setIsRunning(false);
-  };
-
-  const stopProcessing = () => {
-    abortRef.current = true;
-  };
-
-  const pendingCount = files.filter((f) => f.status === "pending").length;
-  const doneCount = files.filter((f) => f.status === "done").length;
-  const totalProgress = files.length > 0 ? Math.round((doneCount / files.length) * 100) : 0;
+  }
 
   return (
     <Card dir="rtl">
@@ -147,10 +106,11 @@ export function BatchUploader({ onTranscribeFile, onSaveTranscript, engineName, 
         <CardTitle className="text-lg flex items-center gap-2">
           <Files className="w-5 h-5" />
           העלאה מרובה / תיקיה
-          <Badge variant="outline" className="text-xs">עד {concurrency} במקביל</Badge>
+          <Badge variant="outline" className="text-xs">מעקב אמיתי מהשרת</Badge>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* File selection buttons */}
         <div className="flex gap-2 flex-wrap">
           <input
             ref={folderInputRef}
@@ -169,87 +129,104 @@ export function BatchUploader({ onTranscribeFile, onSaveTranscript, engineName, 
             accept="audio/*,video/*,.mp3,.wav,.m4a,.ogg,.flac,.aac,.mp4,.webm,.avi,.mov"
             onChange={(e) => addFiles(e.target.files)}
           />
-          <Button variant="outline" onClick={() => folderInputRef.current?.click()} disabled={isRunning || isDisabled}>
+          <Button variant="outline" onClick={() => folderInputRef.current?.click()} disabled={isSubmitting || isDisabled}>
             <FolderUp className="w-4 h-4 ml-2" />
             העלה תיקיה
           </Button>
-          <Button variant="outline" onClick={() => filesInputRef.current?.click()} disabled={isRunning || isDisabled}>
+          <Button variant="outline" onClick={() => filesInputRef.current?.click()} disabled={isSubmitting || isDisabled}>
             <Files className="w-4 h-4 ml-2" />
             בחר קבצים
           </Button>
 
-          {files.length > 0 && !isRunning && (
+          {pendingFiles.length > 0 && !isSubmitting && (
             <>
-              <Button onClick={startProcessing} disabled={pendingCount === 0 && doneCount === files.length}>
+              <Button onClick={startProcessing}>
                 <Play className="w-4 h-4 ml-2" />
-                התחל תמלול ({pendingCount > 0 ? pendingCount : files.length - doneCount})
+                שלח לתמלול ({pendingFiles.length})
               </Button>
-              <Button variant="ghost" size="sm" onClick={clearAll}>
+              <Button variant="ghost" size="sm" onClick={clearPending}>
                 נקה הכל
               </Button>
             </>
           )}
 
-          {isRunning && (
-            <Button variant="destructive" onClick={stopProcessing}>
-              <X className="w-4 h-4 ml-2" />
-              עצור
+          {isSubmitting && (
+            <Button disabled>
+              <Loader2 className="w-4 h-4 ml-2 animate-spin" />
+              מעלה...
             </Button>
           )}
         </div>
 
-        {files.length > 0 && (
-          <div className="space-y-1">
-            <div className="flex justify-between text-sm text-muted-foreground">
-              <span>{doneCount} / {files.length} הושלמו</span>
-              <span>{totalProgress}%</span>
-            </div>
-            <Progress value={totalProgress} />
+        {/* Pending files list */}
+        {pendingFiles.length > 0 && (
+          <div className="max-h-40 overflow-y-auto space-y-1">
+            {pendingFiles.map((f, i) => (
+              <div key={i} className="flex items-center gap-2 p-2 rounded-md bg-muted/50 text-sm">
+                <Upload className="w-4 h-4 text-muted-foreground shrink-0" />
+                <span className="truncate flex-1" title={f.name}>{f.name}</span>
+                <span className="text-xs text-muted-foreground shrink-0">
+                  {(f.size / 1024 / 1024).toFixed(1)}MB
+                </span>
+                <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => removeFile(i)}>
+                  <X className="w-3 h-3" />
+                </Button>
+              </div>
+            ))}
           </div>
         )}
 
-        {files.length > 0 && (
-          <div className="max-h-64 overflow-y-auto space-y-2">
-            {files.map((bf, i) => (
-              <div key={i} className="flex items-center gap-2 p-2 rounded-md bg-muted/50 text-sm">
-                {bf.status === "pending" && <Badge variant="secondary" className="shrink-0">ממתין</Badge>}
-                {bf.status === "processing" && <Loader2 className="w-4 h-4 animate-spin text-primary shrink-0" />}
-                {bf.status === "done" && <CheckCircle className="w-4 h-4 text-primary shrink-0" />}
-                {bf.status === "error" && <AlertCircle className="w-4 h-4 text-destructive shrink-0" />}
+        {/* Overall progress for batch */}
+        {totalBatch > 0 && (
+          <div className="space-y-1">
+            <div className="flex justify-between text-sm text-muted-foreground">
+              <span>{completedCount} / {totalBatch} הושלמו</span>
+              <span>{overallProgress}%</span>
+            </div>
+            <Progress value={overallProgress} />
+          </div>
+        )}
 
-                <span className="truncate flex-1" title={bf.file.name}>{bf.file.name}</span>
-                <span className="text-xs text-muted-foreground shrink-0">
-                  {(bf.file.size / 1024 / 1024).toFixed(1)}MB
+        {/* Active batch jobs */}
+        {totalBatch > 0 && (
+          <div className="max-h-64 overflow-y-auto space-y-2">
+            {batchJobs.map((job) => (
+              <div key={job.id} className="flex items-center gap-2 p-2 rounded-md bg-muted/50 text-sm">
+                {job.status === "pending" && <Badge variant="secondary" className="shrink-0">ממתין</Badge>}
+                {job.status === "uploading" && <Loader2 className="w-4 h-4 animate-spin text-accent shrink-0" />}
+                {job.status === "processing" && <Loader2 className="w-4 h-4 animate-spin text-primary shrink-0" />}
+                {job.status === "completed" && <CheckCircle className="w-4 h-4 text-primary shrink-0" />}
+                {job.status === "failed" && <AlertCircle className="w-4 h-4 text-destructive shrink-0" />}
+
+                <span className="truncate flex-1" title={job.file_name || ''}>{job.file_name || 'קובץ'}</span>
+
+                <span className="text-xs font-medium text-muted-foreground shrink-0">
+                  {job.progress || 0}%
                 </span>
 
-                {bf.status === "processing" && (
-                  <div className="w-16">
-                    <Progress value={bf.progress} className="h-2" />
+                {(job.status === "processing" || job.status === "uploading") && (
+                  <div className="w-20">
+                    <Progress value={job.progress || 0} className="h-2" />
                   </div>
                 )}
 
-                {bf.status === "error" && (
-                  <span className="text-xs text-destructive truncate max-w-[120px]" title={bf.error}>
-                    {bf.error}
+                {job.status === "failed" && (
+                  <span className="text-xs text-destructive truncate max-w-[120px]" title={job.error_message || ''}>
+                    {job.error_message}
                   </span>
-                )}
-
-                {!isRunning && bf.status !== "processing" && (
-                  <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => removeFile(i)}>
-                    <X className="w-3 h-3" />
-                  </Button>
                 )}
               </div>
             ))}
           </div>
         )}
 
-        {summary && (
+        {/* Summary */}
+        {totalBatch > 0 && completedCount + failedCount === totalBatch && (
           <div className="p-3 rounded-md bg-muted text-sm flex items-center gap-3">
             <CheckCircle className="w-5 h-5 text-primary" />
             <span>
-              הושלם: {summary.done} הצליחו
-              {summary.errors > 0 && <>, <span className="text-destructive">{summary.errors} נכשלו</span></>}
+              הושלם: {completedCount} הצליחו
+              {failedCount > 0 && <>, <span className="text-destructive">{failedCount} נכשלו</span></>}
             </span>
           </div>
         )}
