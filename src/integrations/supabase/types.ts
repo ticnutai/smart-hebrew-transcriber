@@ -79,6 +79,7 @@ export type Database = {
       }
       transcription_jobs: {
         Row: {
+          completed_chunks: number | null
           created_at: string
           engine: string
           error_message: string | null
@@ -86,13 +87,16 @@ export type Database = {
           file_path: string | null
           id: string
           language: string | null
+          partial_result: string | null
           progress: number | null
           result_text: string | null
           status: string
+          total_chunks: number | null
           updated_at: string
           user_id: string
         }
         Insert: {
+          completed_chunks?: number | null
           created_at?: string
           engine?: string
           error_message?: string | null
@@ -100,13 +104,16 @@ export type Database = {
           file_path?: string | null
           id?: string
           language?: string | null
+          partial_result?: string | null
           progress?: number | null
           result_text?: string | null
           status?: string
+          total_chunks?: number | null
           updated_at?: string
           user_id: string
         }
         Update: {
+          completed_chunks?: number | null
           created_at?: string
           engine?: string
           error_message?: string | null
@@ -114,9 +121,11 @@ export type Database = {
           file_path?: string | null
           id?: string
           language?: string | null
+          partial_result?: string | null
           progress?: number | null
           result_text?: string | null
           status?: string
+          total_chunks?: number | null
           updated_at?: string
           user_id?: string
         }
