@@ -96,7 +96,7 @@ export const AIEditorDual = ({ text, onTextChange }: AIEditorDualProps) => {
         setResult(data.text);
         toast({
           title: "הצלחה",
-          description: `עריכה עם ${model === 'gemini-pro' ? 'Gemini Pro' : 'Gemini Flash'} הושלמה`,
+          description: `עריכה עם ${modelDisplayName(model)} הושלמה`,
         });
       }
     } catch (error) {
