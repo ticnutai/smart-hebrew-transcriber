@@ -4,7 +4,7 @@ import { TranscriptionEngine } from "@/components/TranscriptionEngine";
 import { FileUploader } from "@/components/FileUploader";
 import { AudioRecorder } from "@/components/AudioRecorder";
 import { TranscriptEditor } from "@/components/TranscriptEditor";
-import { TranscriptHistory } from "@/components/TranscriptHistory";
+import { CloudTranscriptHistory } from "@/components/CloudTranscriptHistory";
 import { TranscriptSummary } from "@/components/TranscriptSummary";
 import { ShareTranscript } from "@/components/ShareTranscript";
 import { TextStyleControl } from "@/components/TextStyleControl";
@@ -15,6 +15,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useLocalTranscription } from "@/hooks/useLocalTranscription";
+import { useCloudTranscripts } from "@/hooks/useCloudTranscripts";
 import { Settings, FileEdit, ChevronDown } from "lucide-react";
 
 type Engine = 'openai' | 'groq' | 'google' | 'local' | 'assemblyai' | 'deepgram';
