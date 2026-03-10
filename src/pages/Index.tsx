@@ -28,6 +28,7 @@ type SourceLanguage = 'auto' | 'he' | 'yi' | 'en';
 
 const Index = () => {
   const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
   const [engine, setEngine] = useState<Engine>('groq');
   const [sourceLanguage, setSourceLanguage] = useState<SourceLanguage>('auto');
   const [transcript, setTranscript] = useState('');
