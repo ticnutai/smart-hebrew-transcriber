@@ -10,7 +10,7 @@ import { Settings as SettingsIcon, ArrowRight, LogOut, Eye, EyeOff } from "lucid
 import { supabase } from "@/integrations/supabase/client";
 
 const Settings = () => {
-  const { isAuthenticated, logout } = useAuth();
+  const { isAuthenticated, logout, isLoading } = useAuth();
   const navigate = useNavigate();
   const [openaiKey, setOpenaiKey] = useState("");
   const [googleKey, setGoogleKey] = useState("");
