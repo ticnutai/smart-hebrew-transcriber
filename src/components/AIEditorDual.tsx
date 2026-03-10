@@ -144,12 +144,15 @@ export const AIEditorDual = ({ text, onTextChange }: AIEditorDualProps) => {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent dir="rtl">
-                <SelectItem value="gemini-flash">Gemini Flash</SelectItem>
-                <SelectItem value="gemini-pro">Gemini Pro</SelectItem>
+                <SelectItem value="gemini-flash">Gemini 2.5 Flash</SelectItem>
+                <SelectItem value="gemini-pro">Gemini 2.5 Pro</SelectItem>
                 <SelectItem value="gemini-flash-lite">Gemini Flash Lite</SelectItem>
+                <SelectItem value="gemini-3-flash">Gemini 3 Flash</SelectItem>
+                <SelectItem value="gemini-3.1-pro">Gemini 3.1 Pro</SelectItem>
                 <SelectItem value="gpt-5">GPT-5</SelectItem>
                 <SelectItem value="gpt-5-mini">GPT-5 Mini</SelectItem>
                 <SelectItem value="gpt-5-nano">GPT-5 Nano</SelectItem>
+                <SelectItem value="gpt-5.2">GPT-5.2</SelectItem>
               </SelectContent>
             </Select>
           </div>
