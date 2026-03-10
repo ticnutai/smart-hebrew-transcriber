@@ -6,8 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Settings as SettingsIcon, ArrowRight, LogOut, Eye, EyeOff } from "lucide-react";
+import { Settings as SettingsIcon, ArrowRight, LogOut, Eye, EyeOff, Wrench } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import DevToolsPanel from "@/components/DevToolsPanel";
 
 const Settings = () => {
   const { isAuthenticated, logout, isLoading } = useAuth();
