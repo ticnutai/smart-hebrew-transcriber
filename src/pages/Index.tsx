@@ -698,10 +698,11 @@ const Index = () => {
 
         {/* Batch Upload */}
         <BatchUploader
-          onTranscribeFile={batchTranscribeFile}
+          onSubmitBatch={(files) => submitBatchJobs(files, engine, sourceLanguage)}
           onSaveTranscript={batchSaveTranscript}
-          engineName={engine}
+          jobs={jobs}
           isDisabled={isLoading}
+          isAuthenticated={isAuthenticated}
         />
         {engine === 'local' && (
           <Collapsible>
