@@ -4,7 +4,7 @@ import { TranscriptionEngine } from "@/components/TranscriptionEngine";
 import { FileUploader } from "@/components/FileUploader";
 import { AudioRecorder } from "@/components/AudioRecorder";
 import { TranscriptEditor } from "@/components/TranscriptEditor";
-import { TranscriptHistory } from "@/components/TranscriptHistory";
+import { CloudTranscriptHistory } from "@/components/CloudTranscriptHistory";
 import { TranscriptSummary } from "@/components/TranscriptSummary";
 import { ShareTranscript } from "@/components/ShareTranscript";
 import { TextStyleControl } from "@/components/TextStyleControl";
@@ -15,6 +15,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useLocalTranscription } from "@/hooks/useLocalTranscription";
+import { useCloudTranscripts } from "@/hooks/useCloudTranscripts";
 import { Settings, FileEdit, ChevronDown } from "lucide-react";
 
 type Engine = 'openai' | 'groq' | 'google' | 'local' | 'assemblyai' | 'deepgram';
@@ -27,7 +28,6 @@ const Index = () => {
   const [transcript, setTranscript] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [transcriptHistory, setTranscriptHistory] = useState<Array<{text: string, timestamp: number, engine: string, tags?: string[], notes?: string}>>([]);
   
   // Formatting settings
   const [fontSize, setFontSize] = useState(16);
@@ -36,18 +36,10 @@ const Index = () => {
   const [lineHeight, setLineHeight] = useState(1.6);
 
   const { transcribe: localTranscribe, isLoading: isLocalLoading, progress: localProgress } = useLocalTranscription();
+  const { transcripts, isLoading: isCloudLoading, saveTranscript, updateTranscript, deleteTranscript, deleteAll, isCloud } = useCloudTranscripts();
 
-  // Load history and settings from localStorage
+  // Load formatting settings from localStorage
   useEffect(() => {
-    const saved = localStorage.getItem('transcript_history');
-    if (saved) {
-      try {
-        setTranscriptHistory(JSON.parse(saved));
-      } catch (e) {
-        console.error('Failed to load history:', e);
-      }
-    }
-
     const savedFontSize = localStorage.getItem('transcript_fontSize');
     const savedFontFamily = localStorage.getItem('transcript_fontFamily');
     const savedTextColor = localStorage.getItem('transcript_textColor');
@@ -70,20 +62,9 @@ const Index = () => {
     localStorage.setItem('transcript_sourceLanguage', sourceLanguage);
   }, [fontSize, fontFamily, textColor, lineHeight, sourceLanguage]);
 
-  // Save to history
-  const saveToHistory = (text: string, engineUsed: string) => {
-    const newEntry = { text, timestamp: Date.now(), engine: engineUsed, tags: [], notes: '' };
-    const newHistory = [newEntry, ...transcriptHistory].slice(0, 50); // Keep last 50
-    setTranscriptHistory(newHistory);
-    localStorage.setItem('transcript_history', JSON.stringify(newHistory));
-  };
-
-  // Update history entry
-  const updateHistoryEntry = (index: number, entry: typeof transcriptHistory[0]) => {
-    const newHistory = [...transcriptHistory];
-    newHistory[index] = entry;
-    setTranscriptHistory(newHistory);
-    localStorage.setItem('transcript_history', JSON.stringify(newHistory));
+  // Save to cloud history
+  const saveToHistory = async (text: string, engineUsed: string) => {
+    await saveTranscript(text, engineUsed);
   };
 
   // Helper: invoke edge function with real upload progress via XHR and multipart form
@@ -583,15 +564,17 @@ const Index = () => {
           </Collapsible>
         )}
 
-        <TranscriptHistory
-          history={transcriptHistory}
+        <CloudTranscriptHistory
+          transcripts={transcripts}
+          isCloud={isCloud}
+          isLoading={isCloudLoading}
           onSelect={(text) => setTranscript(text)}
-          onClear={() => {
-            setTranscriptHistory([]);
-            localStorage.removeItem('transcript_history');
+          onClearAll={() => {
+            deleteAll();
             toast({ title: "ההיסטוריה נמחקה" });
           }}
-          onUpdateEntry={updateHistoryEntry}
+          onDelete={deleteTranscript}
+          onUpdate={(id, updates) => updateTranscript(id, updates)}
         />
 
         {transcript && (
