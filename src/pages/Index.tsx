@@ -19,12 +19,16 @@ import { useLocalTranscription } from "@/hooks/useLocalTranscription";
 import { useCloudTranscripts } from "@/hooks/useCloudTranscripts";
 import { Settings, FileEdit, ChevronDown } from "lucide-react";
 import { BatchUploader } from "@/components/BatchUploader";
+import { BackgroundJobsPanel } from "@/components/BackgroundJobsPanel";
+import { useTranscriptionJobs } from "@/hooks/useTranscriptionJobs";
+import { useAuth } from "@/contexts/AuthContext";
 
 type Engine = 'openai' | 'groq' | 'google' | 'local' | 'assemblyai' | 'deepgram';
 type SourceLanguage = 'auto' | 'he' | 'yi' | 'en';
 
 const Index = () => {
   const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
   const [engine, setEngine] = useState<Engine>('groq');
   const [sourceLanguage, setSourceLanguage] = useState<SourceLanguage>('auto');
   const [transcript, setTranscript] = useState('');
@@ -39,6 +43,7 @@ const Index = () => {
 
   const { transcribe: localTranscribe, isLoading: isLocalLoading, progress: localProgress } = useLocalTranscription();
   const { transcripts, isLoading: isCloudLoading, saveTranscript, updateTranscript, deleteTranscript, deleteAll, isCloud } = useCloudTranscripts();
+  const { jobs, submitJob, retryJob, deleteJob } = useTranscriptionJobs();
 
   // Load formatting settings from localStorage
   useEffect(() => {
@@ -613,6 +618,48 @@ const Index = () => {
             isTranscribing={isLoading}
           />
         </div>
+
+        {/* Background transcription option for authenticated users */}
+        {isAuthenticated && (
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs"
+              onClick={() => {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = 'audio/*,video/*,.mp3,.wav,.webm,.m4a,.ogg,.mp4';
+                input.onchange = async (e) => {
+                  const file = (e.target as HTMLInputElement).files?.[0];
+                  if (!file) return;
+                  if (file.size > 50 * 1024 * 1024) {
+                    toast({ title: "הקובץ גדול מדי", description: "מקסימום 50MB לתמלול ברקע", variant: "destructive" });
+                    return;
+                  }
+                  await submitJob(file, engine, sourceLanguage);
+                };
+                input.click();
+              }}
+            >
+              🔄 תמלול ברקע (ימשיך גם אם תעזוב)
+            </Button>
+            <span className="text-xs text-muted-foreground">הקובץ יעלה לשרת ויתומלל גם בלי שהעמוד פתוח</span>
+          </div>
+        )}
+
+        {/* Background Jobs Panel */}
+        {isAuthenticated && jobs.length > 0 && (
+          <BackgroundJobsPanel
+            jobs={jobs}
+            onRetry={retryJob}
+            onDelete={deleteJob}
+            onUseResult={(text, eng) => {
+              setTranscript(text);
+              saveToHistory(text, eng);
+            }}
+          />
+        )}
 
         {/* Live Transcription */}
         <LiveTranscriber
