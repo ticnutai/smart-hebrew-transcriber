@@ -77,6 +77,45 @@ export type Database = {
         }
         Relationships: []
       }
+      transcripts: {
+        Row: {
+          created_at: string
+          engine: string
+          folder: string | null
+          id: string
+          notes: string | null
+          tags: string[] | null
+          text: string
+          title: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          engine?: string
+          folder?: string | null
+          id?: string
+          notes?: string | null
+          tags?: string[] | null
+          text: string
+          title?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          engine?: string
+          folder?: string | null
+          id?: string
+          notes?: string | null
+          tags?: string[] | null
+          text?: string
+          title?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_api_keys: {
         Row: {
           assemblyai_key: string | null
