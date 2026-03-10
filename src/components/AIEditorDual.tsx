@@ -15,6 +15,7 @@ interface AIEditorDualProps {
 }
 
 type AIModel = 'gemini-flash' | 'gemini-pro' | 'gemini-flash-lite' | 'gemini-3-flash' | 'gemini-3.1-pro' | 'gpt-5' | 'gpt-5-mini' | 'gpt-5-nano' | 'gpt-5.2';
+type EditAction = 'improve' | 'sources' | 'readable' | 'summarize' | 'translate' | 'custom';
 
 const modelToApiId = (model: AIModel): string => {
   const map: Record<AIModel, string> = {
