@@ -180,24 +180,7 @@ export const TranscriptEditor = ({ transcript, onTranscriptChange }: TranscriptE
             <Copy className="w-4 h-4 ml-2" />
             העתק
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleDownload}
-            disabled={!transcript.trim() || isEditing}
-          >
-            <Download className="w-4 h-4 ml-2" />
-            TXT
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleExportJSON}
-            disabled={!transcript.trim() || isEditing}
-          >
-            <Download className="w-4 h-4 ml-2" />
-            JSON
-          </Button>
+          <ExportButton text={transcript} disabled={isEditing} />
         </div>
       </div>
 
