@@ -87,15 +87,7 @@ const Settings = () => {
 
   const handleSave = async () => {
     try {
-      // Save to localStorage
-      if (openaiKey) localStorage.setItem("openai_api_key", openaiKey);
-      if (googleKey) localStorage.setItem("google_api_key", googleKey);
-      if (groqKey) localStorage.setItem("groq_api_key", groqKey);
-      if (claudeKey) localStorage.setItem("claude_api_key", claudeKey);
-      if (assemblyaiKey) localStorage.setItem("assemblyai_api_key", assemblyaiKey);
-      if (deepgramKey) localStorage.setItem("deepgram_api_key", deepgramKey);
-
-      // Save to cloud
+      // Save to cloud (tied to user ID)
       const { error } = await supabase
         .from('user_api_keys')
         .upsert({
@@ -116,7 +108,15 @@ const Settings = () => {
         return;
       }
 
-      toast.success("המפתחות נשמרו בהצלחה בענן ובמכשיר!");
+      // Also save locally for quick access
+      if (openaiKey) localStorage.setItem("openai_api_key", openaiKey);
+      if (googleKey) localStorage.setItem("google_api_key", googleKey);
+      if (groqKey) localStorage.setItem("groq_api_key", groqKey);
+      if (claudeKey) localStorage.setItem("claude_api_key", claudeKey);
+      if (assemblyaiKey) localStorage.setItem("assemblyai_api_key", assemblyaiKey);
+      if (deepgramKey) localStorage.setItem("deepgram_api_key", deepgramKey);
+
+      toast.success("המפתחות נשמרו בהצלחה בענן! ☁️");
     } catch (error) {
       console.error("Error saving keys:", error);
       toast.error("שגיאה בשמירת המפתחות");
