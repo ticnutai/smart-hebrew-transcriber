@@ -7,7 +7,6 @@ import { Wand2, BookOpen, FileText, Copy, Loader2, Upload, Settings2 } from "luc
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { ExportButton } from "@/components/ExportButton";
-import { supabase } from "@/integrations/supabase/client";
 import {
   Dialog,
   DialogContent,
