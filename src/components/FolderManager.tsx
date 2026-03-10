@@ -156,10 +156,46 @@ export const FolderManager = ({ transcripts, onUpdate, onDelete }: FolderManager
     onUpdate(id, { tags: existingTags.filter(t => t !== tagToRemove) });
   };
 
+  const [isExportingZip, setIsExportingZip] = useState(false);
+
   const formatDate = (dateStr: string) =>
     new Date(dateStr).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
   const getCategoryLabel = (val: string) => CATEGORIES.find(c => c.value === val)?.label || val;
+
+  const handleExportFolderZip = async (folderName: string | null) => {
+    const items = folderName === null
+      ? filteredTranscripts
+      : transcripts.filter(t => (t.folder || '') === folderName);
+    if (items.length === 0) {
+      toast({ title: "אין תמלולים לייצוא", variant: "destructive" });
+      return;
+    }
+    setIsExportingZip(true);
+    try {
+      const zip = new JSZip();
+      const label = folderName || "כל_התמלולים";
+      const folder = zip.folder(label)!;
+      items.forEach((t, i) => {
+        const name = (t.title || `תמלול_${i + 1}`).replace(/[/\\:*?"<>|]/g, '_');
+        let content = `כותרת: ${t.title || '(ללא)'}\n`;
+        content += `מנוע: ${t.engine}\n`;
+        content += `תאריך: ${new Date(t.created_at).toLocaleString('he-IL')}\n`;
+        if (t.category) content += `קטגוריה: ${getCategoryLabel(t.category)}\n`;
+        if (t.tags?.length) content += `תגיות: ${t.tags.join(', ')}\n`;
+        if (t.notes) content += `הערות: ${t.notes}\n`;
+        content += `\n---\n\n${t.text}`;
+        folder.file(`${name}.txt`, content);
+      });
+      const blob = await zip.generateAsync({ type: "blob" });
+      saveAs(blob, `${label}.zip`);
+      toast({ title: `יוצאו ${items.length} תמלולים בהצלחה` });
+    } catch {
+      toast({ title: "שגיאה בייצוא", variant: "destructive" });
+    } finally {
+      setIsExportingZip(false);
+    }
+  };
 
   return (
     <Card dir="rtl">
