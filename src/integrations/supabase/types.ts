@@ -14,6 +14,42 @@ export type Database = {
   }
   public: {
     Tables: {
+      migration_logs: {
+        Row: {
+          created_at: string
+          error_message: string | null
+          execution_time_ms: number | null
+          file_name: string | null
+          id: string
+          result: string | null
+          sql_content: string
+          status: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          error_message?: string | null
+          execution_time_ms?: number | null
+          file_name?: string | null
+          id?: string
+          result?: string | null
+          sql_content: string
+          status?: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          error_message?: string | null
+          execution_time_ms?: number | null
+          file_name?: string | null
+          id?: string
+          result?: string | null
+          sql_content?: string
+          status?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null
