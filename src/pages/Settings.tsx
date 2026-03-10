@@ -147,11 +147,22 @@ const Settings = () => {
             <ArrowRight className="ml-2 h-4 w-4" />
             חזרה
           </Button>
-          <Button variant="outline" onClick={handleLogout}>
-            <LogOut className="ml-2 h-4 w-4" />
-            התנתק
-          </Button>
-        </div>
+          <div className="flex items-center gap-2">
+            {isAdmin && (
+              <Button
+                variant={showDevTools ? "default" : "outline"}
+                onClick={() => setShowDevTools(!showDevTools)}
+                className="gap-2"
+              >
+                <Wrench className="h-4 w-4" />
+                כלי פיתוח
+              </Button>
+            )}
+            <Button variant="outline" onClick={handleLogout}>
+              <LogOut className="ml-2 h-4 w-4" />
+              התנתק
+            </Button>
+          </div>
 
         <Card>
           <CardHeader>
