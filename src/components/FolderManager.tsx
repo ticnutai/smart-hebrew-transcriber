@@ -15,8 +15,12 @@ import {
 import {
   FolderOpen, FolderPlus, FileText, Search, Edit, Trash2,
   Star, StarOff, Tag, Grid3X3, List, ArrowUpDown, X, Check,
-  StickyNote, Briefcase, GraduationCap, Users, MessageSquare, MoreHorizontal
+  StickyNote, Briefcase, GraduationCap, Users, MessageSquare, MoreHorizontal,
+  Download, Loader2
 } from "lucide-react";
+import JSZip from "jszip";
+import { saveAs } from "file-saver";
+import { toast } from "@/hooks/use-toast";
 import type { CloudTranscript } from "@/hooks/useCloudTranscripts";
 
 const CATEGORIES = [
@@ -152,10 +156,46 @@ export const FolderManager = ({ transcripts, onUpdate, onDelete }: FolderManager
     onUpdate(id, { tags: existingTags.filter(t => t !== tagToRemove) });
   };
 
+  const [isExportingZip, setIsExportingZip] = useState(false);
+
   const formatDate = (dateStr: string) =>
     new Date(dateStr).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
   const getCategoryLabel = (val: string) => CATEGORIES.find(c => c.value === val)?.label || val;
+
+  const handleExportFolderZip = async (folderName: string | null) => {
+    const items = folderName === null
+      ? filteredTranscripts
+      : transcripts.filter(t => (t.folder || '') === folderName);
+    if (items.length === 0) {
+      toast({ title: "אין תמלולים לייצוא", variant: "destructive" });
+      return;
+    }
+    setIsExportingZip(true);
+    try {
+      const zip = new JSZip();
+      const label = folderName || "כל_התמלולים";
+      const folder = zip.folder(label)!;
+      items.forEach((t, i) => {
+        const name = (t.title || `תמלול_${i + 1}`).replace(/[/\\:*?"<>|]/g, '_');
+        let content = `כותרת: ${t.title || '(ללא)'}\n`;
+        content += `מנוע: ${t.engine}\n`;
+        content += `תאריך: ${new Date(t.created_at).toLocaleString('he-IL')}\n`;
+        if (t.category) content += `קטגוריה: ${getCategoryLabel(t.category)}\n`;
+        if (t.tags?.length) content += `תגיות: ${t.tags.join(', ')}\n`;
+        if (t.notes) content += `הערות: ${t.notes}\n`;
+        content += `\n---\n\n${t.text}`;
+        folder.file(`${name}.txt`, content);
+      });
+      const blob = await zip.generateAsync({ type: "blob" });
+      saveAs(blob, `${label}.zip`);
+      toast({ title: `יוצאו ${items.length} תמלולים בהצלחה` });
+    } catch {
+      toast({ title: "שגיאה בייצוא", variant: "destructive" });
+    } finally {
+      setIsExportingZip(false);
+    }
+  };
 
   return (
     <Card dir="rtl">
@@ -192,6 +232,10 @@ export const FolderManager = ({ transcripts, onUpdate, onDelete }: FolderManager
             )}
             <Button variant="ghost" size="icon" onClick={() => setViewMode(v => v === 'list' ? 'grid' : 'list')}>
               {viewMode === 'list' ? <Grid3X3 className="w-4 h-4" /> : <List className="w-4 h-4" />}
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => handleExportFolderZip(selectedFolder)} disabled={isExportingZip}>
+              {isExportingZip ? <Loader2 className="w-4 h-4 ml-1 animate-spin" /> : <Download className="w-4 h-4 ml-1" />}
+              ייצוא ZIP
             </Button>
             <Button variant="outline" size="sm" onClick={() => setShowNewFolder(true)}>
               <FolderPlus className="w-4 h-4 ml-1" />תיקיה חדשה
