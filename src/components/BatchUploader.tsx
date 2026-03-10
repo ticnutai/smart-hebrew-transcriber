@@ -191,7 +191,7 @@ export function BatchUploader({ onSubmitBatch, onSaveTranscript, jobs, isDisable
             {batchJobs.map((job) => (
               <div key={job.id} className="flex items-center gap-2 p-2 rounded-md bg-muted/50 text-sm">
                 {job.status === "pending" && <Badge variant="secondary" className="shrink-0">ממתין</Badge>}
-                {job.status === "uploading" && <Loader2 className="w-4 h-4 animate-spin text-yellow-500 shrink-0" />}
+                {job.status === "uploading" && <Loader2 className="w-4 h-4 animate-spin text-accent shrink-0" />}
                 {job.status === "processing" && <Loader2 className="w-4 h-4 animate-spin text-primary shrink-0" />}
                 {job.status === "completed" && <CheckCircle className="w-4 h-4 text-primary shrink-0" />}
                 {job.status === "failed" && <AlertCircle className="w-4 h-4 text-destructive shrink-0" />}

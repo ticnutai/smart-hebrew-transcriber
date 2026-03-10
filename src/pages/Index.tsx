@@ -43,7 +43,7 @@ const Index = () => {
 
   const { transcribe: localTranscribe, isLoading: isLocalLoading, progress: localProgress } = useLocalTranscription();
   const { transcripts, isLoading: isCloudLoading, saveTranscript, updateTranscript, deleteTranscript, deleteAll, isCloud } = useCloudTranscripts();
-  const { jobs, submitJob, retryJob, deleteJob } = useTranscriptionJobs();
+  const { jobs, submitJob, submitBatchJobs, retryJob, deleteJob } = useTranscriptionJobs();
 
   // Load formatting settings from localStorage
   useEffect(() => {
