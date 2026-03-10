@@ -15,8 +15,12 @@ import {
 import {
   FolderOpen, FolderPlus, FileText, Search, Edit, Trash2,
   Star, StarOff, Tag, Grid3X3, List, ArrowUpDown, X, Check,
-  StickyNote, Briefcase, GraduationCap, Users, MessageSquare, MoreHorizontal
+  StickyNote, Briefcase, GraduationCap, Users, MessageSquare, MoreHorizontal,
+  Download, Loader2
 } from "lucide-react";
+import JSZip from "jszip";
+import { saveAs } from "file-saver";
+import { toast } from "@/hooks/use-toast";
 import type { CloudTranscript } from "@/hooks/useCloudTranscripts";
 
 const CATEGORIES = [
