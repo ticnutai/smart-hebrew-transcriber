@@ -90,7 +90,8 @@ export const TextComparisonMulti = ({
       'ai-improve': 'AI - שיפור ניסוח',
       'ai-sources': 'AI - מקורות',
       'ai-readable': 'AI - זורם',
-      'ai-custom': 'AI - מותאם'
+      'ai-custom': 'AI - מותאם',
+      'ai-fix': 'AI - תיקון',
     };
     return sourceLabels[version.source];
   };

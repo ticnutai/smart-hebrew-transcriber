@@ -9,7 +9,7 @@ export interface TextVersion {
   id: string;
   text: string;
   timestamp: Date;
-  source: 'original' | 'manual' | 'ai-improve' | 'ai-sources' | 'ai-readable' | 'ai-custom';
+  source: 'original' | 'manual' | 'ai-improve' | 'ai-sources' | 'ai-readable' | 'ai-custom' | 'ai-fix';
   customPrompt?: string;
 }
 
@@ -25,7 +25,8 @@ const sourceLabels: Record<TextVersion['source'], string> = {
   'ai-improve': 'AI - שיפור ניסוח',
   'ai-sources': 'AI - הוספת מקורות',
   'ai-readable': 'AI - זורם לקריאה',
-  'ai-custom': 'AI - פרומפט מותאם'
+  'ai-custom': 'AI - פרומפט מותאם',
+  'ai-fix': 'AI - תיקון ועיבוד',
 };
 
 export const TextEditHistory = ({ versions, onSelectVersion, selectedVersionId }: TextEditHistoryProps) => {

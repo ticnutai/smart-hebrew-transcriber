@@ -7,7 +7,9 @@ import { AIEditorDual } from "@/components/AIEditorDual";
 import { TextComparisonMulti } from "@/components/TextComparisonMulti";
 import { TextStyleControl } from "@/components/TextStyleControl";
 import { TextEditHistory, TextVersion } from "@/components/TextEditHistory";
-import { ArrowRight, Home } from "lucide-react";
+import { ArrowRight, Home, Wand2, SplitSquareVertical, SpellCheck, Loader2 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "@/hooks/use-toast";
 
 const TextEditor = () => {
   const navigate = useNavigate();
@@ -105,6 +107,36 @@ const TextEditor = () => {
     localStorage.setItem('editor_lineHeight', String(lineHeight));
   }, [fontSize, fontFamily, textColor, lineHeight]);
 
+  const [aiAction, setAiAction] = useState<string | null>(null);
+
+  const handleAiQuickAction = async (action: 'fix_errors' | 'split_paragraphs' | 'fix_and_split') => {
+    if (!text.trim()) {
+      toast({ title: "אין טקסט לעיבוד", variant: "destructive" });
+      return;
+    }
+    setAiAction(action);
+    try {
+      const { data, error } = await supabase.functions.invoke('edit-transcript', {
+        body: { text, action }
+      });
+      if (error) throw error;
+      if (!data?.text) throw new Error('לא התקבלה תשובה מ-AI');
+      
+      const labels: Record<string, string> = {
+        fix_errors: 'תיקון שגיאות',
+        split_paragraphs: 'חלוקה לפסקאות',
+        fix_and_split: 'תיקון + חלוקה',
+      };
+      addVersion(data.text, 'ai-fix', labels[action]);
+      toast({ title: `${labels[action]} הושלם ✅` });
+    } catch (err) {
+      console.error('AI action error:', err);
+      toast({ title: "שגיאה בעיבוד AI", description: err instanceof Error ? err.message : 'שגיאה', variant: "destructive" });
+    } finally {
+      setAiAction(null);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background p-4 md:p-8" dir="rtl">
       <div className="max-w-7xl mx-auto space-y-6">
@@ -127,6 +159,40 @@ const TextEditor = () => {
             <Home className="h-4 w-4" />
           </Button>
         </div>
+
+        {/* AI Quick Actions */}
+        {text.trim() && (
+          <div className="flex gap-2 flex-wrap p-3 rounded-lg border bg-muted/30">
+            <span className="text-sm text-muted-foreground self-center ml-2">פעולות מהירות:</span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleAiQuickAction('fix_errors')}
+              disabled={!!aiAction}
+            >
+              {aiAction === 'fix_errors' ? <Loader2 className="w-4 h-4 ml-1 animate-spin" /> : <SpellCheck className="w-4 h-4 ml-1" />}
+              תקן שגיאות
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleAiQuickAction('split_paragraphs')}
+              disabled={!!aiAction}
+            >
+              {aiAction === 'split_paragraphs' ? <Loader2 className="w-4 h-4 ml-1 animate-spin" /> : <SplitSquareVertical className="w-4 h-4 ml-1" />}
+              חלק לפסקאות
+            </Button>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => handleAiQuickAction('fix_and_split')}
+              disabled={!!aiAction}
+            >
+              {aiAction === 'fix_and_split' ? <Loader2 className="w-4 h-4 ml-1 animate-spin" /> : <Wand2 className="w-4 h-4 ml-1" />}
+              תקן + חלק לפסקאות
+            </Button>
+          </div>
+        )}
 
         {/* Main Content */}
         <Tabs defaultValue="edit" className="w-full" dir="rtl">
