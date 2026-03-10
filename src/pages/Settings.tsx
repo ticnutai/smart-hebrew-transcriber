@@ -27,6 +27,7 @@ const Settings = () => {
   const [userIdentifier, setUserIdentifier] = useState("");
 
   useEffect(() => {
+    if (isLoading) return;
     if (!isAuthenticated) {
       navigate("/login");
       return;
