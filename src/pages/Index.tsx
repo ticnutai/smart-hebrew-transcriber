@@ -124,6 +124,7 @@ const Index = () => {
       };
 
       xhr.onerror = () => {
+        if (processingInterval) clearInterval(processingInterval);
         resolve({ error: { message: 'Network error' } });
       };
 
