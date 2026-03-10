@@ -233,6 +233,10 @@ export const FolderManager = ({ transcripts, onUpdate, onDelete }: FolderManager
             <Button variant="ghost" size="icon" onClick={() => setViewMode(v => v === 'list' ? 'grid' : 'list')}>
               {viewMode === 'list' ? <Grid3X3 className="w-4 h-4" /> : <List className="w-4 h-4" />}
             </Button>
+            <Button variant="outline" size="sm" onClick={() => handleExportFolderZip(selectedFolder)} disabled={isExportingZip}>
+              {isExportingZip ? <Loader2 className="w-4 h-4 ml-1 animate-spin" /> : <Download className="w-4 h-4 ml-1" />}
+              ייצוא ZIP
+            </Button>
             <Button variant="outline" size="sm" onClick={() => setShowNewFolder(true)}>
               <FolderPlus className="w-4 h-4 ml-1" />תיקיה חדשה
             </Button>
