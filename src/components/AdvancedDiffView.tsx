@@ -284,9 +284,5 @@ export const AdvancedDiffView = ({
       )}
     </div>
   );
-
-  function getLabel(v: TextVersion) {
-    const base = sourceLabels[v.source];
-    return v.customPrompt ? `${base} (${v.customPrompt})` : base;
-  }
 };
+
