@@ -1,39 +1,76 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import type { User, Session } from "@supabase/supabase-js";
 
 interface AuthContextType {
   isAuthenticated: boolean;
-  login: (code: string) => boolean;
-  logout: () => void;
+  user: User | null;
+  session: Session | null;
+  isAdmin: boolean;
+  isLoading: boolean;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    const auth = localStorage.getItem("admin_auth");
-    if (auth === "authenticated") {
-      setIsAuthenticated(true);
-    }
-  }, []);
-
-  const login = (code: string) => {
-    if (code === "1984") {
-      setIsAuthenticated(true);
-      localStorage.setItem("admin_auth", "authenticated");
-      return true;
-    }
-    return false;
+  const checkAdmin = async (userId: string) => {
+    const { data } = await supabase
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", userId)
+      .eq("role", "admin")
+      .maybeSingle();
+    setIsAdmin(!!data);
   };
 
-  const logout = () => {
-    setIsAuthenticated(false);
-    localStorage.removeItem("admin_auth");
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (_event, session) => {
+        setSession(session);
+        setUser(session?.user ?? null);
+        if (session?.user) {
+          setTimeout(() => checkAdmin(session.user.id), 0);
+        } else {
+          setIsAdmin(false);
+        }
+        setIsLoading(false);
+      }
+    );
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        checkAdmin(session.user.id);
+      }
+      setIsLoading(false);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const logout = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+    setSession(null);
+    setIsAdmin(false);
   };
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, login, logout }}>
+    <AuthContext.Provider value={{
+      isAuthenticated: !!session,
+      user,
+      session,
+      isAdmin,
+      isLoading,
+      logout,
+    }}>
       {children}
     </AuthContext.Provider>
   );
