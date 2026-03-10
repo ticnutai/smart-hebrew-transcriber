@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { FolderUp, Files, Play, X, CheckCircle, AlertCircle, Loader2, RotateCcw } from "lucide-react";
+import { FolderUp, Files, Play, X, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
 
 type FileStatus = "pending" | "processing" | "done" | "error";
 
@@ -19,13 +19,8 @@ interface BatchUploaderProps {
   onSaveTranscript: (text: string, engine: string, title: string) => Promise<void>;
   engineName: string;
   isDisabled?: boolean;
+  concurrency?: number;
 }
-
-const AUDIO_VIDEO_TYPES = [
-  "audio/", "video/",
-  ".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac", ".wma", ".opus",
-  ".mp4", ".webm", ".avi", ".mov", ".mkv", ".wmv",
-];
 
 function isAudioOrVideo(file: File): boolean {
   if (file.type.startsWith("audio/") || file.type.startsWith("video/")) return true;
@@ -33,7 +28,7 @@ function isAudioOrVideo(file: File): boolean {
   return ["mp3", "wav", "m4a", "ogg", "flac", "aac", "wma", "opus", "mp4", "webm", "avi", "mov", "mkv", "wmv"].includes(ext);
 }
 
-export function BatchUploader({ onTranscribeFile, onSaveTranscript, engineName, isDisabled }: BatchUploaderProps) {
+export function BatchUploader({ onTranscribeFile, onSaveTranscript, engineName, isDisabled, concurrency = 3 }: BatchUploaderProps) {
   const [files, setFiles] = useState<BatchFile[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [summary, setSummary] = useState<{ done: number; errors: number } | null>(null);
@@ -62,44 +57,60 @@ export function BatchUploader({ onTranscribeFile, onSaveTranscript, engineName, 
     setSummary(null);
   };
 
+  const processFile = async (index: number): Promise<boolean> => {
+    if (abortRef.current) return false;
+
+    const batch = files[index];
+    if (!batch || batch.status === "done") return true;
+
+    setFiles((prev) => prev.map((f, idx) => idx === index ? { ...f, status: "processing", progress: 0, error: undefined } : f));
+
+    try {
+      const text = await onTranscribeFile(batch.file, (p) => {
+        setFiles((prev) => prev.map((f, idx) => idx === index ? { ...f, progress: p } : f));
+      });
+
+      const title = batch.file.name.replace(/\.[^/.]+$/, "");
+      await onSaveTranscript(text, engineName, title);
+
+      setFiles((prev) => prev.map((f, idx) => idx === index ? { ...f, status: "done", progress: 100 } : f));
+      return true;
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "שגיאה לא ידועה";
+      setFiles((prev) => prev.map((f, idx) => idx === index ? { ...f, status: "error", error: errorMsg } : f));
+      return false;
+    }
+  };
+
   const startProcessing = async () => {
     if (isRunning || files.length === 0) return;
     setIsRunning(true);
     abortRef.current = false;
     setSummary(null);
 
-    let done = 0;
+    // Build list of indices to process
+    const indices = files.map((f, i) => ({ i, status: f.status }))
+      .filter(x => x.status !== "done")
+      .map(x => x.i);
+
+    let done = files.filter(f => f.status === "done").length;
     let errors = 0;
+    let nextIdx = 0;
 
-    for (let i = 0; i < files.length; i++) {
-      if (abortRef.current) break;
-
-      const batch = files[i];
-      if (batch.status === "done") {
-        done++;
-        continue;
-      }
-
-      // Update status to processing
-      setFiles((prev) => prev.map((f, idx) => idx === i ? { ...f, status: "processing", progress: 0, error: undefined } : f));
-
-      try {
-        const text = await onTranscribeFile(batch.file, (p) => {
-          setFiles((prev) => prev.map((f, idx) => idx === i ? { ...f, progress: p } : f));
-        });
-
-        // Save transcript with file name as title
-        const title = batch.file.name.replace(/\.[^/.]+$/, "");
-        await onSaveTranscript(text, engineName, title);
-
-        setFiles((prev) => prev.map((f, idx) => idx === i ? { ...f, status: "done", progress: 100 } : f));
-        done++;
-      } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : "שגיאה לא ידועה";
-        setFiles((prev) => prev.map((f, idx) => idx === i ? { ...f, status: "error", error: errorMsg } : f));
-        errors++;
+    async function worker() {
+      while (nextIdx < indices.length && !abortRef.current) {
+        const idx = indices[nextIdx++];
+        const success = await processFile(idx);
+        if (success) done++;
+        else errors++;
       }
     }
+
+    const workers = Array.from(
+      { length: Math.min(concurrency, indices.length) },
+      () => worker()
+    );
+    await Promise.all(workers);
 
     setSummary({ done, errors });
     setIsRunning(false);
@@ -119,16 +130,16 @@ export function BatchUploader({ onTranscribeFile, onSaveTranscript, engineName, 
         <CardTitle className="text-lg flex items-center gap-2">
           <Files className="w-5 h-5" />
           העלאה מרובה / תיקיה
+          <Badge variant="outline" className="text-xs">עד {concurrency} במקביל</Badge>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Upload buttons */}
         <div className="flex gap-2 flex-wrap">
           <input
             ref={folderInputRef}
             type="file"
             className="hidden"
-            // @ts-ignore - webkitdirectory is non-standard
+            // @ts-ignore
             webkitdirectory=""
             multiple
             onChange={(e) => addFiles(e.target.files)}
@@ -141,19 +152,11 @@ export function BatchUploader({ onTranscribeFile, onSaveTranscript, engineName, 
             accept="audio/*,video/*,.mp3,.wav,.m4a,.ogg,.flac,.aac,.mp4,.webm,.avi,.mov"
             onChange={(e) => addFiles(e.target.files)}
           />
-          <Button
-            variant="outline"
-            onClick={() => folderInputRef.current?.click()}
-            disabled={isRunning || isDisabled}
-          >
+          <Button variant="outline" onClick={() => folderInputRef.current?.click()} disabled={isRunning || isDisabled}>
             <FolderUp className="w-4 h-4 ml-2" />
             העלה תיקיה
           </Button>
-          <Button
-            variant="outline"
-            onClick={() => filesInputRef.current?.click()}
-            disabled={isRunning || isDisabled}
-          >
+          <Button variant="outline" onClick={() => filesInputRef.current?.click()} disabled={isRunning || isDisabled}>
             <Files className="w-4 h-4 ml-2" />
             בחר קבצים
           </Button>
@@ -178,7 +181,6 @@ export function BatchUploader({ onTranscribeFile, onSaveTranscript, engineName, 
           )}
         </div>
 
-        {/* Overall progress */}
         {files.length > 0 && (
           <div className="space-y-1">
             <div className="flex justify-between text-sm text-muted-foreground">
@@ -189,7 +191,6 @@ export function BatchUploader({ onTranscribeFile, onSaveTranscript, engineName, 
           </div>
         )}
 
-        {/* File list */}
         {files.length > 0 && (
           <div className="max-h-64 overflow-y-auto space-y-2">
             {files.map((bf, i) => (
@@ -226,7 +227,6 @@ export function BatchUploader({ onTranscribeFile, onSaveTranscript, engineName, 
           </div>
         )}
 
-        {/* Summary */}
         {summary && (
           <div className="p-3 rounded-md bg-muted text-sm flex items-center gap-3">
             <CheckCircle className="w-5 h-5 text-primary" />
