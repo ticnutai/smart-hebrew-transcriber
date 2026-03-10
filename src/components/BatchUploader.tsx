@@ -62,18 +62,20 @@ export function BatchUploader({ onSubmitBatch, onSaveTranscript, jobs, isDisable
   // Auto-save completed jobs
   const batchJobs = jobs.filter((j) => submittedJobIds.has(j.id));
 
-  // Save completed jobs as transcripts
-  batchJobs.forEach((job) => {
-    if (job.status === 'completed' && job.result_text && !savedJobIds.has(job.id)) {
-      setSavedJobIds((prev) => {
-        const next = new Set(prev);
-        next.add(job.id);
-        return next;
-      });
-      const title = job.file_name?.replace(/\.[^/.]+$/, "") || "תמלול";
-      onSaveTranscript(job.result_text, job.engine, title);
-    }
-  });
+  // Auto-save completed jobs as transcripts
+  useEffect(() => {
+    batchJobs.forEach((job) => {
+      if (job.status === 'completed' && job.result_text && !savedJobIds.has(job.id)) {
+        setSavedJobIds((prev) => {
+          const next = new Set(prev);
+          next.add(job.id);
+          return next;
+        });
+        const title = job.file_name?.replace(/\.[^/.]+$/, "") || "תמלול";
+        onSaveTranscript(job.result_text, job.engine, title);
+      }
+    });
+  }, [batchJobs, savedJobIds, onSaveTranscript]);
 
   const completedCount = batchJobs.filter((j) => j.status === "completed").length;
   const failedCount = batchJobs.filter((j) => j.status === "failed").length;
