@@ -11,7 +11,7 @@ import { supabase } from "@/integrations/supabase/client";
 import DevToolsPanel from "@/components/DevToolsPanel";
 
 const Settings = () => {
-  const { isAuthenticated, logout, isLoading, isAdmin } = useAuth();
+  const { isAuthenticated, logout, isLoading, isAdmin, user } = useAuth();
   const [showDevTools, setShowDevTools] = useState(false);
   const navigate = useNavigate();
   const [openaiKey, setOpenaiKey] = useState("");
