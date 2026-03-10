@@ -198,8 +198,9 @@ const TextEditor = () => {
 
         {/* Main Content */}
         <Tabs defaultValue="edit" className="w-full" dir="rtl">
-          <TabsList className="grid w-full grid-cols-4 mb-6">
+          <TabsList className="grid w-full grid-cols-5 mb-6">
             <TabsTrigger value="edit">עריכת טקסט</TabsTrigger>
+            <TabsTrigger value="templates">תבניות</TabsTrigger>
             <TabsTrigger value="ai">עריכה עם AI</TabsTrigger>
             <TabsTrigger value="compare">השוואה</TabsTrigger>
             <TabsTrigger value="history">היסטוריה</TabsTrigger>
