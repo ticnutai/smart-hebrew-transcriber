@@ -86,7 +86,7 @@ export const AIEditorDual = ({ text, onTextChange }: AIEditorDualProps) => {
           text, 
           action,
           customPrompt: action === 'custom' ? customPrompt : undefined,
-          model: model === 'gemini-pro' ? 'google/gemini-2.5-pro' : 'google/gemini-2.5-flash'
+          model: modelToApiId(model)
         }
       });
 
