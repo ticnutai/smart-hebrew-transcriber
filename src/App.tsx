@@ -20,6 +20,7 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
+          <UserFloatingBadge />
           <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/login" element={<Login />} />
