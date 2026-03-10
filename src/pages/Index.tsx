@@ -700,6 +700,7 @@ const Index = () => {
         <BatchUploader
           onSubmitBatch={(files) => submitBatchJobs(files, engine, sourceLanguage)}
           onSaveTranscript={batchSaveTranscript}
+          onRetryJob={retryJob}
           jobs={jobs}
           isDisabled={isLoading}
           isAuthenticated={isAuthenticated}

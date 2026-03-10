@@ -3,12 +3,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { FolderUp, Files, Play, X, CheckCircle, AlertCircle, Loader2, Upload } from "lucide-react";
+import { FolderUp, Files, Play, X, CheckCircle, AlertCircle, Loader2, Upload, RotateCcw } from "lucide-react";
 import { TranscriptionJob } from "@/hooks/useTranscriptionJobs";
 
 interface BatchUploaderProps {
   onSubmitBatch: (files: File[]) => Promise<string[]>;
   onSaveTranscript: (text: string, engine: string, title: string) => Promise<void>;
+  onRetryJob: (jobId: string) => Promise<void>;
   jobs: TranscriptionJob[];
   isDisabled?: boolean;
   isAuthenticated?: boolean;
@@ -20,7 +21,7 @@ function isAudioOrVideo(file: File): boolean {
   return ["mp3", "wav", "m4a", "ogg", "flac", "aac", "wma", "opus", "mp4", "webm", "avi", "mov", "mkv", "wmv"].includes(ext);
 }
 
-export function BatchUploader({ onSubmitBatch, onSaveTranscript, jobs, isDisabled, isAuthenticated }: BatchUploaderProps) {
+export function BatchUploader({ onSubmitBatch, onSaveTranscript, onRetryJob, jobs, isDisabled, isAuthenticated }: BatchUploaderProps) {
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [submittedJobIds, setSubmittedJobIds] = useState<Set<string>>(new Set());
   const [savedJobIds, setSavedJobIds] = useState<Set<string>>(new Set());
@@ -211,9 +212,20 @@ export function BatchUploader({ onSubmitBatch, onSaveTranscript, jobs, isDisable
                 )}
 
                 {job.status === "failed" && (
-                  <span className="text-xs text-destructive truncate max-w-[120px]" title={job.error_message || ''}>
-                    {job.error_message}
-                  </span>
+                  <>
+                    <span className="text-xs text-destructive truncate max-w-[100px]" title={job.error_message || ''}>
+                      {job.error_message}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 shrink-0"
+                      onClick={() => onRetryJob(job.id)}
+                      title="נסה שוב"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                    </Button>
+                  </>
                 )}
               </div>
             ))}
