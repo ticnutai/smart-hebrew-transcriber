@@ -35,17 +35,14 @@ const Settings = () => {
       return;
     }
 
-    // Get or create user identifier
-    let identifier = localStorage.getItem("user_identifier");
-    if (!identifier) {
-      identifier = crypto.randomUUID();
-      localStorage.setItem("user_identifier", identifier);
-    }
+    // Use authenticated user ID as identifier
+    const identifier = user?.id || "";
+    if (!identifier) return;
     setUserIdentifier(identifier);
 
-    // Load from cloud first, then fallback to localStorage
+    // Load from cloud
     loadKeysFromCloud(identifier);
-  }, [isAuthenticated, isLoading, navigate]);
+  }, [isAuthenticated, isLoading, navigate, user]);
 
   const loadKeysFromCloud = async (identifier: string) => {
     try {
