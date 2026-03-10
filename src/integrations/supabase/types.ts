@@ -77,6 +77,51 @@ export type Database = {
         }
         Relationships: []
       }
+      transcription_jobs: {
+        Row: {
+          created_at: string
+          engine: string
+          error_message: string | null
+          file_name: string | null
+          file_path: string | null
+          id: string
+          language: string | null
+          progress: number | null
+          result_text: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          engine?: string
+          error_message?: string | null
+          file_name?: string | null
+          file_path?: string | null
+          id?: string
+          language?: string | null
+          progress?: number | null
+          result_text?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          engine?: string
+          error_message?: string | null
+          file_name?: string | null
+          file_path?: string | null
+          id?: string
+          language?: string | null
+          progress?: number | null
+          result_text?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       transcripts: {
         Row: {
           category: string | null
