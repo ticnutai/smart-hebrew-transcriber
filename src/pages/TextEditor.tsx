@@ -5,6 +5,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RichTextEditor } from "@/components/RichTextEditor";
 import { AIEditorDual } from "@/components/AIEditorDual";
 import { TextComparisonMulti } from "@/components/TextComparisonMulti";
+import { EditingTemplates } from "@/components/EditingTemplates";
+import { AdvancedDiffView } from "@/components/AdvancedDiffView";
 import { TextStyleControl } from "@/components/TextStyleControl";
 import { TextEditHistory, TextVersion } from "@/components/TextEditHistory";
 import { ArrowRight, Home, Wand2, SplitSquareVertical, SpellCheck, Loader2 } from "lucide-react";
