@@ -529,7 +529,7 @@ const Index = () => {
           <Button 
             variant="outline" 
             size="icon"
-            onClick={() => navigate("/login")}
+            onClick={() => navigate("/settings")}
           >
             <Settings className="h-4 w-4" />
           </Button>
