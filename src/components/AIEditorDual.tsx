@@ -14,29 +14,34 @@ interface AIEditorDualProps {
   onTextChange: (text: string, source: string, customPrompt?: string) => void;
 }
 
-type AIModel = 'gemini-flash' | 'gemini-pro' | 'gemini-flash-lite' | 'gpt-5' | 'gpt-5-mini' | 'gpt-5-nano';
-type EditAction = 'improve' | 'sources' | 'readable' | 'summarize' | 'translate' | 'custom';
+type AIModel = 'gemini-flash' | 'gemini-pro' | 'gemini-flash-lite' | 'gemini-3-flash' | 'gemini-3.1-pro' | 'gpt-5' | 'gpt-5-mini' | 'gpt-5-nano' | 'gpt-5.2';
 
 const modelToApiId = (model: AIModel): string => {
   const map: Record<AIModel, string> = {
     'gemini-flash': 'google/gemini-2.5-flash',
     'gemini-pro': 'google/gemini-2.5-pro',
     'gemini-flash-lite': 'google/gemini-2.5-flash-lite',
+    'gemini-3-flash': 'google/gemini-3-flash-preview',
+    'gemini-3.1-pro': 'google/gemini-3.1-pro-preview',
     'gpt-5': 'openai/gpt-5',
     'gpt-5-mini': 'openai/gpt-5-mini',
     'gpt-5-nano': 'openai/gpt-5-nano',
+    'gpt-5.2': 'openai/gpt-5.2',
   };
   return map[model] || 'google/gemini-2.5-flash';
 };
 
 const modelDisplayName = (model: AIModel): string => {
   const map: Record<AIModel, string> = {
-    'gemini-flash': 'Gemini Flash',
-    'gemini-pro': 'Gemini Pro',
+    'gemini-flash': 'Gemini 2.5 Flash',
+    'gemini-pro': 'Gemini 2.5 Pro',
     'gemini-flash-lite': 'Gemini Flash Lite',
+    'gemini-3-flash': 'Gemini 3 Flash',
+    'gemini-3.1-pro': 'Gemini 3.1 Pro',
     'gpt-5': 'GPT-5',
     'gpt-5-mini': 'GPT-5 Mini',
     'gpt-5-nano': 'GPT-5 Nano',
+    'gpt-5.2': 'GPT-5.2',
   };
   return map[model] || model;
 };
