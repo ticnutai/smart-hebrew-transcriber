@@ -5,6 +5,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RichTextEditor } from "@/components/RichTextEditor";
 import { AIEditorDual } from "@/components/AIEditorDual";
 import { TextComparisonMulti } from "@/components/TextComparisonMulti";
+import { EditingTemplates } from "@/components/EditingTemplates";
+import { AdvancedDiffView } from "@/components/AdvancedDiffView";
 import { TextStyleControl } from "@/components/TextStyleControl";
 import { TextEditHistory, TextVersion } from "@/components/TextEditHistory";
 import { ArrowRight, Home, Wand2, SplitSquareVertical, SpellCheck, Loader2 } from "lucide-react";
@@ -196,8 +198,9 @@ const TextEditor = () => {
 
         {/* Main Content */}
         <Tabs defaultValue="edit" className="w-full" dir="rtl">
-          <TabsList className="grid w-full grid-cols-4 mb-6">
+          <TabsList className="grid w-full grid-cols-5 mb-6">
             <TabsTrigger value="edit">עריכת טקסט</TabsTrigger>
+            <TabsTrigger value="templates">תבניות</TabsTrigger>
             <TabsTrigger value="ai">עריכה עם AI</TabsTrigger>
             <TabsTrigger value="compare">השוואה</TabsTrigger>
             <TabsTrigger value="history">היסטוריה</TabsTrigger>
@@ -230,6 +233,15 @@ const TextEditor = () => {
                 }} 
               />
             </div>
+          </TabsContent>
+
+          <TabsContent value="templates" className="space-y-4">
+            <EditingTemplates
+              text={text}
+              onApply={(newText, templateName) => {
+                addVersion(newText, 'ai-custom', templateName);
+              }}
+            />
           </TabsContent>
 
           <TabsContent value="ai" className="space-y-4">
@@ -273,12 +285,15 @@ const TextEditor = () => {
               onLineHeightChange={setLineHeight}
             />
             {versions.length >= 2 ? (
-              <TextComparisonMulti 
+              <AdvancedDiffView 
                 versions={versions}
                 fontSize={fontSize}
                 fontFamily={fontFamily}
                 textColor={textColor}
                 lineHeight={lineHeight}
+                onApplyVersion={(newText) => {
+                  setText(newText);
+                }}
               />
             ) : (
               <div className="text-center py-12 text-muted-foreground">
