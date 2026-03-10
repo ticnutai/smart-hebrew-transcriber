@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { TranscriptionEngine } from "@/components/TranscriptionEngine";
 import { FileUploader } from "@/components/FileUploader";
 import { AudioRecorder } from "@/components/AudioRecorder";
+import { LiveTranscriber } from "@/components/LiveTranscriber";
 import { TranscriptEditor } from "@/components/TranscriptEditor";
 import { CloudTranscriptHistory } from "@/components/CloudTranscriptHistory";
 import { TranscriptSummary } from "@/components/TranscriptSummary";
