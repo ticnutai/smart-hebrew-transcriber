@@ -127,7 +127,7 @@ const TextEditor = () => {
         split_paragraphs: 'חלוקה לפסקאות',
         fix_and_split: 'תיקון + חלוקה',
       };
-      addVersion(data.text, 'ai-edit', labels[action]);
+      addVersion(data.text, 'ai-fix', labels[action]);
       toast({ title: `${labels[action]} הושלם ✅` });
     } catch (err) {
       console.error('AI action error:', err);
