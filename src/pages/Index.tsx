@@ -576,6 +576,8 @@ const Index = () => {
       const preferredModel = localStorage.getItem('preferred_local_model') || undefined;
       const lang = sourceLanguage === 'auto' ? 'auto' : sourceLanguage;
       console.log(`[Index] 🚀 calling serverTranscribeStream — model:${preferredModel ?? 'default'}, lang:${lang}, file:${file.name}`);
+      setTranscript('');
+      setWordTimings([]);
       toast({ title: "מתמלל עם GPU...", description: "מעבד את הקובץ בשרת המקומי עם CUDA — תראה תוצאות בזמן אמת" });
 
       const result = await serverTranscribeStream(file, preferredModel, lang, (partial) => {
@@ -1017,10 +1019,10 @@ const Index = () => {
                   </span>
                   <div className="flex items-center gap-2">
                     <span className="font-medium">
-                      {engine === 'local-server' && serverPhase === 'loading-model'
-                        ? '⏳ טוען מודל...'
-                        : progress !== undefined && progress > 0
-                          ? `מתמלל... ${progress}%`
+                      {progress !== undefined && progress > 0
+                        ? `מתמלל... ${progress}%`
+                        : engine === 'local-server' && serverPhase === 'loading-model'
+                          ? '⏳ טוען מודל...'
                           : 'מתמלל...'}
                     </span>
                     <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border ${

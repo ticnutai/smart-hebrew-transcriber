@@ -227,6 +227,7 @@ export const useLocalServer = () => {
             audioDuration = evt.duration || 0;
             setPhase('transcribing');
           } else if (evt.type === 'segment') {
+            setPhase('transcribing'); // ensure phase transitions even if info event was missed
             accText.push(evt.text);
             if (evt.words) accWords.push(...evt.words);
             if (evt.segEnd) lastSegEnd = evt.segEnd;
