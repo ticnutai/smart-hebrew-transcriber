@@ -34,13 +34,14 @@ async function transcribeBlob(
   blob: Blob,
   engine: string,
   language: string,
-  fileName: string
+  fileName: string,
+  userApiKeys?: Record<string, string>
 ): Promise<string> {
   const safeFileName = sanitizeFileName(fileName);
 
   if (engine === 'groq') {
-    const apiKey = Deno.env.get('GROQ_API_KEY');
-    if (!apiKey) throw new Error('GROQ_API_KEY not configured');
+    const apiKey = userApiKeys?.groq_key || Deno.env.get('GROQ_API_KEY');
+    if (!apiKey) throw new Error('GROQ_API_KEY not configured. Please add your Groq API key in Settings.');
 
     return await withRetry(async () => {
       const fd = new FormData();
