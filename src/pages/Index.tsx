@@ -106,9 +106,12 @@ const Index = () => {
     }
   }, [serverConnected]);
 
+  // Keep reference to current file for saving with transcript
+  const currentFileRef = useRef<File | null>(null);
+
   // Save to cloud history
   const saveToHistory = async (text: string, engineUsed: string) => {
-    await saveTranscript(text, engineUsed);
+    await saveTranscript(text, engineUsed, undefined, currentFileRef.current || undefined);
   };
 
   // Helper: invoke edge function with real upload progress via XHR and multipart form
