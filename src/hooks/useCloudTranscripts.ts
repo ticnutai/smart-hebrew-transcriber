@@ -14,6 +14,7 @@ export interface CloudTranscript {
   folder: string;
   category: string;
   is_favorite: boolean;
+  audio_file_path: string | null;
   created_at: string;
   updated_at: string;
 }
