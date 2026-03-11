@@ -19,6 +19,7 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 2000): 
       return await fn();
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
+      if ((err as any)?.noRetry) throw lastError;
       if (i < retries) {
         console.log(`Retry ${i + 1}/${retries}: ${lastError.message}`);
         await new Promise(r => setTimeout(r, delayMs * (i + 1)));
@@ -65,6 +66,13 @@ async function transcribeBlob(
       if (!response.ok) {
         const errorText = await response.text();
         console.error('Groq API error:', response.status, errorText);
+        if (response.status === 429) {
+          const retryMatch = errorText.match(/try again in ([^.]+)/i);
+          const waitMsg = retryMatch ? retryMatch[1] : 'מאוחר יותר';
+          const err = new Error(`חריגת מכסה ב-Groq. נסה שוב בעוד ${waitMsg}`);
+          (err as any).noRetry = true;
+          throw err;
+        }
         throw new Error(`Groq API error: ${response.status}`);
       }
       return await response.text();
