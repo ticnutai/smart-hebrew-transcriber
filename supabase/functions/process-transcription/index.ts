@@ -39,6 +39,10 @@ async function transcribeBlob(
 ): Promise<string> {
   const safeFileName = sanitizeFileName(fileName);
 
+  if (engine === 'local' || engine === 'local-server') {
+    throw new Error(`Engine "${engine}" runs locally and cannot be processed in the cloud. Use an online engine (groq, openai, google, assemblyai, deepgram).`);
+  }
+
   if (engine === 'groq') {
     const apiKey = userApiKeys?.groq_key || Deno.env.get('GROQ_API_KEY');
     if (!apiKey) throw new Error('GROQ_API_KEY not configured. Please add your Groq API key in Settings.');
@@ -85,6 +89,94 @@ async function transcribeBlob(
         throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
       }
       return await response.text();
+    });
+  } else if (engine === 'deepgram') {
+    const apiKey = userApiKeys?.deepgram_key || Deno.env.get('DEEPGRAM_API_KEY');
+    if (!apiKey) throw new Error('DEEPGRAM_API_KEY not configured. Please add your Deepgram API key in Settings.');
+
+    return await withRetry(async () => {
+      const arrayBuffer = await blob.arrayBuffer();
+      const langMap: Record<string, string> = { 'he': 'he', 'yi': 'he', 'en': 'en', 'auto': 'multi' };
+      const dgLang = langMap[language] || 'multi';
+
+      const response = await fetch(
+        `https://api.deepgram.com/v1/listen?language=${dgLang}&model=nova-2&smart_format=true`,
+        {
+          method: 'POST',
+          headers: { 'Authorization': `Token ${apiKey}`, 'Content-Type': blob.type || 'audio/webm' },
+          body: arrayBuffer,
+        }
+      );
+
+      if (!response.ok) throw new Error(`Deepgram API error: ${await response.text()}`);
+      const result = await response.json();
+      const text = result.results?.channels?.[0]?.alternatives?.[0]?.transcript || '';
+      if (!text) throw new Error('No transcription received from Deepgram');
+      return text;
+    });
+  } else if (engine === 'assemblyai') {
+    const apiKey = userApiKeys?.assemblyai_key || Deno.env.get('ASSEMBLYAI_API_KEY');
+    if (!apiKey) throw new Error('ASSEMBLYAI_API_KEY not configured. Please add your AssemblyAI API key in Settings.');
+
+    return await withRetry(async () => {
+      // Upload
+      const uploadRes = await fetch('https://api.assemblyai.com/v2/upload', {
+        method: 'POST', headers: { 'authorization': apiKey }, body: blob,
+      });
+      if (!uploadRes.ok) throw new Error(`AssemblyAI upload failed: ${await uploadRes.text()}`);
+      const { upload_url } = await uploadRes.json();
+
+      // Request transcription
+      const txRes = await fetch('https://api.assemblyai.com/v2/transcript', {
+        method: 'POST',
+        headers: { 'authorization': apiKey, 'content-type': 'application/json' },
+        body: JSON.stringify({ audio_url: upload_url, language_code: language === 'auto' ? null : language }),
+      });
+      if (!txRes.ok) throw new Error(`AssemblyAI transcription request failed: ${await txRes.text()}`);
+      const { id } = await txRes.json();
+
+      // Poll
+      while (true) {
+        const pollRes = await fetch(`https://api.assemblyai.com/v2/transcript/${id}`, {
+          headers: { 'authorization': apiKey },
+        });
+        const transcript = await pollRes.json();
+        if (transcript.status === 'completed') return transcript.text || '';
+        if (transcript.status === 'error') throw new Error(`AssemblyAI failed: ${transcript.error}`);
+        await new Promise(r => setTimeout(r, 1500));
+      }
+    });
+  } else if (engine === 'google') {
+    const apiKey = userApiKeys?.google_key || Deno.env.get('GOOGLE_API_KEY');
+    if (!apiKey) throw new Error('GOOGLE_API_KEY not configured. Please add your Google API key in Settings.');
+
+    return await withRetry(async () => {
+      const arrayBuffer = await blob.arrayBuffer();
+      const base64Audio = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+      const ext = (safeFileName).split('.').pop()?.toLowerCase() || 'webm';
+      const encodingMap: Record<string, { encoding: string; sampleRateHertz: number }> = {
+        webm: { encoding: 'WEBM_OPUS', sampleRateHertz: 48000 },
+        ogg: { encoding: 'OGG_OPUS', sampleRateHertz: 48000 },
+        mp3: { encoding: 'MP3', sampleRateHertz: 16000 },
+        wav: { encoding: 'LINEAR16', sampleRateHertz: 16000 },
+        flac: { encoding: 'FLAC', sampleRateHertz: 16000 },
+      };
+      const audioConfig = encodingMap[ext] || { encoding: 'WEBM_OPUS', sampleRateHertz: 48000 };
+
+      const response = await fetch(`https://speech.googleapis.com/v1/speech:recognize?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          config: { ...audioConfig, languageCode: 'he-IL', enableAutomaticPunctuation: true },
+          audio: { content: base64Audio },
+        }),
+      });
+
+      if (!response.ok) throw new Error(`Google API error: ${response.status} - ${await response.text()}`);
+      const result = await response.json();
+      const text = result.results?.map((r: any) => r.alternatives?.[0]?.transcript || '').join(' ') || '';
+      if (!text) throw new Error('No transcription received from Google');
+      return text;
     });
   }
 
