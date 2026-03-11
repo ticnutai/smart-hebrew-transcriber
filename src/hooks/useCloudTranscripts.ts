@@ -223,6 +223,7 @@ export const useCloudTranscripts = () => {
     deleteTranscript,
     deleteAll,
     fetchTranscripts,
+    getAudioUrl,
     stats,
     isCloud: isAuthenticated,
   };
