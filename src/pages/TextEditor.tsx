@@ -97,12 +97,6 @@ const TextEditor = () => {
     setText(version.text);
   };
 
-  // Save style settings
-  useEffect(() => {
-    localStorage.setItem('editor_fontSize', String(fontSize));
-    localStorage.setItem('editor_fontFamily', fontFamily);
-    localStorage.setItem('editor_textColor', textColor);
-    localStorage.setItem('editor_lineHeight', String(lineHeight));
   }, [fontSize, fontFamily, textColor, lineHeight]);
 
   const [aiAction, setAiAction] = useState<string | null>(null);
