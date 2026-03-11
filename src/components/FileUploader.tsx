@@ -4,7 +4,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Upload, Loader2, Zap, Globe, Chrome, Mic, Waves, Server, Cpu, Film, Music } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
-import { isVideoFile, MAX_VIDEO_SIZE_MB, MAX_AUDIO_SIZE_MB } from "@/lib/videoUtils";
+import { isVideoFile } from "@/lib/videoUtils";
 
 const ENGINE_META: Record<string, { label: string; icon: React.ReactNode; color: string }> = {
   groq: { label: 'Groq', icon: <Zap className="w-3 h-3" />, color: 'text-primary' },
@@ -74,7 +74,7 @@ export const FileUploader = ({ onFileSelect, isLoading, progress, engine }: File
             <span className="flex items-center gap-1"><Film className="w-3 h-3" /> MP4, WEBM, AVI, MOV, MKV</span>
           </p>
           <p className="text-xs text-muted-foreground mt-1">
-            אודיו: עד {MAX_AUDIO_SIZE_MB}MB | וידאו: עד {MAX_VIDEO_SIZE_MB}MB
+            עד 500MB — קבצים גדולים יכווצו אוטומטית לפני שליחה לענן
           </p>
         </div>
 

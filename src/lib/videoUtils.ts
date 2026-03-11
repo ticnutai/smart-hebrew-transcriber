@@ -166,10 +166,10 @@ export function extractAudioFromVideo(
 }
 
 /**
- * Maximum file size by type
+ * Maximum file size by type (compression handles cloud API limits)
  */
 export const MAX_VIDEO_SIZE_MB = 500;
-export const MAX_AUDIO_SIZE_MB = 25;
+export const MAX_AUDIO_SIZE_MB = 500;
 
 /**
  * Engines that can handle video files natively (no extraction needed)

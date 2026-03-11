@@ -27,6 +27,7 @@ import { BackgroundJobsPanel } from "@/components/BackgroundJobsPanel";
 import { useTranscriptionJobs } from "@/hooks/useTranscriptionJobs";
 import { useAuth } from "@/contexts/AuthContext";
 import { isVideoFile, extractAudioFromVideo, VIDEO_NEEDS_EXTRACTION, MAX_VIDEO_SIZE_MB, MAX_AUDIO_SIZE_MB } from "@/lib/videoUtils";
+import { compressAudio, needsCompression, formatFileSize, CLOUD_API_LIMIT } from "@/lib/audioCompression";
 
 type Engine = 'openai' | 'groq' | 'google' | 'local' | 'local-server' | 'assemblyai' | 'deepgram';
 type SourceLanguage = 'auto' | 'he' | 'yi' | 'en';
@@ -179,12 +180,12 @@ const Index = () => {
     const isVideo = isVideoFile(file);
     const maxMB = isVideo ? MAX_VIDEO_SIZE_MB : MAX_AUDIO_SIZE_MB;
     
-    // Check file size (dynamic limit based on type)
+    // Check file size (500MB hard limit)
     if (file.size > maxMB * 1024 * 1024) {
       debugLog.error('Upload', 'קובץ גדול מדי', { size: file.size, maxMB });
       toast({
         title: "שגיאה",
-        description: `הקובץ גדול מדי. גודל מקסימלי ל${isVideo ? 'וידאו' : 'אודיו'}: ${maxMB}MB`,
+        description: `הקובץ גדול מדי. גודל מקסימלי: ${maxMB}MB`,
         variant: "destructive",
       });
       return;
@@ -194,19 +195,19 @@ const Index = () => {
     const url = URL.createObjectURL(file);
     setAudioUrl(url);
 
-    // If video file and engine requires audio-only → extract audio first
+    // Step 1: If video file and engine requires audio-only → extract audio
     let fileToTranscribe = file;
     if (isVideo && VIDEO_NEEDS_EXTRACTION.has(engine)) {
-      debugLog.info('Video', `מחלץ אודיו מוידאו: ${file.name} (${(file.size / 1024 / 1024).toFixed(1)}MB)`);
+      debugLog.info('Video', `מחלץ אודיו מוידאו: ${file.name} (${formatFileSize(file.size)})`);
       toast({
         title: "🎬 מחלץ אודיו מוידאו...",
         description: `${engine === 'google' ? 'Google Speech-to-Text' : engine} דורש קובץ אודיו — מחלץ אוטומטית`,
       });
       try {
         fileToTranscribe = await extractAudioFromVideo(file, (p) => {
-          setUploadProgress(Math.round(p * 0.3)); // 0-30% for extraction
+          setUploadProgress(Math.round(p * 0.2)); // 0-20% for extraction
         });
-        debugLog.info('Video', `חילוץ אודיו הושלם: ${fileToTranscribe.name} (${(fileToTranscribe.size / 1024 / 1024).toFixed(1)}MB)`);
+        debugLog.info('Video', `חילוץ אודיו הושלם: ${fileToTranscribe.name} (${formatFileSize(fileToTranscribe.size)})`);
       } catch (err) {
         debugLog.error('Video', 'שגיאה בחילוץ אודיו', err);
         toast({
@@ -221,7 +222,48 @@ const Index = () => {
       toast({ title: "🎬 וידאו זוהה", description: `${engine} מעבד וידאו ישירות — מחלץ אודיו בצד השרת` });
     }
 
-    debugLog.info('Transcription', `התחלת תמלול: ${fileToTranscribe.name} (${(fileToTranscribe.size / 1024 / 1024).toFixed(1)}MB) עם ${engine}`);
+    // Step 2: Auto-compress if file too large for cloud APIs (>25MB)
+    // Skip compression for local-server (no limit) and local (ONNX)
+    const isCloudEngine = !['local-server', 'local'].includes(engine);
+    if (isCloudEngine && needsCompression(fileToTranscribe)) {
+      const originalSize = formatFileSize(fileToTranscribe.size);
+      debugLog.info('Compression', `כיווץ אודיו: ${fileToTranscribe.name} (${originalSize}) — מנוע ענן דורש <25MB`);
+      toast({
+        title: "🗜️ מכווץ אודיו...",
+        description: `${originalSize} → מכווץ ל-16kHz מונו לשליחה ל-${engine}`,
+      });
+      try {
+        fileToTranscribe = await compressAudio(fileToTranscribe, (p) => {
+          setUploadProgress(20 + Math.round(p * 0.3)); // 20-50% for compression
+        });
+        const compressedSize = formatFileSize(fileToTranscribe.size);
+        debugLog.info('Compression', `כיווץ הושלם: ${originalSize} → ${compressedSize}`);
+        toast({
+          title: "✅ כיווץ הושלם",
+          description: `${originalSize} → ${compressedSize}`,
+        });
+
+        // If still too large after compression, warn but try anyway
+        if (fileToTranscribe.size > CLOUD_API_LIMIT) {
+          debugLog.warn('Compression', `הקובץ עדיין גדול לאחר כיווץ: ${compressedSize}`);
+          toast({
+            title: "⚠️ קובץ עדיין גדול",
+            description: `${compressedSize} — ייתכן שה-API ידו חה. מומלץ להשתמש בשרת CUDA מקומי`,
+            variant: "destructive",
+          });
+        }
+      } catch (err) {
+        debugLog.error('Compression', 'שגיאה בכיווץ', err);
+        toast({
+          title: "שגיאה בכיווץ",
+          description: err instanceof Error ? err.message : "לא ניתן לכווץ את הקובץ",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
+    debugLog.info('Transcription', `התחלת תמלול: ${fileToTranscribe.name} (${formatFileSize(fileToTranscribe.size)}) עם ${engine}`);
     console.log(`[Index] bgTask.run starting — bgTask.status=${bgTask.status}, isRunning=${bgTask.isRunning}`);
 
     // Run in background — doesn't block tab, sends notification on complete
@@ -698,7 +740,7 @@ const Index = () => {
 
   // Batch transcription wrapper - transcribes a single file and returns text
   const batchTranscribeFile = async (file: File, onProgress: (p: number) => void): Promise<string> => {
-    if (file.size > 25 * 1024 * 1024) throw new Error("הקובץ גדול מדי (מקסימום 25MB)");
+    if (file.size > MAX_AUDIO_SIZE_MB * 1024 * 1024) throw new Error(`הקובץ גדול מדי (מקסימום ${MAX_AUDIO_SIZE_MB}MB)`);
 
     const getKey = (name: string) => {
       const key = localStorage.getItem(name);
@@ -900,8 +942,8 @@ const Index = () => {
                 input.onchange = async (e) => {
                   const file = (e.target as HTMLInputElement).files?.[0];
                   if (!file) return;
-                  if (file.size > 50 * 1024 * 1024) {
-                    toast({ title: "הקובץ גדול מדי", description: "מקסימום 50MB לתמלול ברקע", variant: "destructive" });
+                  if (file.size > MAX_AUDIO_SIZE_MB * 1024 * 1024) {
+                    toast({ title: "הקובץ גדול מדי", description: `מקסימום ${MAX_AUDIO_SIZE_MB}MB לתמלול ברקע`, variant: "destructive" });
                     return;
                   }
                   await submitJob(file, engine, sourceLanguage);
