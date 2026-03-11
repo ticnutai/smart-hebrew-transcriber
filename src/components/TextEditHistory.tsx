@@ -9,7 +9,7 @@ export interface TextVersion {
   id: string;
   text: string;
   timestamp: Date;
-  source: 'original' | 'manual' | 'ai-improve' | 'ai-sources' | 'ai-readable' | 'ai-custom' |
+  source: 'original' | 'manual' | 'ai-improve' | 'ai-sources' | 'ai-readable' | 'ai-custom' | 'ai-fix' |
     'ai-grammar' | 'ai-punctuation' | 'ai-paragraphs' | 'ai-bullets' | 'ai-headings' |
     'ai-expand' | 'ai-shorten' | 'ai-summarize' | 'ai-translate' | 'ai-speakers' | 'ai-tone';
   customPrompt?: string;
@@ -28,6 +28,7 @@ const sourceLabels: Record<TextVersion['source'], string> = {
   'ai-sources': 'AI - הוספת מקורות',
   'ai-readable': 'AI - זורם לקריאה',
   'ai-custom': 'AI - פרומפט מותאם',
+  'ai-fix': 'AI - תיקון ועיבוד',
   'ai-grammar': 'AI - דקדוק ואיות',
   'ai-punctuation': 'AI - פיסוק',
   'ai-paragraphs': 'AI - חלוקה לפסקאות',

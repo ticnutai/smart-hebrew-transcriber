@@ -1,11 +1,14 @@
 <!doctype html>
-<html lang="en">
+<html lang="he" dir="rtl">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>transcript-wizard-he</title>
-    <meta name="description" content="Lovable Generated Project">
+    <title>מערכת תמלול מתקדמת | Smart Hebrew Transcriber</title>
+    <meta name="description" content="תמלול חכם של אודיו ווידאו לעברית עם עריכה מונעת AI – מערכת מתקדמת להמרת דיבור לטקסט">
     <meta name="author" content="Lovable" />
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#1a3a6b" />
+    <link rel="apple-touch-icon" href="/pwa-192.png" />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;600;700&family=Rubik:wght@400;500;700&family=Heebo:wght@400;500;700&family=Frank+Ruhl+Libre:wght@400;500;700&display=swap" />
 
     
@@ -16,14 +19,21 @@
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:site" content="@lovable_dev" />
     <meta name="twitter:image" content="https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/664941aa-ae3e-4f86-9b2d-e27dfbebc112/id-preview-11d6d5c6--a1add912-bd72-490b-949a-bf5fe8ed03b5.lovable.app-1773168945929.png">
-    <meta property="og:title" content="transcript-wizard-he">
-  <meta name="twitter:title" content="transcript-wizard-he">
-  <meta property="og:description" content="Lovable Generated Project">
-  <meta name="twitter:description" content="Lovable Generated Project">
+    <meta property="og:title" content="מערכת תמלול מתקדמת">
+  <meta name="twitter:title" content="מערכת תמלול מתקדמת">
+  <meta property="og:description" content="תמלול חכם של אודיו ווידאו לעברית עם עריכה מונעת AI">
+  <meta name="twitter:description" content="תמלול חכם של אודיו ווידאו לעברית עם עריכה מונעת AI">
 </head>
 
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').catch(() => {});
+        });
+      }
+    </script>
   </body>
 </html>

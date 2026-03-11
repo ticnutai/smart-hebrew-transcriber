@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Wand2, BookOpen, FileText, Copy, Download, Loader2, Upload, Settings2, CheckCheck, AlignJustify, Quote } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { ExportButton } from "@/components/ExportButton";
 import {
   Dialog,
   DialogContent,
@@ -178,24 +179,7 @@ export const TranscriptEditor = ({ transcript, onTranscriptChange }: TranscriptE
             <Copy className="w-4 h-4 ml-2" />
             העתק
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleDownload}
-            disabled={!transcript.trim() || isEditing}
-          >
-            <Download className="w-4 h-4 ml-2" />
-            TXT
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleExportJSON}
-            disabled={!transcript.trim() || isEditing}
-          >
-            <Download className="w-4 h-4 ml-2" />
-            JSON
-          </Button>
+          <ExportButton text={transcript} disabled={isEditing} />
         </div>
       </div>
 

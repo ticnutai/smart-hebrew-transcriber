@@ -3,8 +3,9 @@ import { useNavigate } from "react-router-dom";
 import { TranscriptionEngine } from "@/components/TranscriptionEngine";
 import { FileUploader } from "@/components/FileUploader";
 import { AudioRecorder } from "@/components/AudioRecorder";
+import { LiveTranscriber } from "@/components/LiveTranscriber";
 import { TranscriptEditor } from "@/components/TranscriptEditor";
-import { TranscriptHistory } from "@/components/TranscriptHistory";
+import { CloudTranscriptHistory } from "@/components/CloudTranscriptHistory";
 import { TranscriptSummary } from "@/components/TranscriptSummary";
 import { ShareTranscript } from "@/components/ShareTranscript";
 import { TextStyleControl } from "@/components/TextStyleControl";
@@ -19,19 +20,24 @@ import { useLocalTranscription } from "@/hooks/useLocalTranscription";
 import { useLocalServer } from "@/hooks/useLocalServer";
 import { useBackgroundTask } from "@/hooks/useBackgroundTask";
 import { debugLog } from "@/lib/debugLogger";
+import { useCloudTranscripts } from "@/hooks/useCloudTranscripts";
 import { Settings, FileEdit, ChevronDown, X } from "lucide-react";
+import { BatchUploader } from "@/components/BatchUploader";
+import { BackgroundJobsPanel } from "@/components/BackgroundJobsPanel";
+import { useTranscriptionJobs } from "@/hooks/useTranscriptionJobs";
+import { useAuth } from "@/contexts/AuthContext";
 
 type Engine = 'openai' | 'groq' | 'google' | 'local' | 'local-server' | 'assemblyai' | 'deepgram';
 type SourceLanguage = 'auto' | 'he' | 'yi' | 'en';
 
 const Index = () => {
   const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
   const [engine, setEngine] = useState<Engine>('groq');
   const [sourceLanguage, setSourceLanguage] = useState<SourceLanguage>('auto');
   const [transcript, setTranscript] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [transcriptHistory, setTranscriptHistory] = useState<Array<{text: string, timestamp: number, engine: string, tags?: string[], notes?: string}>>([]);
   
   // Formatting settings
   const [fontSize, setFontSize] = useState(16);
@@ -46,18 +52,11 @@ const Index = () => {
   const { transcribe: localTranscribe, isLoading: isLocalLoading, progress: localProgress } = useLocalTranscription();
   const { transcribeStream: serverTranscribeStream, isLoading: isServerLoading, progress: serverProgress, isConnected: serverConnected, recoverPartial, clearPartial, cancelStream: cancelServerStream } = useLocalServer();
   const bgTask = useBackgroundTask();
+  const { transcripts, isLoading: isCloudLoading, saveTranscript, updateTranscript, deleteTranscript, deleteAll, isCloud } = useCloudTranscripts();
+  const { jobs, submitJob, submitBatchJobs, retryJob, deleteJob } = useTranscriptionJobs();
 
-  // Load history and settings from localStorage
+  // Load formatting settings from localStorage
   useEffect(() => {
-    const saved = localStorage.getItem('transcript_history');
-    if (saved) {
-      try {
-        setTranscriptHistory(JSON.parse(saved));
-      } catch (e) {
-        console.error('Failed to load history:', e);
-      }
-    }
-
     const savedFontSize = localStorage.getItem('transcript_fontSize');
     const savedFontFamily = localStorage.getItem('transcript_fontFamily');
     const savedTextColor = localStorage.getItem('transcript_textColor');
@@ -92,20 +91,9 @@ const Index = () => {
     localStorage.setItem('transcript_sourceLanguage', sourceLanguage);
   }, [fontSize, fontFamily, textColor, lineHeight, sourceLanguage]);
 
-  // Save to history
-  const saveToHistory = (text: string, engineUsed: string) => {
-    const newEntry = { text, timestamp: Date.now(), engine: engineUsed, tags: [], notes: '' };
-    const newHistory = [newEntry, ...transcriptHistory].slice(0, 50); // Keep last 50
-    setTranscriptHistory(newHistory);
-    localStorage.setItem('transcript_history', JSON.stringify(newHistory));
-  };
-
-  // Update history entry
-  const updateHistoryEntry = (index: number, entry: typeof transcriptHistory[0]) => {
-    const newHistory = [...transcriptHistory];
-    newHistory[index] = entry;
-    setTranscriptHistory(newHistory);
-    localStorage.setItem('transcript_history', JSON.stringify(newHistory));
+  // Save to cloud history
+  const saveToHistory = async (text: string, engineUsed: string) => {
+    await saveTranscript(text, engineUsed);
   };
 
   // Helper: invoke edge function with real upload progress via XHR and multipart form
@@ -117,18 +105,38 @@ const Index = () => {
       xhr.setRequestHeader('Authorization', `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`);
       xhr.setRequestHeader('x-client-info', 'xhr-upload');
 
+      // Upload progress = 0-50%
       xhr.upload.onprogress = (e) => {
         if (e.lengthComputable) {
-          const percent = Math.round((e.loaded / e.total) * 100);
+          const percent = Math.round((e.loaded / e.total) * 50);
           onProgress(percent);
         }
       };
 
+      // Once upload is done, animate processing progress 50-90%
+      let processingInterval: ReturnType<typeof setInterval> | null = null;
+      xhr.upload.onloadend = () => {
+        onProgress(50);
+        let current = 50;
+        processingInterval = setInterval(() => {
+          current = Math.min(current + 2, 90);
+          onProgress(current);
+          if (current >= 90 && processingInterval) {
+            clearInterval(processingInterval);
+          }
+        }, 500);
+      };
+
       xhr.onload = () => {
+        if (processingInterval) clearInterval(processingInterval);
+        onProgress(100);
         try {
           const json = JSON.parse(xhr.responseText || '{}');
           if (xhr.status >= 200 && xhr.status < 300) {
             resolve({ data: json });
+          } else if (xhr.status === 429) {
+            const retryAfter = parseInt(xhr.getResponseHeader('Retry-After') || '60', 10);
+            resolve({ error: { message: `RATE_LIMIT`, retryAfter } });
           } else {
             resolve({ error: json || { message: `HTTP ${xhr.status}` } });
           }
@@ -138,6 +146,7 @@ const Index = () => {
       };
 
       xhr.onerror = () => {
+        if (processingInterval) clearInterval(processingInterval);
         resolve({ error: { message: 'Network error' } });
       };
 
@@ -632,6 +641,73 @@ const Index = () => {
     setIsUploading(false);
   };
 
+  // Batch transcription wrapper - transcribes a single file and returns text
+  const batchTranscribeFile = async (file: File, onProgress: (p: number) => void): Promise<string> => {
+    if (file.size > 25 * 1024 * 1024) throw new Error("הקובץ גדול מדי (מקסימום 25MB)");
+
+    const getKey = (name: string) => {
+      const key = localStorage.getItem(name);
+      if (!key) throw new Error(`נדרש מפתח API - הגדר בהגדרות`);
+      return key;
+    };
+
+    const engineMap: Record<string, string> = {
+      openai: 'transcribe-openai',
+      groq: 'transcribe-groq',
+      assemblyai: 'transcribe-assemblyai',
+      deepgram: 'transcribe-deepgram',
+    };
+
+    if (engine === 'local') {
+      return await localTranscribe(file);
+    }
+
+    if (engine === 'google') {
+      const googleKey = getKey('google_api_key');
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const b64 = reader.result?.toString().split(',')[1];
+          b64 ? resolve(b64) : reject(new Error('Failed to convert'));
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const { data, error } = await supabase.functions.invoke('transcribe-google', {
+        body: { audio: base64, fileName: file.name, apiKey: googleKey, language: sourceLanguage, targetLanguage: 'he' }
+      });
+      if (error) throw error;
+      if (!data?.text) throw new Error('No transcription received');
+      return data.text;
+    }
+
+    // OpenAI, Groq, AssemblyAI, Deepgram
+    const keyMap: Record<string, string> = {
+      openai: 'openai_api_key', groq: 'groq_api_key',
+      assemblyai: 'assemblyai_api_key', deepgram: 'deepgram_api_key',
+    };
+    const apiKey = getKey(keyMap[engine]);
+    const form = new FormData();
+    form.append('file', file, file.name);
+    form.append('fileName', file.name);
+    form.append('apiKey', apiKey);
+    form.append('language', sourceLanguage);
+    if (engine === 'openai' || engine === 'groq') form.append('targetLanguage', 'he');
+
+    const { data, error } = await xhrInvoke(engineMap[engine], form, onProgress);
+    if (error) {
+      const err = new Error(error.message || error.error || 'שגיאה בתמלול');
+      (err as any).retryAfter = error.retryAfter;
+      throw err;
+    }
+    if (!data?.text) throw new Error('No transcription received');
+    return data.text;
+  };
+
+  const batchSaveTranscript = async (text: string, engineUsed: string, title: string) => {
+    await saveTranscript(text, engineUsed);
+  };
+
   return (
     <div className="min-h-screen bg-background p-4 md:p-8" dir="rtl">
       <div className="max-w-6xl mx-auto space-y-6">
@@ -732,6 +808,68 @@ const Index = () => {
           </Card>
         )}
 
+        {/* Background transcription option for authenticated users */}
+        {isAuthenticated && (
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs"
+              onClick={() => {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = 'audio/*,video/*,.mp3,.wav,.webm,.m4a,.ogg,.mp4';
+                input.onchange = async (e) => {
+                  const file = (e.target as HTMLInputElement).files?.[0];
+                  if (!file) return;
+                  if (file.size > 50 * 1024 * 1024) {
+                    toast({ title: "הקובץ גדול מדי", description: "מקסימום 50MB לתמלול ברקע", variant: "destructive" });
+                    return;
+                  }
+                  await submitJob(file, engine, sourceLanguage);
+                };
+                input.click();
+              }}
+            >
+              🔄 תמלול ברקע (ימשיך גם אם תעזוב)
+            </Button>
+            <span className="text-xs text-muted-foreground">הקובץ יעלה לשרת ויתומלל גם בלי שהעמוד פתוח</span>
+          </div>
+        )}
+
+        {/* Background Jobs Panel */}
+        {isAuthenticated && jobs.length > 0 && (
+          <BackgroundJobsPanel
+            jobs={jobs}
+            onRetry={retryJob}
+            onDelete={deleteJob}
+            onUseResult={(text, eng) => {
+              setTranscript(text);
+              saveToHistory(text, eng);
+            }}
+          />
+        )}
+
+        {/* Live Transcription */}
+        <LiveTranscriber
+          onTranscriptComplete={(text) => {
+            setTranscript(text);
+            saveToHistory(text, 'Live (Web Speech API)');
+            toast({ title: "תמלול חי הושלם!" });
+            setTimeout(() => navigate('/text-editor', { state: { text } }), 1000);
+          }}
+        />
+
+        {/* Batch Upload */}
+        <BatchUploader
+          onSubmitBatch={(files) => submitBatchJobs(files, engine, sourceLanguage)}
+          onSaveTranscript={batchSaveTranscript}
+          onRetryJob={retryJob}
+          jobs={jobs}
+          isDisabled={isLoading}
+          isAuthenticated={isAuthenticated}
+        />
+
         {/* Local Model Manager - shown when local engine or local-server selected */}
         {(engine === 'local' || engine === 'local-server') && (
           <Collapsible>
@@ -747,15 +885,17 @@ const Index = () => {
           </Collapsible>
         )}
 
-        <TranscriptHistory
-          history={transcriptHistory}
+        <CloudTranscriptHistory
+          transcripts={transcripts}
+          isCloud={isCloud}
+          isLoading={isCloudLoading}
           onSelect={(text) => setTranscript(text)}
-          onClear={() => {
-            setTranscriptHistory([]);
-            localStorage.removeItem('transcript_history');
+          onClearAll={() => {
+            deleteAll();
             toast({ title: "ההיסטוריה נמחקה" });
           }}
-          onUpdateEntry={updateHistoryEntry}
+          onDelete={deleteTranscript}
+          onUpdate={(id, updates) => updateTranscript(id, updates)}
         />
 
         {transcript && (

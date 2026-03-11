@@ -77,6 +77,105 @@ export type Database = {
         }
         Relationships: []
       }
+      transcription_jobs: {
+        Row: {
+          completed_chunks: number | null
+          created_at: string
+          engine: string
+          error_message: string | null
+          file_name: string | null
+          file_path: string | null
+          id: string
+          language: string | null
+          partial_result: string | null
+          progress: number | null
+          result_text: string | null
+          status: string
+          total_chunks: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          completed_chunks?: number | null
+          created_at?: string
+          engine?: string
+          error_message?: string | null
+          file_name?: string | null
+          file_path?: string | null
+          id?: string
+          language?: string | null
+          partial_result?: string | null
+          progress?: number | null
+          result_text?: string | null
+          status?: string
+          total_chunks?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          completed_chunks?: number | null
+          created_at?: string
+          engine?: string
+          error_message?: string | null
+          file_name?: string | null
+          file_path?: string | null
+          id?: string
+          language?: string | null
+          partial_result?: string | null
+          progress?: number | null
+          result_text?: string | null
+          status?: string
+          total_chunks?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      transcripts: {
+        Row: {
+          category: string | null
+          created_at: string
+          engine: string
+          folder: string | null
+          id: string
+          is_favorite: boolean | null
+          notes: string | null
+          tags: string[] | null
+          text: string
+          title: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          category?: string | null
+          created_at?: string
+          engine?: string
+          folder?: string | null
+          id?: string
+          is_favorite?: boolean | null
+          notes?: string | null
+          tags?: string[] | null
+          text: string
+          title?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          category?: string | null
+          created_at?: string
+          engine?: string
+          folder?: string | null
+          id?: string
+          is_favorite?: boolean | null
+          notes?: string | null
+          tags?: string[] | null
+          text?: string
+          title?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_api_keys: {
         Row: {
           assemblyai_key: string | null
@@ -113,6 +212,45 @@ export type Database = {
           openai_key?: string | null
           updated_at?: string
           user_identifier?: string
+        }
+        Relationships: []
+      }
+      user_preferences: {
+        Row: {
+          created_at: string
+          font_family: string | null
+          font_size: number | null
+          id: string
+          line_height: number | null
+          sidebar_pinned: boolean | null
+          text_color: string | null
+          theme: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          font_family?: string | null
+          font_size?: number | null
+          id?: string
+          line_height?: number | null
+          sidebar_pinned?: boolean | null
+          text_color?: string | null
+          theme?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          font_family?: string | null
+          font_size?: number | null
+          id?: string
+          line_height?: number | null
+          sidebar_pinned?: boolean | null
+          text_color?: string | null
+          theme?: string | null
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
