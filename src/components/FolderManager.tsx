@@ -41,7 +41,7 @@ interface FolderManagerProps {
   onGetAudioUrl?: (filePath: string) => Promise<string | null>;
 }
 
-export const FolderManager = ({ transcripts, onUpdate, onDelete }: FolderManagerProps) => {
+export const FolderManager = ({ transcripts, onUpdate, onDelete, onGetAudioUrl }: FolderManagerProps) => {
   const navigate = useNavigate();
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
