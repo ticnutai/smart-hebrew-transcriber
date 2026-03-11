@@ -69,10 +69,20 @@ const Index = () => {
   const lastAudioUrlRef = useRef<string | null>(null);
 
   const { transcribe: localTranscribe, isLoading: isLocalLoading, progress: localProgress } = useLocalTranscription();
-  const { transcribeStream: serverTranscribeStream, isLoading: isServerLoading, progress: serverProgress, isConnected: serverConnected, recoverPartial, clearPartial, cancelStream: cancelServerStream } = useLocalServer();
+  const { transcribeStream: serverTranscribeStream, isLoading: isServerLoading, progress: serverProgress, isConnected: serverConnected, recoverPartial, clearPartial, cancelStream: cancelServerStream, checkConnection, startPolling, stopPolling } = useLocalServer();
   const bgTask = useBackgroundTask();
   const { transcripts, isLoading: isCloudLoading, saveTranscript, updateTranscript, deleteTranscript, deleteAll, isCloud, getAudioUrl } = useCloudTranscripts();
   const { jobs, submitJob, submitBatchJobs, retryJob, deleteJob } = useTranscriptionJobs();
+
+  // Start/stop health polling when CUDA engine is selected
+  useEffect(() => {
+    if (engine === 'local-server') {
+      startPolling(serverConnected ? 10000 : 5000);
+      return () => stopPolling();
+    } else {
+      stopPolling();
+    }
+  }, [engine, serverConnected, startPolling, stopPolling]);
 
   // Recover partial transcription on mount
   useEffect(() => {
@@ -531,8 +541,10 @@ const Index = () => {
 
   const transcribeWithLocalServer = async (file: File, fileAudioUrl?: string, resumeFrom?: { startFrom: number; existingText: string; existingWords: Array<{word: string, start: number, end: number}> }) => {
     console.log(`[Index] transcribeWithLocalServer — serverConnected:${serverConnected}, engine:${engine}`);
-    if (!serverConnected) {
-      console.warn('[Index] ❌ serverConnected is FALSE — aborting transcription');
+    // Fresh connection check before transcription (serverConnected state may be stale)
+    const isUp = await checkConnection();
+    if (!isUp) {
+      console.warn('[Index] ❌ server health check failed — aborting transcription');
       toast({
         title: "שרת לא מחובר",
         description: "הפעל את השרת המקומי: python server/transcribe_server.py",
