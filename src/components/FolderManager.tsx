@@ -16,7 +16,7 @@ import {
   FolderOpen, FolderPlus, FileText, Search, Edit, Trash2,
   Star, StarOff, Tag, Grid3X3, List, ArrowUpDown, X, Check,
   StickyNote, Briefcase, GraduationCap, Users, MessageSquare, MoreHorizontal,
-  Download, Loader2
+  Download, Loader2, Play, Pause, Volume2
 } from "lucide-react";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
@@ -38,9 +38,10 @@ interface FolderManagerProps {
   transcripts: CloudTranscript[];
   onUpdate: (id: string, updates: Partial<Pick<CloudTranscript, 'folder' | 'tags' | 'title' | 'notes' | 'category' | 'is_favorite'>>) => void;
   onDelete: (id: string) => void;
+  onGetAudioUrl?: (filePath: string) => Promise<string | null>;
 }
 
-export const FolderManager = ({ transcripts, onUpdate, onDelete }: FolderManagerProps) => {
+export const FolderManager = ({ transcripts, onUpdate, onDelete, onGetAudioUrl }: FolderManagerProps) => {
   const navigate = useNavigate();
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -364,6 +365,7 @@ export const FolderManager = ({ transcripts, onUpdate, onDelete }: FolderManager
                 setMovingId={setMovingId}
                 folders={folders}
                 onMoveToFolder={(folder) => handleMoveToFolder(t.id, folder)}
+                onGetAudioUrl={onGetAudioUrl}
                 formatDate={formatDate}
                 getCategoryLabel={getCategoryLabel}
                 viewMode={viewMode}
@@ -415,6 +417,7 @@ interface TranscriptItemProps {
   setMovingId: (id: string | null) => void;
   folders: string[];
   onMoveToFolder: (folder: string) => void;
+  onGetAudioUrl?: (filePath: string) => Promise<string | null>;
   formatDate: (d: string) => string;
   getCategoryLabel: (v: string) => string;
   viewMode: ViewMode;
@@ -425,9 +428,34 @@ const TranscriptItem = ({
   editingTitleId, editingTitle, onStartEditTitle, onEditTitleChange, onSaveTitle, onCancelEditTitle,
   editingNotesId, editingNotes, onStartEditNotes, onEditNotesChange, onSaveNotes, onCancelEditNotes,
   addingTagId, newTagInput, allTags, onStartAddTag, onNewTagChange, onAddTag, onRemoveTag, onCancelAddTag,
-  onNavigateEdit, onDelete, movingId, setMovingId, folders, onMoveToFolder,
+  onNavigateEdit, onDelete, movingId, setMovingId, folders, onMoveToFolder, onGetAudioUrl,
   formatDate, getCategoryLabel, viewMode
 }: TranscriptItemProps) => {
+  const [playingAudio, setPlayingAudio] = useState<HTMLAudioElement | null>(null);
+  const [isLoadingAudio, setIsLoadingAudio] = useState(false);
+
+  const handlePlayAudio = async () => {
+    if (playingAudio) {
+      playingAudio.pause();
+      setPlayingAudio(null);
+      return;
+    }
+    if (!t.audio_file_path || !onGetAudioUrl) return;
+    setIsLoadingAudio(true);
+    try {
+      const url = await onGetAudioUrl(t.audio_file_path);
+      if (!url) throw new Error('No URL');
+      const audio = new Audio(url);
+      audio.onended = () => setPlayingAudio(null);
+      await audio.play();
+      setPlayingAudio(audio);
+    } catch {
+      toast({ title: 'שגיאה בהפעלת אודיו', variant: 'destructive' });
+    } finally {
+      setIsLoadingAudio(false);
+    }
+  };
+
   return (
     <div dir="rtl" className={`p-3 rounded-lg border hover:bg-accent/50 transition-colors text-right ${isSelected ? 'ring-2 ring-primary bg-primary/5' : ''}`}>
       {/* Top row */}
@@ -447,6 +475,11 @@ const TranscriptItem = ({
           )}
           {t.category && (
             <Badge variant="secondary" className="text-xs">{getCategoryLabel(t.category)}</Badge>
+          )}
+          {t.audio_file_path && (
+            <Badge variant="outline" className="text-xs gap-1">
+              <Volume2 className="w-3 h-3" />אודיו
+            </Badge>
           )}
         </div>
         <span className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(t.created_at)}</span>
@@ -518,6 +551,12 @@ const TranscriptItem = ({
 
       {/* Actions */}
       <div className="flex gap-1 flex-wrap flex-row-reverse">
+        {t.audio_file_path && onGetAudioUrl && (
+          <Button size="sm" variant={playingAudio ? "default" : "outline"} className="text-xs h-7" onClick={handlePlayAudio} disabled={isLoadingAudio}>
+            {isLoadingAudio ? <Loader2 className="w-3 h-3 ml-1 animate-spin" /> : playingAudio ? <Pause className="w-3 h-3 ml-1" /> : <Play className="w-3 h-3 ml-1" />}
+            {playingAudio ? 'עצור' : 'נגן'}
+          </Button>
+        )}
         <Button size="sm" variant="outline" className="text-xs h-7" onClick={onNavigateEdit}>
           <Edit className="w-3 h-3 ml-1" />ערוך
         </Button>

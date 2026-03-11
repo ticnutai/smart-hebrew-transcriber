@@ -56,7 +56,7 @@ const Index = () => {
   const { transcribe: localTranscribe, isLoading: isLocalLoading, progress: localProgress } = useLocalTranscription();
   const { transcribeStream: serverTranscribeStream, isLoading: isServerLoading, progress: serverProgress, isConnected: serverConnected, recoverPartial, clearPartial, cancelStream: cancelServerStream } = useLocalServer();
   const bgTask = useBackgroundTask();
-  const { transcripts, isLoading: isCloudLoading, saveTranscript, updateTranscript, deleteTranscript, deleteAll, isCloud } = useCloudTranscripts();
+  const { transcripts, isLoading: isCloudLoading, saveTranscript, updateTranscript, deleteTranscript, deleteAll, isCloud, getAudioUrl } = useCloudTranscripts();
   const { jobs, submitJob, submitBatchJobs, retryJob, deleteJob } = useTranscriptionJobs();
 
   // Load formatting settings from localStorage
@@ -106,9 +106,12 @@ const Index = () => {
     }
   }, [serverConnected]);
 
+  // Keep reference to current file for saving with transcript
+  const currentFileRef = useRef<File | null>(null);
+
   // Save to cloud history
   const saveToHistory = async (text: string, engineUsed: string) => {
-    await saveTranscript(text, engineUsed);
+    await saveTranscript(text, engineUsed, undefined, currentFileRef.current || undefined);
   };
 
   // Helper: invoke edge function with real upload progress via XHR and multipart form
@@ -171,6 +174,7 @@ const Index = () => {
 
   const handleFileSelect = async (file: File) => {
     console.log(`[Index] handleFileSelect — file:${file.name} (${(file.size/1024).toFixed(0)}KB), engine:${engine}, serverConnected:${serverConnected}`);
+    currentFileRef.current = file;
     
     const isVideo = isVideoFile(file);
     const maxMB = isVideo ? MAX_VIDEO_SIZE_MB : MAX_AUDIO_SIZE_MB;

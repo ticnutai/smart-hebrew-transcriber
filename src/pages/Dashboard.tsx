@@ -13,7 +13,7 @@ import {
 const Dashboard = () => {
   const navigate = useNavigate();
   const { isAuthenticated, user } = useAuth();
-  const { transcripts, stats, isLoading, updateTranscript, deleteTranscript } = useCloudTranscripts();
+  const { transcripts, stats, isLoading, updateTranscript, deleteTranscript, getAudioUrl } = useCloudTranscripts();
 
   const recentTranscripts = transcripts.slice(0, 5);
 
@@ -194,6 +194,7 @@ const Dashboard = () => {
             transcripts={transcripts}
             onUpdate={(id, updates) => updateTranscript(id, updates)}
             onDelete={deleteTranscript}
+            onGetAudioUrl={getAudioUrl}
           />
         )}
 

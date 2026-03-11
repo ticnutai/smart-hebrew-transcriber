@@ -14,6 +14,7 @@ export interface CloudTranscript {
   folder: string;
   category: string;
   is_favorite: boolean;
+  audio_file_path: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -68,13 +69,42 @@ export const useCloudTranscripts = () => {
     };
   }, [isAuthenticated, fetchTranscripts]);
 
+  const uploadAudioFile = useCallback(async (file: File): Promise<string | null> => {
+    if (!user) return null;
+    try {
+      const ext = file.name.split('.').pop() || 'wav';
+      const filePath = `${user.id}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}.${ext}`;
+      const { error } = await supabase.storage
+        .from('permanent-audio')
+        .upload(filePath, file, { cacheControl: '3600', upsert: false });
+      if (error) throw error;
+      return filePath;
+    } catch (error) {
+      console.error('Error uploading audio:', error);
+      return null;
+    }
+  }, [user]);
+
+  const getAudioUrl = useCallback(async (filePath: string): Promise<string | null> => {
+    try {
+      const { data, error } = await supabase.storage
+        .from('permanent-audio')
+        .createSignedUrl(filePath, 3600); // 1 hour
+      if (error) throw error;
+      return data.signedUrl;
+    } catch (error) {
+      console.error('Error getting audio URL:', error);
+      return null;
+    }
+  }, []);
+
   const saveTranscript = useCallback(async (
     text: string,
     engine: string,
-    title?: string
+    title?: string,
+    audioFile?: File
   ): Promise<CloudTranscript | null> => {
     if (!user) {
-      // Fallback: save to localStorage for non-authenticated users
       const history = JSON.parse(localStorage.getItem('transcript_history') || '[]');
       const entry = { text, timestamp: Date.now(), engine, tags: [], notes: '' };
       const updated = [entry, ...history].slice(0, 50);
@@ -83,6 +113,12 @@ export const useCloudTranscripts = () => {
     }
 
     try {
+      // Upload audio file if provided
+      let audioFilePath: string | null = null;
+      if (audioFile) {
+        audioFilePath = await uploadAudioFile(audioFile);
+      }
+
       const autoTitle = title || text.substring(0, 60).replace(/\n/g, ' ') + '...';
       const { data, error } = await supabase
         .from('transcripts')
@@ -94,6 +130,7 @@ export const useCloudTranscripts = () => {
           tags: [],
           notes: '',
           folder: '',
+          audio_file_path: audioFilePath,
         })
         .select()
         .single();
@@ -109,7 +146,7 @@ export const useCloudTranscripts = () => {
       });
       return null;
     }
-  }, [user]);
+  }, [user, uploadAudioFile]);
 
   const updateTranscript = useCallback(async (
     id: string,
@@ -134,6 +171,12 @@ export const useCloudTranscripts = () => {
 
   const deleteTranscript = useCallback(async (id: string) => {
     try {
+      // Delete associated audio file if exists
+      const transcript = transcripts.find(t => t.id === id);
+      if (transcript?.audio_file_path) {
+        await supabase.storage.from('permanent-audio').remove([transcript.audio_file_path]);
+      }
+
       const { error } = await supabase
         .from('transcripts')
         .delete()
@@ -148,7 +191,7 @@ export const useCloudTranscripts = () => {
         variant: 'destructive',
       });
     }
-  }, []);
+  }, [transcripts]);
 
   const deleteAll = useCallback(async () => {
     if (!user) return;
@@ -180,6 +223,7 @@ export const useCloudTranscripts = () => {
     deleteTranscript,
     deleteAll,
     fetchTranscripts,
+    getAudioUrl,
     stats,
     isCloud: isAuthenticated,
   };
