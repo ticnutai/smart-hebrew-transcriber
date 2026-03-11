@@ -68,6 +68,19 @@ except Exception:
 app = Flask(__name__)
 CORS(app)
 
+# Allowed audio/video file extensions for upload
+_ALLOWED_SUFFIXES = frozenset({
+    ".mp3", ".wav", ".m4a", ".webm", ".ogg", ".flac", ".aac", ".wma",
+    ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".3gp",
+})
+
+def _safe_suffix(filename: str | None, default: str = ".webm") -> str:
+    """Extract file suffix from filename, restricted to allowed extensions."""
+    if not filename:
+        return default
+    suffix = Path(filename).suffix.lower()
+    return suffix if suffix in _ALLOWED_SUFFIXES else default
+
 # ════════════════════════════════════════════════════════════════════
 #  DEBUG & MONITORING INFRASTRUCTURE
 # ════════════════════════════════════════════════════════════════════
@@ -536,7 +549,7 @@ def transcribe():
     resolved = MODEL_REGISTRY.get(model_id, model_id)
 
     # Save to temp file
-    suffix = Path(audio_file.filename or "audio.webm").suffix or ".webm"
+    suffix = _safe_suffix(audio_file.filename)
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         audio_file.save(tmp)
         tmp_path = tmp.name
@@ -626,7 +639,7 @@ def transcribe_stream():
     elif "file" in request.files:
         audio_file = request.files["file"]
         audio_filename = audio_file.filename or "audio.webm"
-        suffix = Path(audio_filename).suffix or ".webm"
+        suffix = _safe_suffix(audio_filename)
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             audio_file.save(tmp)
             tmp_path = tmp.name
@@ -652,7 +665,7 @@ def transcribe_stream():
 
     model_id = request.form.get("model", _current_model_id or DEFAULT_MODEL)
     language = request.form.get("language", "he")
-    start_from = float(request.form.get("start_from", "0"))
+    start_from = max(0.0, float(request.form.get("start_from", "0")))
     fast_mode = request.form.get("fast_mode", "0") == "1"
     compute_type_req = request.form.get("compute_type")  # float16 | int8_float16 | int8
     beam_size_req = request.form.get("beam_size")  # 1-5
@@ -663,7 +676,7 @@ def transcribe_stream():
     paragraph_threshold = float(request.form.get("paragraph_threshold", "0"))
     resolved = MODEL_REGISTRY.get(model_id, model_id)
 
-    suffix = Path(audio_filename).suffix or ".webm"
+    suffix = _safe_suffix(audio_filename)
 
     _log.info(f"[{request_id}] NEW REQUEST: {audio_filename} ({file_size_mb:.1f} MB) model={resolved} lang={language}")
 
@@ -925,7 +938,7 @@ def stage_audio():
 
     audio_file = request.files["file"]
     filename = audio_file.filename or "audio.webm"
-    suffix = Path(filename).suffix or ".webm"
+    suffix = _safe_suffix(filename)
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         audio_file.save(tmp)
@@ -1244,11 +1257,6 @@ def main():
               channel_timeout=WAITRESS_CHANNEL_TIMEOUT,
               recv_bytes=WAITRESS_RECV_BYTES,
               send_bytes=4096, url_scheme='http')
-    except ImportError:
-        print("  Server: Flask dev server (install waitress for production)")
-        print("  Tip: pip install waitress")
-        print()
-        app.run(host="0.0.0.0", port=args.port, debug=False)
     except ImportError:
         print("  Server: Flask dev server (install waitress for production)")
         print("  Tip: pip install waitress")

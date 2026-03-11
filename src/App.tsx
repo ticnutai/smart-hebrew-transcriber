@@ -1,10 +1,10 @@
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useMemo } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { AuthProvider } from "./contexts/AuthContext";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import AppSidebar from "./components/AppSidebar";
 import AppLayout from "./components/AppLayout";
 import { Loader2 } from "lucide-react";
@@ -21,7 +21,12 @@ const TextEditor = lazy(() => import("./pages/TextEditor"));
 const Folders = lazy(() => import("./pages/Folders"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
-const queryClient = new QueryClient();
+const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
+  const { isAuthenticated, isLoading } = useAuth();
+  if (isLoading) return <PageLoader />;
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  return <>{children}</>;
+};
 
 const PageLoader = () => (
   <div className="flex items-center justify-center min-h-[50vh]">
@@ -32,6 +37,7 @@ const PageLoader = () => (
 const App = () => {
   // Initialize theme on app load
   useTheme();
+  const queryClient = useMemo(() => new QueryClient(), []);
 
   return (
   <QueryClientProvider client={queryClient}>
@@ -48,11 +54,11 @@ const App = () => {
             <Suspense fallback={<PageLoader />}>
               <Routes>
                 <Route path="/" element={<Dashboard />} />
-                <Route path="/transcribe" element={<Index />} />
+                <Route path="/transcribe" element={<ProtectedRoute><Index /></ProtectedRoute>} />
                 <Route path="/login" element={<Login />} />
-                <Route path="/settings" element={<Settings />} />
-                <Route path="/text-editor" element={<TextEditor />} />
-                <Route path="/folders" element={<Folders />} />
+                <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+                <Route path="/text-editor" element={<ProtectedRoute><TextEditor /></ProtectedRoute>} />
+                <Route path="/folders" element={<ProtectedRoute><Folders /></ProtectedRoute>} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </Suspense>

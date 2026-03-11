@@ -27,8 +27,12 @@ const getPreferredModel = () => {
   // Fallback to first downloaded model
   const downloaded = localStorage.getItem('downloaded_models');
   if (downloaded) {
-    const models = JSON.parse(downloaded);
-    if (models.length > 0) return models[0];
+    try {
+      const models = JSON.parse(downloaded);
+      if (models.length > 0) return models[0];
+    } catch {
+      // corrupted localStorage
+    }
   }
   return "onnx-community/whisper-tiny";
 };
@@ -126,9 +130,9 @@ export const useLocalTranscription = () => {
         } else {
           throw tsError;
         }
+      } finally {
+        URL.revokeObjectURL(audioUrl);
       }
-
-      URL.revokeObjectURL(audioUrl);
       setProgress(100);
 
       const text = Array.isArray(result) ? result[0]?.text : result?.text;
@@ -192,5 +196,9 @@ export const useLocalTranscription = () => {
     }
   };
 
-  return { transcribe, isLoading, progress, currentModel };
+  const clearCache = () => {
+    pipelineCache.clear();
+  };
+
+  return { transcribe, isLoading, progress, currentModel, clearCache };
 };

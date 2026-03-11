@@ -51,7 +51,7 @@ const TextEditor = () => {
     if (stateText) {
       setText(stateText);
       const initialVersion: TextVersion = {
-        id: Date.now().toString(),
+        id: crypto.randomUUID(),
         text: stateText,
         timestamp: new Date(),
         source: 'original'
@@ -67,12 +67,17 @@ const TextEditor = () => {
       const savedVersions = localStorage.getItem('text_versions');
       
       if (savedVersions) {
-        const parsedVersions = JSON.parse(savedVersions).map((v: any) => ({
-          ...v,
-          timestamp: new Date(v.timestamp)
-        }));
-        setVersions(parsedVersions);
-        setSelectedVersionId(parsedVersions[parsedVersions.length - 1]?.id);
+        try {
+          const parsedVersions = JSON.parse(savedVersions).map((v: any) => ({
+            ...v,
+            timestamp: new Date(v.timestamp)
+          }));
+          setVersions(parsedVersions);
+          setSelectedVersionId(parsedVersions[parsedVersions.length - 1]?.id);
+        } catch {
+          // Corrupted localStorage — reset
+          localStorage.removeItem('text_versions');
+        }
       }
       
       if (savedText) {
@@ -82,7 +87,17 @@ const TextEditor = () => {
 
     // Load audio URL and word timings from navigation state
     if (location.state?.audioUrl) {
-      setAudioUrl(location.state.audioUrl);
+      const url = location.state.audioUrl as string;
+      // Validate blob URL is still accessible (blob URLs expire on refresh)
+      if (url.startsWith('blob:')) {
+        fetch(url, { method: 'HEAD' }).then(() => {
+          setAudioUrl(url);
+        }).catch(() => {
+          // Blob URL expired — ignore silently
+        });
+      } else {
+        setAudioUrl(url);
+      }
     }
     if (location.state?.wordTimings) {
       setWordTimings(location.state.wordTimings);
@@ -102,7 +117,7 @@ const TextEditor = () => {
 
   const addVersion = (newText: string, source: TextVersion['source'], customPrompt?: string) => {
     const newVersion: TextVersion = {
-      id: Date.now().toString(),
+      id: crypto.randomUUID(),
       text: newText,
       timestamp: new Date(),
       source,

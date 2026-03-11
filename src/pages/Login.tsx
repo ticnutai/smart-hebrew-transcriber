@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -6,7 +6,6 @@ import { lovable } from "@/integrations/lovable/index";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { Lock, Eye, EyeOff, Mail, KeyRound, Sparkles } from "lucide-react";
 
@@ -14,16 +13,18 @@ const Login = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(false);
   const [isSignUp, setIsSignUp] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
 
-  if (isAuthenticated) {
-    navigate("/");
-    return null;
-  }
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate("/");
+    }
+  }, [isAuthenticated, navigate]);
+
+  if (isAuthenticated) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -150,19 +151,6 @@ const Login = () => {
                 {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
-
-            {!isSignUp && (
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id="remember"
-                  checked={rememberMe}
-                  onCheckedChange={(checked) => setRememberMe(checked as boolean)}
-                />
-                <label htmlFor="remember" className="text-sm text-muted-foreground cursor-pointer font-assistant">
-                  זכור אותי
-                </label>
-              </div>
-            )}
 
             <Button
               type="submit"

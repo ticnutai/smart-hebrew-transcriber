@@ -108,4 +108,9 @@ All colors MUST be HSL.
   :root[style*="--icon-color"] svg:not(.no-theme-icon) {
     color: var(--icon-color, inherit);
   }
+
+  /* Navy blue icons site-wide (Lucide & other SVG icons) */
+  svg:not(.no-theme-icon) {
+    color: hsl(var(--primary));
+  }
 }

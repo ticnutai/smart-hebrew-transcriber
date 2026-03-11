@@ -30,12 +30,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   useEffect(() => {
+    // Single source of truth: onAuthStateChange handles all auth state
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
         setSession(session);
         setUser(session?.user ?? null);
         if (session?.user) {
-          setTimeout(() => checkAdmin(session.user.id), 0);
+          await checkAdmin(session.user.id);
         } else {
           setIsAdmin(false);
         }
@@ -43,14 +44,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
     );
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        checkAdmin(session.user.id);
-      }
-      setIsLoading(false);
-    });
+    // Trigger initial session check (will flow through onAuthStateChange)
+    supabase.auth.getSession();
 
     return () => subscription.unsubscribe();
   }, []);

@@ -89,6 +89,15 @@ const Index = () => {
     }
   }, [engine, serverConnected, startPolling, stopPolling]);
 
+  // Cleanup audio Object URL on unmount
+  useEffect(() => {
+    return () => {
+      if (lastAudioUrlRef.current) {
+        URL.revokeObjectURL(lastAudioUrlRef.current);
+      }
+    };
+  }, []);
+
   // Recover partial transcription on mount (runs once)
   useEffect(() => {
     const partial = recoverPartial();
@@ -126,7 +135,8 @@ const Index = () => {
   const saveToHistory = async (text: string, engineUsed: string, skipCloud?: boolean) => {
     if (skipCloud) {
       // Save only to localStorage, skip cloud upload entirely
-      const history = JSON.parse(localStorage.getItem('transcript_history') || '[]');
+      let history: any[] = [];
+      try { history = JSON.parse(localStorage.getItem('transcript_history') || '[]'); } catch { /* corrupted */ }
       const entry = { text, timestamp: Date.now(), engine: engineUsed, tags: [], notes: '' };
       const updated = [entry, ...history].slice(0, 50);
       localStorage.setItem('transcript_history', JSON.stringify(updated));

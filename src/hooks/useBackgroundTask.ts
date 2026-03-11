@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { debugLog } from '@/lib/debugLogger';
+import { toast } from '@/hooks/use-toast';
 
 export type BgStatus = 'idle' | 'running' | 'done' | 'error';
 
@@ -40,6 +41,7 @@ export function useBackgroundTask<T = unknown>() {
     async (taskName: string, fn: () => Promise<T>): Promise<T | undefined> => {
       if (runningRef.current) {
         debugLog.warn('BackgroundTask', `Task already running, ignored: ${taskName}`);
+        toast({ title: 'משימה בתהליך', description: 'המתן לסיום המשימה הנוכחית', variant: 'destructive' });
         return undefined;
       }
       runningRef.current = true;
