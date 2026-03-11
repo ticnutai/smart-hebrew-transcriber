@@ -417,6 +417,7 @@ interface TranscriptItemProps {
   setMovingId: (id: string | null) => void;
   folders: string[];
   onMoveToFolder: (folder: string) => void;
+  onGetAudioUrl?: (filePath: string) => Promise<string | null>;
   formatDate: (d: string) => string;
   getCategoryLabel: (v: string) => string;
   viewMode: ViewMode;
