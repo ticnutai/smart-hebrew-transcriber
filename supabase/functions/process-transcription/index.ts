@@ -19,6 +19,7 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 2000): 
       return await fn();
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
+      if ((err as any)?.noRetry) throw lastError;
       if (i < retries) {
         console.log(`Retry ${i + 1}/${retries}: ${lastError.message}`);
         await new Promise(r => setTimeout(r, delayMs * (i + 1)));
