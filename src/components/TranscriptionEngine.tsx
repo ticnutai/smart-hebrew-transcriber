@@ -5,7 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Globe, Cpu, Zap, Chrome, Mic, Waves, Server, Power, PowerOff, Loader2, CheckCircle2, XCircle, Copy } from "lucide-react";
+import { Globe, Cpu, Zap, Chrome, Mic, Waves, Server, Power, PowerOff, Loader2, CheckCircle2, XCircle, Copy, Rabbit, Turtle } from "lucide-react";
 import { useLocalServer } from "@/hooks/useLocalServer";
 import { toast } from "@/hooks/use-toast";
 
@@ -30,6 +30,7 @@ const START_CMD = '.\\scripts\\start-whisper-server.ps1';
 export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSourceLanguageChange }: TranscriptionEngineProps) => {
   const { isConnected, serverStatus, checkConnection, startPolling, stopPolling, shutdownServer, getBaseUrl } = useLocalServer();
   const [isStarting, setIsStarting] = useState(false);
+  const [fastMode, setFastMode] = useState(() => localStorage.getItem('cuda_fast_mode') === '1');
 
   // When user selects CUDA server, start polling; otherwise stop
   useEffect(() => {
@@ -268,6 +269,32 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Fast mode toggle — only for CUDA engine */}
+      {selected === 'local-server' && (
+        <div className="border-t pt-3 mt-3">
+          <div className="flex items-center justify-between gap-2">
+            <Button
+              variant={fastMode ? 'default' : 'outline'}
+              size="sm"
+              className={`gap-1.5 text-xs h-8 flex-1 ${fastMode ? 'bg-amber-500 hover:bg-amber-600 text-white' : ''}`}
+              onClick={(e) => {
+                e.preventDefault();
+                const next = !fastMode;
+                setFastMode(next);
+                localStorage.setItem('cuda_fast_mode', next ? '1' : '0');
+                toast({ title: next ? '⚡ מצב מהיר הופעל' : '🐢 מצב רגיל (איכות מקסימלית)', description: next ? 'עיבוד מקבילי — מהיר פי 2-5' : 'עיבוד סדרתי — איכות מקסימלית' });
+              }}
+            >
+              {fastMode ? <Rabbit className="w-3.5 h-3.5" /> : <Turtle className="w-3.5 h-3.5" />}
+              {fastMode ? '⚡ מהיר' : '🐢 רגיל'}
+            </Button>
+            <span className="text-[11px] text-muted-foreground text-right">
+              {fastMode ? 'עיבוד מקבילי — מהיר ביותר' : 'איכות מקסימלית'}
+            </span>
+          </div>
         </div>
       )}
 

@@ -359,6 +359,7 @@ def transcribe_stream():
     model_id = request.form.get("model", _current_model_id or DEFAULT_MODEL)
     language = request.form.get("language", "he")
     start_from = float(request.form.get("start_from", "0"))
+    fast_mode = request.form.get("fast_mode", "0") == "1"
     resolved = MODEL_REGISTRY.get(model_id, model_id)
 
     suffix = Path(audio_file.filename or "audio.webm").suffix or ".webm"
@@ -399,16 +400,29 @@ def transcribe_stream():
             model = load_model(resolved)
 
             transcribe_path = trimmed_path if trimmed_path else tmp_path
-            print(f"\n  [stream] Transcribing: {audio_file.filename} (model={resolved}, lang={language}, start_from={start_from}s)")
+            mode_label = "FAST (batched)" if fast_mode else "normal"
+            print(f"\n  [stream] Transcribing: {audio_file.filename} (model={resolved}, lang={language}, start_from={start_from}s, mode={mode_label})")
             start = time.time()
 
-            segments_gen, info = model.transcribe(
-                transcribe_path,
-                language=language if language != "auto" else None,
-                word_timestamps=True,
-                vad_filter=True,
-                vad_parameters=dict(min_silence_duration_ms=500, speech_pad_ms=200),
-            )
+            if fast_mode:
+                # Fast mode: BatchedInferencePipeline processes multiple segments in parallel
+                from faster_whisper import BatchedInferencePipeline
+                pipeline = BatchedInferencePipeline(model=model)
+                segments_gen, info = pipeline.transcribe(
+                    transcribe_path,
+                    language=language if language != "auto" else None,
+                    word_timestamps=True,
+                    beam_size=1,
+                    batch_size=16,
+                )
+            else:
+                segments_gen, info = model.transcribe(
+                    transcribe_path,
+                    language=language if language != "auto" else None,
+                    word_timestamps=True,
+                    vad_filter=True,
+                    vad_parameters=dict(min_silence_duration_ms=500, speech_pad_ms=200),
+                )
 
             duration = info.duration or 1.0
             total_duration = duration + start_from  # Full original audio duration

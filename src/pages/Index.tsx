@@ -586,7 +586,7 @@ const Index = () => {
         setWordTimings(partial.wordTimings);
         console.log(`[Index] 📊 partial callback — progress:${partial.progress}%, words:${partial.wordTimings.length}`);
         debugLog.info('CUDA Stream', `${partial.progress}% — ${partial.wordTimings.length} מילים`);
-      }, resumeFrom);
+      }, resumeFrom, localStorage.getItem('cuda_fast_mode') === '1');
       console.log(`[Index] ✅ serverTranscribeStream finished — text length:${result.text?.length}, processing_time:${result.processing_time}s`);
 
       const timings = result.wordTimings || [];

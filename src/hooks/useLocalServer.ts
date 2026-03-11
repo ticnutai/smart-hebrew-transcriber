@@ -147,6 +147,7 @@ export const useLocalServer = () => {
     language: string = 'he',
     onPartial?: (partial: PartialTranscript) => void,
     resumeFrom?: { startFrom: number; existingText: string; existingWords: WordTiming[] },
+    fastMode?: boolean,
   ): Promise<ServerTranscriptionResult> => {
     console.log(`[useLocalServer] 🎙️ transcribeStream START — file:${file.name} (${(file.size/1024).toFixed(0)}KB), model:${model ?? 'default'}, lang:${language}${resumeFrom ? `, resumeFrom=${resumeFrom.startFrom}s` : ''}`);
     setIsLoading(true);
@@ -166,6 +167,9 @@ export const useLocalServer = () => {
     form.append('language', language);
     if (resumeFrom) {
       form.append('start_from', String(resumeFrom.startFrom));
+    }
+    if (fastMode) {
+      form.append('fast_mode', '1');
     }
 
     // Prepend existing text/words when resuming
