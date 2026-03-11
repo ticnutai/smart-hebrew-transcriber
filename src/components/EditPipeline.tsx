@@ -79,11 +79,25 @@ const PRESET_PIPELINES = [
 ];
 
 const CLOUD_MODELS = [
-  { value: 'google/gemini-2.5-flash', label: '☁️ Gemini Flash' },
-  { value: 'google/gemini-2.5-pro', label: '☁️ Gemini Pro' },
+  // Google Gemini
+  { value: 'google/gemini-2.5-flash', label: '☁️ Gemini 2.5 Flash' },
+  { value: 'google/gemini-2.5-pro', label: '☁️ Gemini 2.5 Pro' },
+  { value: 'google/gemini-2.5-flash-lite', label: '☁️ Gemini Flash Lite' },
+  { value: 'google/gemini-3-flash-preview', label: '☁️ Gemini 3 Flash' },
+  { value: 'google/gemini-3.1-pro-preview', label: '☁️ Gemini 3.1 Pro' },
+  // OpenAI
+  { value: 'openai/gpt-5', label: '☁️ GPT-5' },
+  { value: 'openai/gpt-5-mini', label: '☁️ GPT-5 Mini' },
+  { value: 'openai/gpt-5-nano', label: '☁️ GPT-5 Nano' },
+  { value: 'openai/gpt-5.2', label: '☁️ GPT-5.2' },
   { value: 'openai/gpt-4o', label: '☁️ GPT-4o' },
   { value: 'openai/gpt-4o-mini', label: '☁️ GPT-4o Mini' },
+  // Anthropic
   { value: 'anthropic/claude-3.5-sonnet', label: '☁️ Claude 3.5 Sonnet' },
+  { value: 'anthropic/claude-3-haiku', label: '☁️ Claude 3 Haiku' },
+  // Meta & Mistral
+  { value: 'meta-llama/llama-3.1-70b-instruct', label: '☁️ Llama 3.1 70B' },
+  { value: 'mistralai/mistral-large-latest', label: '☁️ Mistral Large' },
 ];
 
 export const EditPipeline = ({ text, onTextChange }: EditPipelineProps) => {

@@ -22,12 +22,23 @@ interface AIEditorDualProps {
 }
 
 const CLOUD_MODELS = [
+  // Google Gemini
   { value: 'gemini-flash', label: 'Gemini 2.5 Flash', apiModel: 'google/gemini-2.5-flash', local: false },
   { value: 'gemini-pro', label: 'Gemini 2.5 Pro', apiModel: 'google/gemini-2.5-pro', local: false },
+  { value: 'gemini-flash-lite', label: 'Gemini Flash Lite', apiModel: 'google/gemini-2.5-flash-lite', local: false },
+  { value: 'gemini-3-flash', label: 'Gemini 3 Flash', apiModel: 'google/gemini-3-flash-preview', local: false },
+  { value: 'gemini-3.1-pro', label: 'Gemini 3.1 Pro', apiModel: 'google/gemini-3.1-pro-preview', local: false },
+  // OpenAI
+  { value: 'gpt-5', label: 'GPT-5', apiModel: 'openai/gpt-5', local: false },
+  { value: 'gpt-5-mini', label: 'GPT-5 Mini', apiModel: 'openai/gpt-5-mini', local: false },
+  { value: 'gpt-5-nano', label: 'GPT-5 Nano', apiModel: 'openai/gpt-5-nano', local: false },
+  { value: 'gpt-5.2', label: 'GPT-5.2', apiModel: 'openai/gpt-5.2', local: false },
   { value: 'gpt-4o', label: 'GPT-4o', apiModel: 'openai/gpt-4o', local: false },
   { value: 'gpt-4o-mini', label: 'GPT-4o Mini', apiModel: 'openai/gpt-4o-mini', local: false },
+  // Anthropic
   { value: 'claude-sonnet', label: 'Claude 3.5 Sonnet', apiModel: 'anthropic/claude-3.5-sonnet', local: false },
   { value: 'claude-haiku', label: 'Claude 3 Haiku', apiModel: 'anthropic/claude-3-haiku', local: false },
+  // Meta & Mistral
   { value: 'llama-70b', label: 'Llama 3.1 70B', apiModel: 'meta-llama/llama-3.1-70b-instruct', local: false },
   { value: 'mistral-large', label: 'Mistral Large', apiModel: 'mistralai/mistral-large-latest', local: false },
 ];
