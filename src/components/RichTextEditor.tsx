@@ -140,7 +140,7 @@ export const RichTextEditor = ({ text, onChange }: RichTextEditorProps) => {
     }
 
     // Use window.find for highlight
-    window.find(searchTerm, false, false, true);
+    (window as any).find?.(searchTerm, false, false, true);
   };
 
   const plainText = stripHtml(htmlContent);

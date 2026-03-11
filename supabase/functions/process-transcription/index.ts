@@ -51,7 +51,9 @@ async function transcribeBlob(
       const fd = new FormData();
       fd.append('file', blob, safeFileName);
       fd.append('model', 'whisper-large-v3');
-      fd.append('language', language || 'he');
+      if (language && language !== 'auto') {
+        fd.append('language', language);
+      }
       fd.append('response_format', 'text');
 
       const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
