@@ -171,6 +171,12 @@ export const useCloudTranscripts = () => {
 
   const deleteTranscript = useCallback(async (id: string) => {
     try {
+      // Delete associated audio file if exists
+      const transcript = transcripts.find(t => t.id === id);
+      if (transcript?.audio_file_path) {
+        await supabase.storage.from('permanent-audio').remove([transcript.audio_file_path]);
+      }
+
       const { error } = await supabase
         .from('transcripts')
         .delete()
@@ -185,7 +191,7 @@ export const useCloudTranscripts = () => {
         variant: 'destructive',
       });
     }
-  }, []);
+  }, [transcripts]);
 
   const deleteAll = useCallback(async () => {
     if (!user) return;
