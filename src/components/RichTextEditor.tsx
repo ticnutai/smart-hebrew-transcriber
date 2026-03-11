@@ -14,6 +14,7 @@ import {
   Search, X, ChevronDown
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import { FloatingFormatToolbar } from "@/components/FloatingFormatToolbar";
 import {
   Popover,
   PopoverContent,
@@ -454,27 +455,34 @@ export const RichTextEditor = ({ text, onChange }: RichTextEditorProps) => {
               {viewMode === 'split' && (
                 <Label className="text-xs text-muted-foreground">עריכה</Label>
               )}
-              <div
-                ref={editorRef}
-                contentEditable
-                dir="rtl"
-                className={cn(
-                  "rounded-md border border-input bg-background px-4 py-3 text-right",
-                  "focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
-                  "overflow-auto prose prose-sm max-w-none",
-                  isFullscreen ? "min-h-[calc(100vh-200px)]" : "min-h-[500px]"
-                )}
-                style={{
-                  fontFamily: 'inherit',
-                  fontSize: 'inherit',
-                  lineHeight: '1.8',
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word',
-                }}
-                onInput={syncContent}
-                dangerouslySetInnerHTML={{ __html: htmlContent }}
-                suppressContentEditableWarning
-              />
+              <div className="relative">
+                <FloatingFormatToolbar
+                  containerRef={editorRef}
+                  onExecCommand={execCommand}
+                  onSyncContent={syncContent}
+                />
+                <div
+                  ref={editorRef}
+                  contentEditable
+                  dir="rtl"
+                  className={cn(
+                    "rounded-md border border-input bg-background px-4 py-3 text-right",
+                    "focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+                    "overflow-auto prose prose-sm max-w-none",
+                    isFullscreen ? "min-h-[calc(100vh-200px)]" : "min-h-[500px]"
+                  )}
+                  style={{
+                    fontFamily: 'inherit',
+                    fontSize: 'inherit',
+                    lineHeight: '1.8',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                  }}
+                  onInput={syncContent}
+                  dangerouslySetInnerHTML={{ __html: htmlContent }}
+                  suppressContentEditableWarning
+                />
+              </div>
             </div>
           )}
 
