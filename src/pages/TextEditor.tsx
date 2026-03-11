@@ -97,7 +97,7 @@ const TextEditor = () => {
     setText(version.text);
   };
 
-  }, [fontSize, fontFamily, textColor, lineHeight]);
+  
 
   const [aiAction, setAiAction] = useState<string | null>(null);
 
