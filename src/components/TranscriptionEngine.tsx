@@ -5,7 +5,9 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Globe, Cpu, Zap, Chrome, Mic, Waves, Server, Power, PowerOff, Loader2, CheckCircle2, XCircle, Copy, Rabbit, Turtle } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Globe, Cpu, Zap, Chrome, Mic, Waves, Server, Power, PowerOff, Loader2, CheckCircle2, XCircle, Copy, Rabbit, Turtle, Settings, ChevronDown, Flame } from "lucide-react";
 import { useLocalServer } from "@/hooks/useLocalServer";
 import { toast } from "@/hooks/use-toast";
 
@@ -28,9 +30,15 @@ const getLocalModelLabel = (): string => {
 const START_CMD = '.\\scripts\\start-whisper-server.ps1';
 
 export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSourceLanguageChange }: TranscriptionEngineProps) => {
-  const { isConnected, serverStatus, checkConnection, startPolling, stopPolling, shutdownServer, getBaseUrl } = useLocalServer();
+  const { isConnected, serverStatus, checkConnection, startPolling, stopPolling, shutdownServer, warmupServer, getBaseUrl } = useLocalServer();
   const [isStarting, setIsStarting] = useState(false);
   const [fastMode, setFastMode] = useState(() => localStorage.getItem('cuda_fast_mode') === '1');
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [computeType, setComputeType] = useState(() => localStorage.getItem('cuda_compute_type') || 'float16');
+  const [beamSize, setBeamSize] = useState(() => parseInt(localStorage.getItem('cuda_beam_size') || '0'));
+  const [noConditionPrev, setNoConditionPrev] = useState(() => localStorage.getItem('cuda_no_condition_prev') === '1');
+  const [vadAggressive, setVadAggressive] = useState(() => localStorage.getItem('cuda_vad_aggressive') === '1');
+  const [isWarmingUp, setIsWarmingUp] = useState(false);
 
   // When user selects CUDA server, start polling; otherwise stop
   useEffect(() => {
@@ -296,6 +304,102 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
             </span>
           </div>
         </div>
+      )}
+
+      {/* Advanced CUDA settings — only for CUDA engine */}
+      {selected === 'local-server' && (
+        <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+          <CollapsibleTrigger asChild>
+            <Button variant="ghost" size="sm" className="w-full mt-2 gap-1.5 text-xs h-7 text-muted-foreground">
+              <Settings className="w-3.5 h-3.5" />
+              הגדרות מתקדמות
+              <ChevronDown className={`w-3 h-3 transition-transform ${advancedOpen ? 'rotate-180' : ''}`} />
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="mt-2 space-y-3 rounded-lg border p-3 bg-muted/20 text-sm">
+
+              {/* Compute Type */}
+              <div className="space-y-1">
+                <Label className="text-xs font-medium text-right block">סוג חישוב (Compute Type)</Label>
+                <Select value={computeType} onValueChange={(v) => { setComputeType(v); localStorage.setItem('cuda_compute_type', v); }}>
+                  <SelectTrigger className="h-8 text-xs" dir="rtl">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent dir="rtl">
+                    <SelectItem value="float16">float16 — ברירת מחדל (איכות מקסימלית)</SelectItem>
+                    <SelectItem value="int8_float16">int8_float16 — מהיר ~30% (איכות טובה)</SelectItem>
+                    <SelectItem value="int8">int8 — מהיר ביותר (פחות דיוק)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-[10px] text-muted-foreground text-right">⚠️ שינוי סוג חישוב דורש טעינה מחדש של המודל</p>
+              </div>
+
+              {/* Beam Size */}
+              <div className="space-y-1">
+                <Label className="text-xs font-medium text-right block">Beam Size</Label>
+                <Select value={String(beamSize)} onValueChange={(v) => { setBeamSize(Number(v)); localStorage.setItem('cuda_beam_size', v); }}>
+                  <SelectTrigger className="h-8 text-xs" dir="rtl">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent dir="rtl">
+                    <SelectItem value="0">ברירת מחדל (5 רגיל / 1 מהיר)</SelectItem>
+                    <SelectItem value="1">1 — מהיר ביותר</SelectItem>
+                    <SelectItem value="2">2</SelectItem>
+                    <SelectItem value="3">3</SelectItem>
+                    <SelectItem value="5">5 — איכות מקסימלית</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-[10px] text-muted-foreground text-right">beam גבוה = דיוק גבוה אבל איטי יותר</p>
+              </div>
+
+              {/* Condition on previous text */}
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-right">
+                  <Label className="text-xs font-medium block">ביטול תנאי טקסט קודם</Label>
+                  <p className="text-[10px] text-muted-foreground">מונע לולאות הזיה — מומלץ להפעיל</p>
+                </div>
+                <Switch
+                  checked={noConditionPrev}
+                  onCheckedChange={(v) => { setNoConditionPrev(v); localStorage.setItem('cuda_no_condition_prev', v ? '1' : '0'); }}
+                />
+              </div>
+
+              {/* VAD Aggressive */}
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-right">
+                  <Label className="text-xs font-medium block">VAD אגרסיבי</Label>
+                  <p className="text-[10px] text-muted-foreground">מדלג מהר על שקט — מאיץ קבצים ארוכים</p>
+                </div>
+                <Switch
+                  checked={vadAggressive}
+                  onCheckedChange={(v) => { setVadAggressive(v); localStorage.setItem('cuda_vad_aggressive', v ? '1' : '0'); }}
+                />
+              </div>
+
+              {/* GPU Warmup */}
+              {isConnected && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full gap-1.5 text-xs h-8"
+                  disabled={isWarmingUp}
+                  onClick={async (e) => {
+                    e.preventDefault();
+                    setIsWarmingUp(true);
+                    const t = await warmupServer();
+                    setIsWarmingUp(false);
+                    toast({ title: t != null ? `🔥 GPU חומם ב-${t}s` : '❌ חימום נכשל', description: t != null ? 'התמלול הראשון יהיה מהיר יותר' : 'ודא שהשרת פועל' });
+                  }}
+                >
+                  {isWarmingUp ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Flame className="w-3.5 h-3.5" />}
+                  {isWarmingUp ? 'מחמם GPU...' : 'חמם GPU (Warmup)'}
+                </Button>
+              )}
+
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
       )}
 
       <div className="border-t pt-4 mt-4">

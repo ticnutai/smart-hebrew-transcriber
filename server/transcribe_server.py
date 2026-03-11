@@ -152,16 +152,19 @@ MODELS_NEEDING_CONVERSION = {
 }
 
 
-def load_model(model_id: str) -> faster_whisper.WhisperModel:
-    """Load or retrieve cached Whisper model."""
+def load_model(model_id: str, compute_type_override: str | None = None) -> faster_whisper.WhisperModel:
+    """Load or retrieve cached Whisper model.
+    compute_type_override: 'float16', 'int8_float16', 'int8', or None (auto)
+    """
     global _current_model_id
 
-    if model_id in _model_cache:
-        _current_model_id = model_id
-        return _model_cache[model_id]
-
     device = get_device()
-    compute_type = "float16" if device == "cuda" else "int8"
+    compute_type = compute_type_override or ("float16" if device == "cuda" else "int8")
+    cache_key = f"{model_id}::{compute_type}"
+
+    if cache_key in _model_cache:
+        _current_model_id = model_id
+        return _model_cache[cache_key]
 
     # Check if this model needs conversion from HuggingFace format
     actual_path = model_id
@@ -202,7 +205,7 @@ def load_model(model_id: str) -> faster_whisper.WhisperModel:
     # These models expect 128 mel features, but older cached configs may say 80.
     _patch_feature_extractor(model, model_id)
 
-    _model_cache[model_id] = model
+    _model_cache[cache_key] = model
     _current_model_id = model_id
     return model
 
@@ -360,6 +363,10 @@ def transcribe_stream():
     language = request.form.get("language", "he")
     start_from = float(request.form.get("start_from", "0"))
     fast_mode = request.form.get("fast_mode", "0") == "1"
+    compute_type_req = request.form.get("compute_type")  # float16 | int8_float16 | int8
+    beam_size_req = request.form.get("beam_size")  # 1-5
+    no_condition_prev = request.form.get("no_condition_on_previous", "0") == "1"
+    vad_aggressive = request.form.get("vad_aggressive", "0") == "1"
     resolved = MODEL_REGISTRY.get(model_id, model_id)
 
     suffix = Path(audio_file.filename or "audio.webm").suffix or ".webm"
@@ -397,11 +404,15 @@ def transcribe_stream():
             # Tell client we're loading the model (can take 10-30s on first load)
             yield f"data: {json.dumps({'type': 'loading', 'message': 'Loading model...', 'model': resolved})}\n\n"
 
-            model = load_model(resolved)
+            model = load_model(resolved, compute_type_override=compute_type_req)
 
             transcribe_path = trimmed_path if trimmed_path else tmp_path
+            file_size_bytes = os.path.getsize(transcribe_path)
+            beam_size = int(beam_size_req) if beam_size_req and beam_size_req.isdigit() and 1 <= int(beam_size_req) <= 5 else None
+            condition_on_prev = not no_condition_prev
+            ct_label = compute_type_req or 'auto'
             mode_label = "FAST (batched)" if fast_mode else "normal"
-            print(f"\n  [stream] Transcribing: {audio_file.filename} (model={resolved}, lang={language}, start_from={start_from}s, mode={mode_label})")
+            print(f"\n  [stream] Transcribing: {audio_file.filename} (model={resolved}, lang={language}, start_from={start_from}s, mode={mode_label}, compute={ct_label}, beam={beam_size or 'default'}, cond_prev={condition_on_prev}, vad_agg={vad_aggressive})")
             start = time.time()
 
             if fast_mode:
@@ -412,16 +423,24 @@ def transcribe_stream():
                     transcribe_path,
                     language=language if language != "auto" else None,
                     word_timestamps=True,
-                    beam_size=1,
+                    beam_size=beam_size or 1,
                     batch_size=16,
+                    condition_on_previous_text=condition_on_prev,
                 )
             else:
+                vad_params = dict(
+                    min_silence_duration_ms=300 if vad_aggressive else 500,
+                    speech_pad_ms=100 if vad_aggressive else 200,
+                    threshold=0.5 if vad_aggressive else 0.35,
+                )
                 segments_gen, info = model.transcribe(
                     transcribe_path,
                     language=language if language != "auto" else None,
                     word_timestamps=True,
+                    beam_size=beam_size or 5,
                     vad_filter=True,
-                    vad_parameters=dict(min_silence_duration_ms=500, speech_pad_ms=200),
+                    vad_parameters=vad_params,
+                    condition_on_previous_text=condition_on_prev,
                 )
 
             duration = info.duration or 1.0
@@ -458,7 +477,22 @@ def transcribe_stream():
             full_text = " ".join(all_text_parts)
             print(f"  [stream] Done in {elapsed:.1f}s — {len(all_word_timings)} words, {duration:.1f}s audio (offset {start_from}s)")
 
-            yield f"data: {json.dumps({'type': 'done', 'text': full_text, 'wordTimings': all_word_timings, 'duration': round(total_duration, 2), 'processing_time': round(elapsed, 2), 'model': resolved, 'start_from': start_from})}\n\n"
+            rtf = round(elapsed / duration, 2) if duration > 0 else 0
+            stats = {
+                'type': 'done',
+                'text': full_text,
+                'wordTimings': all_word_timings,
+                'duration': round(total_duration, 2),
+                'processing_time': round(elapsed, 2),
+                'model': resolved,
+                'start_from': start_from,
+                'rtf': rtf,
+                'file_size': file_size_bytes,
+                'compute_type': compute_type_req or ('float16' if get_device() == 'cuda' else 'int8'),
+                'beam_size': beam_size or (1 if fast_mode else 5),
+                'fast_mode': fast_mode,
+            }
+            yield f"data: {json.dumps(stats)}\n\n"
 
         except Exception as e:
             print(f"  [stream] Error: {e}")
@@ -488,15 +522,17 @@ def load_model_endpoint():
     model_id = data.get("model", DEFAULT_MODEL)
     resolved = MODEL_REGISTRY.get(model_id, model_id)
 
+    compute_type = data.get("compute_type")  # optional
+
     try:
         # Unload other models to free GPU memory before loading new one
         for cached_id in list(_model_cache.keys()):
-            if cached_id != resolved:
+            if not cached_id.startswith(resolved + "::"):
                 del _model_cache[cached_id]
                 print(f"  Unloaded model to free VRAM: {cached_id}")
         import gc; gc.collect()
 
-        load_model(resolved)
+        load_model(resolved, compute_type_override=compute_type)
         return jsonify({"status": "loaded", "model": resolved})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -536,6 +572,37 @@ def unload_models_endpoint():
     import gc; gc.collect()
     print(f"  Unloaded {count} models from memory")
     return jsonify({"status": "ok", "unloaded": count})
+
+
+@app.route("/warmup", methods=["POST"])
+def warmup_endpoint():
+    """Warm up the GPU pipeline with a short silent audio — reduces first-transcription latency."""
+    import numpy as np
+    model_id = _current_model_id
+    if not model_id:
+        return jsonify({"status": "no_model", "message": "No model loaded"}), 400
+    try:
+        # Find the cached model
+        model = None
+        for key, m in _model_cache.items():
+            if key.startswith(model_id + "::"):
+                model = m
+                break
+        if model is None:
+            return jsonify({"status": "no_model", "message": "Model not in cache"}), 400
+
+        # Generate 1 second of silence at 16kHz and run through the pipeline
+        silence = np.zeros(16000, dtype=np.float32)
+        start = time.time()
+        segments, _ = model.transcribe(silence, language="he")
+        for _ in segments:
+            pass  # consume generator
+        elapsed = time.time() - start
+        print(f"  GPU warmup done in {elapsed:.2f}s")
+        return jsonify({"status": "ok", "warmup_time": round(elapsed, 2)})
+    except Exception as e:
+        print(f"  Warmup failed: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/shutdown", methods=["POST"])

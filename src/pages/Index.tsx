@@ -10,7 +10,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useLocalTranscription } from "@/hooks/useLocalTranscription";
-import { useLocalServer } from "@/hooks/useLocalServer";
+import { useLocalServer, type TranscriptionStats, type CudaOptions } from "@/hooks/useLocalServer";
 import { useBackgroundTask } from "@/hooks/useBackgroundTask";
 import { debugLog } from "@/lib/debugLogger";
 import { useCloudTranscripts } from "@/hooks/useCloudTranscripts";
@@ -63,6 +63,7 @@ const Index = () => {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [wordTimings, setWordTimings] = useState<Array<{word: string, start: number, end: number}>>([]);
   const [recoveredPartialInfo, setRecoveredPartialInfo] = useState<{progress: number, wordCount: number, lastSegEnd?: number} | null>(null);
+  const [lastStats, setLastStats] = useState<TranscriptionStats | null>(null);
 
   // Save reference to last uploaded file for resume functionality
   const lastFileRef = useRef<File | null>(null);
@@ -578,7 +579,17 @@ const Index = () => {
       console.log(`[Index] 🚀 calling serverTranscribeStream — model:${preferredModel ?? 'default'}, lang:${lang}, file:${file.name}`);
       setTranscript('');
       setWordTimings([]);
+      setLastStats(null);
       toast({ title: "מתמלל עם GPU...", description: "מעבד את הקובץ בשרת המקומי עם CUDA — תראה תוצאות בזמן אמת" });
+
+      // Build CUDA options from localStorage
+      const cudaOptions: CudaOptions = {
+        fastMode: localStorage.getItem('cuda_fast_mode') === '1',
+        computeType: localStorage.getItem('cuda_compute_type') || undefined,
+        beamSize: parseInt(localStorage.getItem('cuda_beam_size') || '0') || undefined,
+        noConditionOnPrevious: localStorage.getItem('cuda_no_condition_prev') === '1',
+        vadAggressive: localStorage.getItem('cuda_vad_aggressive') === '1',
+      };
 
       const result = await serverTranscribeStream(file, preferredModel, lang, (partial) => {
         // Update live as segments arrive
@@ -586,17 +597,19 @@ const Index = () => {
         setWordTimings(partial.wordTimings);
         console.log(`[Index] 📊 partial callback — progress:${partial.progress}%, words:${partial.wordTimings.length}`);
         debugLog.info('CUDA Stream', `${partial.progress}% — ${partial.wordTimings.length} מילים`);
-      }, resumeFrom, localStorage.getItem('cuda_fast_mode') === '1');
+      }, resumeFrom, cudaOptions);
       console.log(`[Index] ✅ serverTranscribeStream finished — text length:${result.text?.length}, processing_time:${result.processing_time}s`);
 
       const timings = result.wordTimings || [];
       setTranscript(result.text);
       setWordTimings(timings);
+      if (result.stats) setLastStats(result.stats);
       saveToHistory(result.text, `Local CUDA (${result.model || 'server'})`);
       clearPartial();
+      const statsInfo = result.stats ? ` | RTF=${result.stats.rtf} | ${result.stats.compute_type}` : '';
       toast({
         title: "הצלחה!",
-        description: `תמלול GPU הושלם ב-${result.processing_time || '?'}s — עובר לעריכת טקסט`,
+        description: `תמלול GPU הושלם ב-${result.processing_time || '?'}s${statsInfo} — עובר לעריכת טקסט`,
       });
       setTimeout(() => {
         navigate('/text-editor', { state: { text: result.text, audioUrl: fileAudioUrl, wordTimings: timings } });
@@ -996,6 +1009,31 @@ const Index = () => {
                     {recoveredPartialInfo.wordCount} מילים{recoveredPartialInfo.lastSegEnd ? ` — עצר ב-${Math.round(recoveredPartialInfo.lastSegEnd)}s` : ''}
                   </p>
                 </div>
+              </div>
+            </div>
+          </Card>
+        )}
+
+        {/* Transcription stats — shown after CUDA transcription completes */}
+        {lastStats && !isLoading && (
+          <Card className="p-3 border-green-500/30 bg-green-500/5" dir="rtl">
+            <div className="flex items-center justify-between">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs h-6 px-2 text-muted-foreground"
+                onClick={() => setLastStats(null)}
+              >
+                ✕
+              </Button>
+              <div className="flex flex-wrap gap-3 text-xs text-right">
+                <span>⏱ {lastStats.processing_time}s</span>
+                <span>📊 RTF={lastStats.rtf}</span>
+                <span>📐 {lastStats.compute_type}</span>
+                <span>🔍 beam={lastStats.beam_size}</span>
+                <span>{lastStats.fast_mode ? '⚡ מהיר' : '🐢 רגיל'}</span>
+                <span>📁 {(lastStats.file_size / 1024 / 1024).toFixed(1)}MB</span>
+                <span>🎵 {lastStats.duration.toFixed(0)}s</span>
               </div>
             </div>
           </Card>

@@ -13,6 +13,25 @@ export interface ServerTranscriptionResult {
   language?: string;
   model?: string;
   processing_time?: number;
+  stats?: TranscriptionStats;
+}
+
+export interface TranscriptionStats {
+  rtf: number;              // Real-Time Factor (processing_time / audio_duration)
+  file_size: number;        // bytes
+  compute_type: string;
+  beam_size: number;
+  fast_mode: boolean;
+  processing_time: number;
+  duration: number;
+}
+
+export interface CudaOptions {
+  fastMode?: boolean;
+  computeType?: string;         // 'float16' | 'int8_float16' | 'int8'
+  beamSize?: number;            // 1-5
+  noConditionOnPrevious?: boolean;
+  vadAggressive?: boolean;
 }
 
 export interface PartialTranscript {
@@ -147,7 +166,7 @@ export const useLocalServer = () => {
     language: string = 'he',
     onPartial?: (partial: PartialTranscript) => void,
     resumeFrom?: { startFrom: number; existingText: string; existingWords: WordTiming[] },
-    fastMode?: boolean,
+    cudaOptions?: CudaOptions,
   ): Promise<ServerTranscriptionResult> => {
     console.log(`[useLocalServer] 🎙️ transcribeStream START — file:${file.name} (${(file.size/1024).toFixed(0)}KB), model:${model ?? 'default'}, lang:${language}${resumeFrom ? `, resumeFrom=${resumeFrom.startFrom}s` : ''}`);
     setIsLoading(true);
@@ -168,8 +187,20 @@ export const useLocalServer = () => {
     if (resumeFrom) {
       form.append('start_from', String(resumeFrom.startFrom));
     }
-    if (fastMode) {
+    if (cudaOptions?.fastMode) {
       form.append('fast_mode', '1');
+    }
+    if (cudaOptions?.computeType) {
+      form.append('compute_type', cudaOptions.computeType);
+    }
+    if (cudaOptions?.beamSize) {
+      form.append('beam_size', String(cudaOptions.beamSize));
+    }
+    if (cudaOptions?.noConditionOnPrevious) {
+      form.append('no_condition_on_previous', '1');
+    }
+    if (cudaOptions?.vadAggressive) {
+      form.append('vad_aggressive', '1');
     }
 
     // Prepend existing text/words when resuming
@@ -269,6 +300,15 @@ export const useLocalServer = () => {
               language: evt.language,
               model: evt.model,
               processing_time: evt.processing_time,
+              stats: evt.rtf != null ? {
+                rtf: evt.rtf,
+                file_size: evt.file_size,
+                compute_type: evt.compute_type,
+                beam_size: evt.beam_size,
+                fast_mode: evt.fast_mode,
+                processing_time: evt.processing_time,
+                duration: evt.duration,
+              } : undefined,
             };
             // Clear partial — we have the full result
             localStorage.removeItem(PARTIAL_STORAGE_KEY);
@@ -370,6 +410,19 @@ export const useLocalServer = () => {
     setServerStatus(null);
   }, []);
 
+  const warmupServer = useCallback(async () => {
+    try {
+      const res = await fetch(`${getBaseUrl()}/warmup`, { method: 'POST', signal: AbortSignal.timeout(30000) });
+      if (res.ok) {
+        const data = await res.json();
+        return data.warmup_time as number;
+      }
+    } catch {
+      // Server not available
+    }
+    return null;
+  }, []);
+
   return {
     isConnected,
     serverStatus,
@@ -388,6 +441,7 @@ export const useLocalServer = () => {
     startPolling,
     stopPolling,
     shutdownServer,
+    warmupServer,
     getBaseUrl,
   };
 };
