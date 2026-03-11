@@ -75,46 +75,71 @@ serve(async (req) => {
     const safeFileName = sanitizeFileName(fileName);
     console.log('Sending to Groq Whisper API...', fileName, '->', safeFileName);
 
-    const result = await withRetry(async () => {
-      const fd = new FormData();
-      fd.append('file', fileBlob!, safeFileName);
-      fd.append('model', 'whisper-large-v3-turbo');
-      fd.append('language', language);
-      fd.append('response_format', 'verbose_json');
-      fd.append('timestamp_granularities[]', 'word');
+    // Determine mime type from extension
+    const ext = safeFileName.split('.').pop()?.toLowerCase() || 'webm';
+    const mimeMap: Record<string, string> = {
+      mp3: 'audio/mpeg', wav: 'audio/wav', webm: 'audio/webm',
+      m4a: 'audio/mp4', ogg: 'audio/ogg', flac: 'audio/flac',
+      mp4: 'video/mp4', mpeg: 'audio/mpeg',
+    };
+    const mimeType = mimeMap[ext] || 'audio/mpeg';
+    const typedBlob = new Blob([await fileBlob!.arrayBuffer()], { type: mimeType });
 
-      const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${GROQ_API_KEY}` },
-        body: fd,
-      });
+    const models = ['whisper-large-v3-turbo', 'whisper-large-v3'];
+    let result: any = null;
+    let lastError: Error | undefined;
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Groq API error:', response.status, errorText);
-        
-        if (response.status === 429) {
-          // Don't retry rate limits - surface immediately
-          const err = new Error('RATE_LIMIT');
-          (err as any).noRetry = true;
-          throw err;
-        }
-        if (response.status === 401 || response.status === 403) {
-          const err = new Error('AUTH_ERROR');
-          (err as any).noRetry = true;
-          throw err;
-        }
-        // 500 errors are retryable
-        if (response.status >= 500) {
-          throw new Error(`SERVER_ERROR_${response.status}`);
-        }
-        throw new Error(`Groq API error: ${response.status}`);
+    for (const model of models) {
+      try {
+        result = await withRetry(async () => {
+          const fd = new FormData();
+          fd.append('file', typedBlob, safeFileName);
+          fd.append('model', model);
+          fd.append('language', language);
+          fd.append('response_format', 'verbose_json');
+          fd.append('timestamp_granularities[]', 'word');
+
+          console.log(`Trying model: ${model}, mime: ${mimeType}, size: ${typedBlob.size}`);
+
+          const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${GROQ_API_KEY}` },
+            body: fd,
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`Groq API error (${model}):`, response.status, errorText);
+            
+            if (response.status === 429) {
+              const err = new Error('RATE_LIMIT');
+              (err as any).noRetry = true;
+              throw err;
+            }
+            if (response.status === 401 || response.status === 403) {
+              const err = new Error('AUTH_ERROR');
+              (err as any).noRetry = true;
+              throw err;
+            }
+            if (response.status >= 500) {
+              throw new Error(`SERVER_ERROR_${response.status}`);
+            }
+            throw new Error(`Groq API error: ${response.status}`);
+          }
+
+          return await response.json();
+        }, 2, 3000);
+
+        console.log(`Groq transcription completed with model: ${model}`);
+        break; // Success - exit loop
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+        if ((lastError as any).noRetry) throw lastError;
+        console.log(`Model ${model} failed, trying next...`);
       }
+    }
 
-      return await response.json();
-    }, 3, 3000);
-
-    console.log('Groq transcription completed successfully');
+    if (!result) throw lastError!;
 
     // Extract word-level timestamps
     const wordTimings = (result.words || []).map((w: any) => ({
