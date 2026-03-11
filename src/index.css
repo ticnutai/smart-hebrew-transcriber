@@ -101,64 +101,11 @@ All colors MUST be HSL.
   body {
     @apply bg-background text-foreground;
     direction: rtl;
-    font-family: var(--font-family, system-ui, -apple-system, sans-serif);
-    font-size: var(--font-size-base, 16px);
-    line-height: var(--line-height, 1.6);
-    letter-spacing: var(--letter-spacing, 0em);
-    font-weight: var(--font-weight, 400);
+    font-family: system-ui, -apple-system, sans-serif;
   }
-
-  h1, h2, h3, h4, h5, h6 {
-    font-family: var(--font-heading, var(--font-family, system-ui, -apple-system, sans-serif));
-    font-weight: var(--heading-weight, 700);
-  }
-
-  h1 { font-size: calc(var(--font-size-base, 16px) * var(--heading-scale, 1.4) * 1.6); }
-  h2 { font-size: calc(var(--font-size-base, 16px) * var(--heading-scale, 1.4) * 1.3); }
-  h3 { font-size: calc(var(--font-size-base, 16px) * var(--heading-scale, 1.4) * 1.1); }
 
   /* Theme icon color override */
   :root[style*="--icon-color"] svg:not(.no-theme-icon) {
     color: var(--icon-color, inherit);
-  }
-
-  /* Theme card padding */
-  :root[style*="--card-padding"] .card-themed {
-    padding: var(--card-padding, 1.5rem);
-  }
-
-  /* Theme shadow levels */
-  :root[style*="--shadow-md"] .shadow-themed {
-    box-shadow: var(--shadow-md);
-  }
-
-  /* Theme button radius */
-  :root[style*="--btn-radius"] .btn-themed {
-    border-radius: var(--btn-radius);
-  }
-
-  /* Glass effect */
-  :root.theme-glass .glass-card {
-    background: rgba(255, 255, 255, 0.05);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-  }
-
-  /* Animation speed */
-  :root[style*="--animation-speed"] * {
-    transition-duration: calc(0.15s * var(--animation-speed, 1)) !important;
-    animation-duration: calc(0.3s * var(--animation-speed, 1)) !important;
-  }
-
-  /* Content max width */
-  .content-constrained {
-    max-width: var(--content-max-width, 1200px);
-    margin-inline: auto;
-  }
-
-  /* Spacing multiplier */
-  .gap-themed {
-    gap: calc(1rem * var(--spacing-multiplier, 1));
   }
 }

@@ -34,13 +34,14 @@ async function transcribeBlob(
   blob: Blob,
   engine: string,
   language: string,
-  fileName: string
+  fileName: string,
+  userApiKeys?: Record<string, string>
 ): Promise<string> {
   const safeFileName = sanitizeFileName(fileName);
 
   if (engine === 'groq') {
-    const apiKey = Deno.env.get('GROQ_API_KEY');
-    if (!apiKey) throw new Error('GROQ_API_KEY not configured');
+    const apiKey = userApiKeys?.groq_key || Deno.env.get('GROQ_API_KEY');
+    if (!apiKey) throw new Error('GROQ_API_KEY not configured. Please add your Groq API key in Settings.');
 
     return await withRetry(async () => {
       const fd = new FormData();
@@ -63,8 +64,8 @@ async function transcribeBlob(
       return await response.text();
     });
   } else if (engine === 'openai') {
-    const apiKey = Deno.env.get('OPENAI_API_KEY');
-    if (!apiKey) throw new Error('OPENAI_API_KEY not configured');
+    const apiKey = userApiKeys?.openai_key || Deno.env.get('OPENAI_API_KEY');
+    if (!apiKey) throw new Error('OPENAI_API_KEY not configured. Please add your OpenAI API key in Settings.');
 
     return await withRetry(async () => {
       const fd = new FormData();
@@ -118,6 +119,21 @@ serve(async (req) => {
       });
     }
 
+    // Fetch user's API keys from cloud
+    let userApiKeys: Record<string, string> = {};
+    try {
+      const { data: keysData } = await adminClient
+        .from('user_api_keys')
+        .select('*')
+        .eq('user_identifier', job.user_id)
+        .maybeSingle();
+      if (keysData) {
+        userApiKeys = keysData as Record<string, string>;
+      }
+    } catch (e) {
+      console.log('Could not fetch user API keys, falling back to env:', e);
+    }
+
     await adminClient.from('transcription_jobs')
       .update({ status: 'processing', progress: 30, updated_at: new Date().toISOString() })
       .eq('id', jobId);
@@ -140,7 +156,7 @@ serve(async (req) => {
 
     if (totalChunks <= 1 || fileData.size <= CHUNK_SIZE) {
       // Single chunk - simple path
-      const text = await transcribeBlob(fileData, engine, job.language || 'he', job.file_name || 'audio.webm');
+      const text = await transcribeBlob(fileData, engine, job.language || 'he', job.file_name || 'audio.webm', userApiKeys);
       partialResult = text;
     } else {
       // Multi-chunk processing with resume
@@ -154,7 +170,7 @@ serve(async (req) => {
         console.log(`Processing chunk ${i + 1}/${actualChunks}`);
         
         const chunkText = await transcribeBlob(
-          chunkBlob, engine, job.language || 'he', job.file_name || 'audio.webm'
+          chunkBlob, engine, job.language || 'he', job.file_name || 'audio.webm', userApiKeys
         );
 
         partialResult += (partialResult ? ' ' : '') + chunkText;
