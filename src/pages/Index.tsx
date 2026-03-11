@@ -673,7 +673,8 @@ const Index = () => {
     };
 
     if (engine === 'local') {
-      return await localTranscribe(file);
+      const result = await localTranscribe(file);
+      return typeof result === 'string' ? result : result.text;
     }
 
     if (engine === 'google') {
