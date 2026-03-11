@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, lazy, Suspense } from "react";
+import { useState, useEffect, useRef, lazy, Suspense, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { TranscriptionEngine } from "@/components/TranscriptionEngine";
 import { FileUploader } from "@/components/FileUploader";
@@ -14,12 +14,15 @@ import { useLocalServer, type TranscriptionStats, type CudaOptions } from "@/hoo
 import { useBackgroundTask } from "@/hooks/useBackgroundTask";
 import { debugLog } from "@/lib/debugLogger";
 import { useCloudTranscripts } from "@/hooks/useCloudTranscripts";
-import { Settings, FileEdit, ChevronDown, X, Zap, Globe, Chrome, Mic, Waves, Server, Cpu, Film, Pause, Play, Square, Copy, Check } from "lucide-react";
+import { useTranscriptionAnalytics } from "@/hooks/useTranscriptionAnalytics";
+import { Settings, FileEdit, ChevronDown, X, Zap, Globe, Chrome, Mic, Waves, Server, Cpu, Film, Pause, Play, Square, Copy, Check, Keyboard } from "lucide-react";
 import { useTranscriptionJobs } from "@/hooks/useTranscriptionJobs";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCloudPreferences } from "@/hooks/useCloudPreferences";
 import { isVideoFile, extractAudioFromVideo, VIDEO_NEEDS_EXTRACTION, MAX_VIDEO_SIZE_MB, MAX_AUDIO_SIZE_MB } from "@/lib/videoUtils";
 import { compressAudio, needsCompression, formatFileSize, CLOUD_API_LIMIT } from "@/lib/audioCompression";
+import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
+import { KeyboardShortcutsDialog } from "@/components/KeyboardShortcutsDialog";
 
 // Lazy-loaded heavy components
 const LiveTranscriber = lazy(() => import("@/components/LiveTranscriber").then(m => ({ default: m.LiveTranscriber })));
@@ -30,6 +33,7 @@ const ShareTranscript = lazy(() => import("@/components/ShareTranscript").then(m
 const TextStyleControl = lazy(() => import("@/components/TextStyleControl").then(m => ({ default: m.TextStyleControl })));
 const LocalModelManager = lazy(() => import("@/components/LocalModelManager").then(m => ({ default: m.LocalModelManager })));
 const BackgroundJobsPanel = lazy(() => import("@/components/BackgroundJobsPanel").then(m => ({ default: m.BackgroundJobsPanel })));
+const SpeakerDiarization = lazy(() => import("@/components/SpeakerDiarization").then(m => ({ default: m.SpeakerDiarization })));
 
 type Engine = 'openai' | 'groq' | 'google' | 'local' | 'local-server' | 'assemblyai' | 'deepgram';
 type SourceLanguage = 'auto' | 'he' | 'yi' | 'en';
@@ -78,6 +82,10 @@ const Index = () => {
   const bgTask = useBackgroundTask();
   const { transcripts, isLoading: isCloudLoading, saveTranscript, updateTranscript, deleteTranscript, deleteAll, isCloud, getAudioUrl } = useCloudTranscripts();
   const { jobs, submitJob, submitBatchJobs, retryJob, deleteJob } = useTranscriptionJobs();
+  const { addRecord: addAnalyticsRecord } = useTranscriptionAnalytics();
+
+  // Helper to track the start time of each transcription for analytics
+  const transcriptionStartRef = useRef<number>(0);
 
   // Start/stop health polling when CUDA engine is selected
   useEffect(() => {
@@ -317,6 +325,9 @@ const Index = () => {
 
     debugLog.info('Transcription', `התחלת תמלול: ${fileToTranscribe.name} (${formatFileSize(fileToTranscribe.size)}) עם ${engine}`);
 
+    // Track start time for analytics
+    transcriptionStartRef.current = Date.now();
+
     // Run in background — doesn't block tab, sends notification on complete
     bgTask.run(`${engine} — ${file.name}`, async () => {
       if (engine === 'openai') {
@@ -380,6 +391,12 @@ const Index = () => {
         setTranscript(data.text);
         setWordTimings(timings);
         saveToHistory(data.text, 'OpenAI Whisper');
+        addAnalyticsRecord({
+          engine: 'OpenAI Whisper', status: 'success',
+          fileName: file.name, fileSize: file.size,
+          processingTime: (Date.now() - transcriptionStartRef.current) / 1000,
+          charCount: data.text.length, wordCount: data.text.split(/\s+/).length,
+        });
         toast({
           title: "הצלחה!",
           description: "התמלול הושלם בהצלחה - עובר לעריכת טקסט",
@@ -393,6 +410,11 @@ const Index = () => {
       }
     } catch (error) {
       debugLog.error('OpenAI', 'Transcription failed', error instanceof Error ? error.message : error);
+      addAnalyticsRecord({
+        engine: 'OpenAI Whisper', status: 'failed',
+        fileName: file.name, fileSize: file.size,
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+      });
       toast({
         title: "שגיאה",
         description: error instanceof Error ? error.message : "שגיאה בתמלול הקובץ",
@@ -454,6 +476,12 @@ const Index = () => {
         setTranscript(data.text);
         setWordTimings(timings);
         saveToHistory(data.text, 'Groq Whisper');
+        addAnalyticsRecord({
+          engine: 'Groq Whisper', status: 'success',
+          fileName: file.name, fileSize: file.size,
+          processingTime: (Date.now() - transcriptionStartRef.current) / 1000,
+          charCount: data.text.length, wordCount: data.text.split(/\s+/).length,
+        });
         toast({ 
           title: "הצלחה!", 
           description: "התמלול עם Groq הושלם בהצלחה - עובר לעריכת טקסט" 
@@ -468,6 +496,11 @@ const Index = () => {
       }
     } catch (error) {
       debugLog.error('Groq', 'Transcription failed', error instanceof Error ? error.message : error);
+      addAnalyticsRecord({
+        engine: 'Groq Whisper', status: 'failed',
+        fileName: file.name, fileSize: file.size,
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+      });
       toast({
         title: "שגיאה בתמלול Groq",
         description: error instanceof Error ? error.message : "שגיאה לא ידועה",
@@ -542,6 +575,12 @@ const Index = () => {
         setTranscript(data.text);
         setWordTimings(timings);
         saveToHistory(data.text, 'Google Speech-to-Text');
+        addAnalyticsRecord({
+          engine: 'Google Speech-to-Text', status: 'success',
+          fileName: file.name, fileSize: file.size,
+          processingTime: (Date.now() - transcriptionStartRef.current) / 1000,
+          charCount: data.text.length, wordCount: data.text.split(/\s+/).length,
+        });
         toast({
           title: "הצלחה!",
           description: "התמלול עם Google הושלם בהצלחה - עובר לעריכת טקסט"
@@ -555,6 +594,11 @@ const Index = () => {
       }
     } catch (error) {
       debugLog.error('Google', 'Transcription failed', error instanceof Error ? error.message : error);
+      addAnalyticsRecord({
+        engine: 'Google Speech-to-Text', status: 'failed',
+        fileName: file.name, fileSize: file.size,
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+      });
       toast({
         title: "שגיאה בתמלול Google",
         description: error instanceof Error ? error.message : "שגיאה לא ידועה",
@@ -572,6 +616,12 @@ const Index = () => {
       setTranscript(result.text);
       setWordTimings(result.wordTimings);
       saveToHistory(result.text, 'Local (Browser)');
+      addAnalyticsRecord({
+        engine: 'Local (Browser)', status: 'success',
+        fileName: file.name, fileSize: file.size,
+        processingTime: (Date.now() - transcriptionStartRef.current) / 1000,
+        charCount: result.text.length, wordCount: result.text.split(/\s+/).length,
+      });
       toast({
         title: "הצלחה!",
         description: "התמלול המקומי הושלם בהצלחה - עובר לעריכת טקסט",
@@ -582,6 +632,11 @@ const Index = () => {
       }, 1000);
     } catch (error) {
       debugLog.error('Local', 'Browser transcription failed', error instanceof Error ? error.message : error);
+      addAnalyticsRecord({
+        engine: 'Local (Browser)', status: 'failed',
+        fileName: file.name, fileSize: file.size,
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+      });
       toast({
         title: "שגיאה",
         description: error instanceof Error ? error.message : "שגיאה בתמלול מקומי",
@@ -655,6 +710,20 @@ const Index = () => {
       }
 
       clearPartial();
+      addAnalyticsRecord({
+        engine: engineLabel, status: 'success',
+        fileName: file.name, fileSize: file.size,
+        audioDuration: result.duration || result.stats?.duration,
+        processingTime: result.processing_time || result.stats?.processing_time,
+        rtf: result.stats?.rtf,
+        segmentCount: timings.length,
+        charCount: result.text.length,
+        wordCount: result.text.split(/\s+/).length,
+        model: result.model,
+        computeType: result.stats?.compute_type,
+        beamSize: result.stats?.beam_size,
+        fastMode: result.stats?.fast_mode,
+      });
       const statsInfo = result.stats ? ` | RTF=${result.stats.rtf} | ${result.stats.compute_type}` : '';
       toast({
         title: "הצלחה!",
@@ -669,6 +738,11 @@ const Index = () => {
         return;
       }
       debugLog.error('CUDA Server', 'Transcription failed', error instanceof Error ? error.message : error);
+      addAnalyticsRecord({
+        engine: 'Local CUDA', status: 'failed',
+        fileName: file.name, fileSize: file.size,
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+      });
       // Even on failure, keep what was partially transcribed (already saved to localStorage by hook)
       toast({
         title: "שגיאה בתמלול שרת מקומי",
@@ -713,6 +787,12 @@ const Index = () => {
         setTranscript(data.text);
         setWordTimings(timings);
         saveToHistory(data.text, 'AssemblyAI');
+        addAnalyticsRecord({
+          engine: 'AssemblyAI', status: 'success',
+          fileName: file.name, fileSize: file.size,
+          processingTime: (Date.now() - transcriptionStartRef.current) / 1000,
+          charCount: data.text.length, wordCount: data.text.split(/\s+/).length,
+        });
         toast({
           title: "הצלחה!",
           description: "התמלול הושלם בהצלחה - עובר לעריכת טקסט",
@@ -725,6 +805,11 @@ const Index = () => {
       }
     } catch (error) {
       debugLog.error('AssemblyAI', 'Transcription failed', error instanceof Error ? error.message : error);
+      addAnalyticsRecord({
+        engine: 'AssemblyAI', status: 'failed',
+        fileName: file.name, fileSize: file.size,
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+      });
       toast({
         title: "שגיאה",
         description: error instanceof Error ? error.message : "שגיאה בתמלול הקובץ",
@@ -770,6 +855,12 @@ const Index = () => {
         setTranscript(data.text);
         setWordTimings(timings);
         saveToHistory(data.text, 'Deepgram');
+        addAnalyticsRecord({
+          engine: 'Deepgram', status: 'success',
+          fileName: file.name, fileSize: file.size,
+          processingTime: (Date.now() - transcriptionStartRef.current) / 1000,
+          charCount: data.text.length, wordCount: data.text.split(/\s+/).length,
+        });
         toast({
           title: "הצלחה!",
           description: "התמלול הושלם בהצלחה - עובר לעריכת טקסט",
@@ -782,6 +873,11 @@ const Index = () => {
       }
     } catch (error) {
       debugLog.error('Deepgram', 'Transcription failed', error instanceof Error ? error.message : error);
+      addAnalyticsRecord({
+        engine: 'Deepgram', status: 'failed',
+        fileName: file.name, fileSize: file.size,
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+      });
       toast({
         title: "שגיאה",
         description: error instanceof Error ? error.message : "שגיאה בתמלול הקובץ",
@@ -795,6 +891,23 @@ const Index = () => {
 
   const isLoading = isUploading || isLocalLoading || isServerLoading || bgTask.isRunning;
   const progress = engine === 'local' ? localProgress : engine === 'local-server' ? serverProgress : (isUploading ? uploadProgress : undefined);
+
+  // Keyboard shortcuts
+  const [searchOpen, setSearchOpen] = useState(false);
+  const shortcutHandler = useCallback((action: 'show-shortcuts' | 'copy-transcript' | 'cancel-transcription' | 'search-transcript') => {
+    if (action === 'copy-transcript' && transcript) {
+      navigator.clipboard.writeText(transcript).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+        toast({ title: "הועתק", description: "התמלול הועתק ללוח" });
+      });
+    } else if (action === 'cancel-transcription' && isLoading) {
+      handleCancelTranscription();
+    } else if (action === 'search-transcript') {
+      setSearchOpen(prev => !prev);
+    }
+  }, [transcript, isLoading]);
+  const { showHelp, setShowHelp } = useKeyboardShortcuts(shortcutHandler);
 
   // Elapsed time counter — starts fresh each time a transcription begins
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -959,6 +1072,14 @@ const Index = () => {
               onTextColorChange={setTextColor}
               onLineHeightChange={setLineHeight}
             />
+            <Button 
+              variant="outline" 
+              size="icon"
+              onClick={() => setShowHelp(true)}
+              title="קיצורי מקלדת (?)"
+            >
+              <Keyboard className="h-4 w-4" />
+            </Button>
             <Button 
               variant="outline" 
               size="icon"
@@ -1197,6 +1318,10 @@ const Index = () => {
           onTranscriptComplete={(text) => {
             setTranscript(text);
             saveToHistory(text, 'Live (Web Speech API)');
+            addAnalyticsRecord({
+              engine: 'Live (Web Speech API)', status: 'success',
+              charCount: text.length, wordCount: text.split(/\s+/).length,
+            });
             toast({ title: "תמלול חי הושלם!" });
             setTimeout(() => navigate('/text-editor', { state: { text } }), 1000);
           }}
@@ -1273,11 +1398,19 @@ const Index = () => {
               transcript={transcript}
               onTranscriptChange={setTranscript}
               wordTimings={wordTimings}
+              searchOpen={searchOpen}
+              onSearchOpenChange={setSearchOpen}
             />
           </div>
         )}
+
+        {/* Speaker Diarization — available when local server is connected */}
+        {serverConnected && (
+          <SpeakerDiarization />
+        )}
       </div>
     </div>
+    <KeyboardShortcutsDialog open={showHelp} onOpenChange={setShowHelp} />
     </Suspense>
   );
 };

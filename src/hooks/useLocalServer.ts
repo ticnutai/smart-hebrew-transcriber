@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { debugLog } from '@/lib/debugLogger';
 
 export interface WordTiming {
   word: string;
@@ -210,13 +211,13 @@ export const useLocalServer = () => {
     const ct = cudaOptions?.computeType || localStorage.getItem('cuda_compute_type') || undefined;
 
     // 1. PARALLEL: stage audio + ensure model is loaded
-    console.log('[parallel] Starting parallel stage + preload...');
+    debugLog.info('CUDA', 'Starting parallel stage + preload...');
     const [stageId] = await Promise.all([
       stageAudio(file),
       // Only preload if model not ready (preloadModelStream is a no-op if already cached)
       !modelReady ? preloadModelStream(model, ct).catch(() => ({ ready: false })) : Promise.resolve({ ready: true }),
     ]);
-    console.log(`[parallel] Stage: ${stageId ? 'OK' : 'FAILED'}, model ready: ${modelReady}`);
+    debugLog.info('CUDA', `Stage: ${stageId ? 'OK' : 'FAILED'}, model ready: ${modelReady}`);
 
     // 2. Build form — use stage_id if available, otherwise fall back to normal upload
     const form = new FormData();
@@ -475,7 +476,7 @@ export const useLocalServer = () => {
           let evt: any;
           try { evt = JSON.parse(raw); } catch { continue; }
 
-          console.log(`[SSE] event: ${evt.type}`, evt.type === 'segment' ? `progress=${evt.progress}% words=${evt.words?.length}` : evt);
+          debugLog.info('CUDA-SSE', `event: ${evt.type}`, evt.type === 'segment' ? `progress=${evt.progress}% words=${evt.words?.length}` : evt);
 
           if (evt.type === 'loading') {
             setPhase('loading-model');
@@ -552,14 +553,14 @@ export const useLocalServer = () => {
         };
       }
 
-      console.warn('[useLocalServer] ⚠️ stream ended without results (no accText)');
+      debugLog.warn('CUDA', 'Stream ended without results (no accText)');
       throw new Error('Stream ended without results');
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
 
         throw new Error('CANCELLED');
       }
-      console.error('[useLocalServer] ❌ transcribeStream error:', err);
+      debugLog.error('CUDA', 'transcribeStream error', err instanceof Error ? err.message : String(err));
       throw err;
     } finally {
 

@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { splitFileIntoChunks } from '@/utils/audioChunker';
+import { debugLog } from '@/lib/debugLogger';
 
 export interface TranscriptionJob {
   id: string;
@@ -43,7 +44,7 @@ export const useTranscriptionJobs = () => {
       if (error) throw error;
       setJobs((data as TranscriptionJob[]) || []);
     } catch (err) {
-      console.error('Error loading jobs:', err);
+      debugLog.error('Jobs', 'Error loading jobs', err instanceof Error ? err.message : String(err));
     } finally {
       setIsLoading(false);
     }
@@ -96,7 +97,7 @@ export const useTranscriptionJobs = () => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ jobId }),
-    }).catch(err => console.error('Error triggering processing:', err));
+    }).catch(err => debugLog.error('Jobs', 'Error triggering processing', err instanceof Error ? err.message : String(err)));
   };
 
   // Submit a single job (with chunking for large files)
@@ -156,7 +157,7 @@ export const useTranscriptionJobs = () => {
       triggerProcessing(job.id);
       return job.id;
     } catch (error) {
-      console.error('Error submitting job:', error);
+      debugLog.error('Jobs', 'Error submitting job', error instanceof Error ? error.message : String(error));
       toast({ title: "שגיאה", description: error instanceof Error ? error.message : "שגיאה בשליחת העבודה", variant: "destructive" });
       return null;
     }
@@ -212,7 +213,7 @@ export const useTranscriptionJobs = () => {
       triggerProcessing(jobId);
       toast({ title: "ניסיון חוזר...", description: job?.completed_chunks ? `ממשיך מחלק ${job.completed_chunks}` : "שולח מחדש" });
     } catch (err) {
-      console.error('Error retrying job:', err);
+      debugLog.error('Jobs', 'Error retrying job', err instanceof Error ? err.message : String(err));
     }
   }, [jobs]);
 
@@ -238,7 +239,7 @@ export const useTranscriptionJobs = () => {
       }
       toast({ title: "נמחק ✓", description: removedJob?.file_name || 'העבודה נמחקה' });
     } catch (err) {
-      console.error('Error deleting job:', err);
+      debugLog.error('Jobs', 'Error deleting job', err instanceof Error ? err.message : String(err));
       // Rollback: restore the job in UI
       deletedIdsRef.current.delete(jobId);
       if (removedJob) {

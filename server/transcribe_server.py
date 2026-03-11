@@ -1101,6 +1101,152 @@ def unload_models_endpoint():
     return jsonify({"status": "ok", "unloaded": count})
 
 
+@app.route("/diarize", methods=["POST"])
+def diarize():
+    """Transcribe audio with speaker diarization.
+
+    Uses whisper segments + silence gap heuristics to detect speaker changes.
+    If pyannote.audio is installed and a HuggingFace token is provided,
+    uses proper neural speaker diarization instead.
+
+    Form params:
+        file: audio file
+        model: whisper model id (optional)
+        language: language code (optional, default 'he')
+        min_gap: minimum silence gap (seconds) to consider a speaker change (default 1.5)
+        hf_token: HuggingFace token for pyannote (optional)
+    """
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+
+    audio_file = request.files["file"]
+    model_id = request.form.get("model", _current_model_id or DEFAULT_MODEL)
+    language = request.form.get("language", "he")
+    min_gap = float(request.form.get("min_gap", "1.5"))
+    hf_token = request.form.get("hf_token", "")
+
+    resolved = MODEL_REGISTRY.get(model_id, model_id)
+    suffix = _safe_suffix(audio_file.filename)
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        audio_file.save(tmp)
+        tmp_path = tmp.name
+
+    try:
+        model = load_model(resolved)
+        _log.info(f"Diarizing: {audio_file.filename} (model={resolved}, lang={language}, min_gap={min_gap})")
+        start = time.time()
+
+        segments_raw, info = model.transcribe(
+            tmp_path,
+            language=language if language != "auto" else None,
+            word_timestamps=True,
+            vad_filter=True,
+            vad_parameters=dict(min_silence_duration_ms=500, speech_pad_ms=200),
+        )
+
+        # Collect raw segments
+        raw_segments = []
+        for seg in segments_raw:
+            words = []
+            if seg.words:
+                words = [{"word": w.word.strip(), "start": round(w.start, 3),
+                          "end": round(w.end, 3), "probability": round(w.probability, 3)}
+                         for w in seg.words]
+            raw_segments.append({
+                "text": seg.text.strip(),
+                "start": round(seg.start, 3),
+                "end": round(seg.end, 3),
+                "words": words,
+            })
+
+        # Try pyannote diarization if available and token provided
+        speaker_segments = None
+        diarization_method = "silence-gap"
+
+        if hf_token:
+            try:
+                from pyannote.audio import Pipeline as PyannotePipeline
+                _log.info("Using pyannote.audio for speaker diarization")
+                pipe = PyannotePipeline.from_pretrained(
+                    "pyannote/speaker-diarization-3.1",
+                    use_auth_token=hf_token,
+                )
+                if _has_torch and torch.cuda.is_available():
+                    pipe.to(torch.device("cuda"))
+                diarization = pipe(tmp_path)
+                speaker_segments = []
+                for turn, _, speaker in diarization.itertracks(yield_label=True):
+                    speaker_segments.append({
+                        "speaker": speaker,
+                        "start": round(turn.start, 3),
+                        "end": round(turn.end, 3),
+                    })
+                diarization_method = "pyannote"
+            except ImportError:
+                _log.warning("pyannote.audio not installed — falling back to silence-gap heuristic")
+            except Exception as e:
+                _log.warning(f"pyannote diarization failed: {e} — falling back to silence-gap heuristic")
+
+        # Assign speakers to segments
+        if speaker_segments and diarization_method == "pyannote":
+            # Map each whisper segment to the pyannote speaker with largest overlap
+            for seg in raw_segments:
+                best_speaker = "SPEAKER_00"
+                best_overlap = 0
+                for sp in speaker_segments:
+                    overlap = min(seg["end"], sp["end"]) - max(seg["start"], sp["start"])
+                    if overlap > best_overlap:
+                        best_overlap = overlap
+                        best_speaker = sp["speaker"]
+                seg["speaker"] = best_speaker
+        else:
+            # Silence-gap heuristic: detect speaker changes based on gaps between segments
+            current_speaker = 0
+            for i, seg in enumerate(raw_segments):
+                if i > 0:
+                    gap = seg["start"] - raw_segments[i - 1]["end"]
+                    if gap >= min_gap:
+                        current_speaker = (current_speaker + 1) % 10
+                seg["speaker"] = f"SPEAKER_{current_speaker:02d}"
+
+        # Normalize speaker labels to sequential numbers
+        seen_speakers = {}
+        speaker_counter = 0
+        for seg in raw_segments:
+            sp = seg["speaker"]
+            if sp not in seen_speakers:
+                seen_speakers[sp] = f"דובר {speaker_counter + 1}"
+                speaker_counter += 1
+            seg["speaker_label"] = seen_speakers[sp]
+
+        elapsed = time.time() - start
+        full_text = " ".join(s["text"] for s in raw_segments)
+
+        _log.info(f"Diarization done in {elapsed:.1f}s — {len(raw_segments)} segments, {speaker_counter} speakers ({diarization_method})")
+
+        return jsonify({
+            "text": full_text,
+            "segments": raw_segments,
+            "speakers": list(seen_speakers.values()),
+            "speaker_count": speaker_counter,
+            "duration": round(info.duration, 2),
+            "language": info.language,
+            "model": resolved,
+            "processing_time": round(elapsed, 2),
+            "diarization_method": diarization_method,
+        })
+
+    except Exception as e:
+        _log.error(f"Diarization error: {e}\n{_tb_module.format_exc()}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
 @app.route("/warmup", methods=["POST"])
 def warmup_endpoint():
     """Warm up the GPU pipeline with a short silent audio — reduces first-transcription latency."""
@@ -1239,6 +1385,7 @@ def main():
     print("    GET  /models            — Available models")
     print("    POST /transcribe        — Transcribe audio (single response)")
     print("    POST /transcribe-stream — Transcribe audio (SSE streaming)")
+    print("    POST /diarize           — Transcribe + speaker diarization")
     print("    POST /stage-audio       — Pre-upload audio (parallel with preload)")
     print("    POST /load-model        — Load model into GPU memory")
     print("    POST /preload-stream    — Preload model via SSE (background)")

@@ -10,7 +10,9 @@ import AppLayout from "./components/AppLayout";
 import { Loader2 } from "lucide-react";
 import CloudKeySync from "./components/CloudKeySync";
 import UserFloatingBadge from "./components/UserFloatingBadge";
-import { DebugPanel } from "./components/DebugPanel";
+import { SmartConsole } from "./components/SmartConsole";
+import { TranscriptionAnalytics } from "./components/TranscriptionAnalytics";
+import { PWAInstallButton } from "./components/PWAInstallButton";
 import { useTheme } from "./hooks/useTheme";
 
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -48,7 +50,9 @@ const App = () => {
         <BrowserRouter>
           <CloudKeySync />
           <UserFloatingBadge />
-          <DebugPanel />
+          <SmartConsole />
+          <TranscriptionAnalytics />
+          <PWAInstallButton />
           <AppSidebar />
           <AppLayout>
             <Suspense fallback={<PageLoader />}>

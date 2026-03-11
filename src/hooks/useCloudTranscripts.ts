@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
+import { debugLog } from '@/lib/debugLogger';
 
 export interface CloudTranscript {
   id: string;
@@ -37,7 +38,7 @@ export const useCloudTranscripts = () => {
       if (error) throw error;
       setTranscripts((data as CloudTranscript[]) || []);
     } catch (error) {
-      console.error('Error fetching transcripts:', error);
+      debugLog.error('Cloud', 'Error fetching transcripts', error instanceof Error ? error.message : String(error));
     } finally {
       setIsLoading(false);
     }
@@ -96,7 +97,7 @@ export const useCloudTranscripts = () => {
       if (error) throw error;
       return filePath;
     } catch (error) {
-      console.error('Error uploading audio:', error);
+      debugLog.error('Cloud', 'Error uploading audio', error instanceof Error ? error.message : String(error));
       return null;
     }
   }, [user]);
@@ -109,7 +110,7 @@ export const useCloudTranscripts = () => {
       if (error) throw error;
       return data.signedUrl;
     } catch (error) {
-      console.error('Error getting audio URL:', error);
+      debugLog.error('Cloud', 'Error getting audio URL', error instanceof Error ? error.message : String(error));
       return null;
     }
   }, []);
@@ -154,7 +155,7 @@ export const useCloudTranscripts = () => {
       if (error) throw error;
       return data as CloudTranscript;
     } catch (error) {
-      console.error('Error saving transcript:', error);
+      debugLog.error('Cloud', 'Error saving transcript', error instanceof Error ? error.message : String(error));
       toast({
         title: 'שגיאה בשמירה',
         description: 'לא ניתן לשמור את התמלול בענן',
@@ -176,7 +177,7 @@ export const useCloudTranscripts = () => {
 
       if (error) throw error;
     } catch (error) {
-      console.error('Error updating transcript:', error);
+      debugLog.error('Cloud', 'Error updating transcript', error instanceof Error ? error.message : String(error));
       toast({
         title: 'שגיאה בעדכון',
         description: 'לא ניתן לעדכן את התמלול',
@@ -200,7 +201,7 @@ export const useCloudTranscripts = () => {
 
       if (error) throw error;
     } catch (error) {
-      console.error('Error deleting transcript:', error);
+      debugLog.error('Cloud', 'Error deleting transcript', error instanceof Error ? error.message : String(error));
       toast({
         title: 'שגיאה במחיקה',
         description: 'לא ניתן למחוק את התמלול',
@@ -231,7 +232,7 @@ export const useCloudTranscripts = () => {
 
       setTranscripts([]);
     } catch (error) {
-      console.error('Error deleting all transcripts:', error);
+      debugLog.error('Cloud', 'Error deleting all transcripts', error instanceof Error ? error.message : String(error));
     }
   }, [user, transcripts]);
 

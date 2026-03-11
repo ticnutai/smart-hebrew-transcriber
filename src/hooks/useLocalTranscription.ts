@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
 import { pipeline, env } from '@huggingface/transformers';
 import { toast } from '@/hooks/use-toast';
+import { debugLog } from '@/lib/debugLogger';
 
 // Configure transformers to use browser cache
 env.allowLocalModels = false;
@@ -174,12 +175,12 @@ export const useLocalTranscription = () => {
       }
 
       if (!usedWordTimestamps) {
-        console.warn('[Local] Model does not support word timestamps — using chunk-level timing');
+        debugLog.warn('Local', 'Model does not support word timestamps — using chunk-level timing');
       }
 
       return { text, wordTimings };
     } catch (error) {
-      console.error('Error in local transcription:', error);
+      debugLog.error('Local', 'Error in local transcription', error instanceof Error ? error.message : String(error));
       
       // Clear cached pipeline if error
       const modelId = getPreferredModel();

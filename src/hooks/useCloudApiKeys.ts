@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { debugLog } from "@/lib/debugLogger";
 
 export interface ApiKeys {
   openai_key: string;
@@ -80,7 +81,7 @@ export const useCloudApiKeys = () => {
           return loaded;
         }
       } catch (err) {
-        console.error('Error loading API keys from cloud:', err);
+        debugLog.error('ApiKeys', 'Error loading API keys from cloud', err instanceof Error ? err.message : String(err));
       }
       return EMPTY_KEYS;
     })();

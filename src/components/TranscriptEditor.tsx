@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { Wand2, BookOpen, FileText, Copy, Download, Loader2, Upload, Settings2, CheckCheck, AlignJustify, Quote, Users } from "lucide-react";
+import { Wand2, BookOpen, FileText, Copy, Download, Loader2, Upload, Settings2, CheckCheck, AlignJustify, Quote, Users, Search, ChevronUp, ChevronDown, X } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { ExportButton } from "@/components/ExportButton";
@@ -20,13 +20,85 @@ interface TranscriptEditorProps {
   transcript: string;
   onTranscriptChange: (text: string) => void;
   wordTimings?: Array<{word: string, start: number, end: number, probability?: number}>;
+  searchOpen?: boolean;
+  onSearchOpenChange?: (open: boolean) => void;
 }
 
-export const TranscriptEditor = ({ transcript, onTranscriptChange, wordTimings }: TranscriptEditorProps) => {
+export const TranscriptEditor = ({ transcript, onTranscriptChange, wordTimings, searchOpen, onSearchOpenChange }: TranscriptEditorProps) => {
   const [isEditing, setIsEditing] = useState(false);
   const [showConfidence, setShowConfidence] = useState(false);
   const [customPrompt, setCustomPrompt] = useState("");
   const [showPromptDialog, setShowPromptDialog] = useState(false);
+
+  // Search state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [currentMatch, setCurrentMatch] = useState(0);
+  const [matches, setMatches] = useState<number[]>([]);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Compute matches when query or transcript changes
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setMatches([]);
+      setCurrentMatch(0);
+      return;
+    }
+    const indices: number[] = [];
+    const lower = transcript.toLowerCase();
+    const q = searchQuery.toLowerCase();
+    let idx = lower.indexOf(q);
+    while (idx !== -1) {
+      indices.push(idx);
+      idx = lower.indexOf(q, idx + 1);
+    }
+    setMatches(indices);
+    setCurrentMatch(indices.length > 0 ? 0 : -1);
+  }, [searchQuery, transcript]);
+
+  // Focus search input when opened
+  useEffect(() => {
+    if (searchOpen) {
+      setTimeout(() => searchInputRef.current?.focus(), 50);
+    } else {
+      setSearchQuery("");
+    }
+  }, [searchOpen]);
+
+  // Jump to match in textarea
+  const jumpToMatch = useCallback((matchIndex: number) => {
+    if (matches.length === 0 || matchIndex < 0) return;
+    const idx = matches[matchIndex];
+    const ta = textareaRef.current;
+    if (ta) {
+      ta.focus();
+      ta.setSelectionRange(idx, idx + searchQuery.length);
+      // Scroll the textarea so the match is visible
+      const textBefore = transcript.substring(0, idx);
+      const lines = textBefore.split('\n');
+      const approxLine = lines.length;
+      const lineHeight = 24;
+      ta.scrollTop = Math.max(0, (approxLine - 3) * lineHeight);
+    }
+  }, [matches, searchQuery, transcript]);
+
+  useEffect(() => {
+    if (currentMatch >= 0 && matches.length > 0) {
+      jumpToMatch(currentMatch);
+    }
+  }, [currentMatch, jumpToMatch, matches]);
+
+  const nextMatch = () => {
+    if (matches.length === 0) return;
+    setCurrentMatch(prev => (prev + 1) % matches.length);
+  };
+  const prevMatch = () => {
+    if (matches.length === 0) return;
+    setCurrentMatch(prev => (prev - 1 + matches.length) % matches.length);
+  };
+  const closeSearch = () => {
+    onSearchOpenChange?.(false);
+  };
 
   const handleEdit = async (action: 'improve' | 'sources' | 'readable' | 'custom' | 'grammar' | 'punctuation' | 'paragraphs' | 'speakers', prompt?: string) => {
     if (!transcript.trim()) {
@@ -164,6 +236,16 @@ export const TranscriptEditor = ({ transcript, onTranscriptChange, wordTimings }
         <h2 className="text-xl font-semibold text-right">תמלול</h2>
         <div className="flex gap-2 flex-wrap">
           <Button
+            variant={searchOpen ? "default" : "outline"}
+            size="sm"
+            onClick={() => onSearchOpenChange?.(!searchOpen)}
+            disabled={!transcript.trim()}
+            title="חיפוש בתמלול (Ctrl+F)"
+          >
+            <Search className="w-4 h-4 ml-2" />
+            חפש
+          </Button>
+          <Button
             variant="outline"
             size="sm"
             onClick={handleImport}
@@ -196,6 +278,40 @@ export const TranscriptEditor = ({ transcript, onTranscriptChange, wordTimings }
         </div>
       </div>
 
+      {/* Search bar */}
+      {searchOpen && (
+        <div className="flex items-center gap-2 mb-3 p-2 bg-muted/50 rounded-md border">
+          <Search className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+          <Input
+            ref={searchInputRef}
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                e.shiftKey ? prevMatch() : nextMatch();
+              }
+              if (e.key === 'Escape') closeSearch();
+            }}
+            placeholder="חפש בתמלול..."
+            className="h-8 text-sm flex-1"
+            dir="rtl"
+          />
+          <span className="text-xs text-muted-foreground whitespace-nowrap min-w-[60px] text-center">
+            {searchQuery ? `${matches.length > 0 ? currentMatch + 1 : 0}/${matches.length}` : ''}
+          </span>
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={prevMatch} disabled={matches.length === 0} title="הקודם">
+            <ChevronUp className="w-4 h-4" />
+          </Button>
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={nextMatch} disabled={matches.length === 0} title="הבא">
+            <ChevronDown className="w-4 h-4" />
+          </Button>
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={closeSearch} title="סגור">
+            <X className="w-4 h-4" />
+          </Button>
+        </div>
+      )}
+
       {showConfidence && wordTimings && wordTimings.some(w => w.probability != null) ? (
         <div className="min-h-[300px] mb-4 p-3 bg-background border rounded-md text-right overflow-y-auto" dir="rtl">
           <div className="flex flex-wrap gap-1 leading-relaxed font-mono text-base">
@@ -221,6 +337,7 @@ export const TranscriptEditor = ({ transcript, onTranscriptChange, wordTimings }
         </div>
       ) : (
         <Textarea
+          ref={textareaRef}
           value={transcript}
           onChange={(e) => onTranscriptChange(e.target.value)}
           placeholder="התמלול יופיע כאן..."

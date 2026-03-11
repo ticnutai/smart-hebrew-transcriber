@@ -6,8 +6,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { History, Trash2, FileText, Search, Tag, X, Edit, Cloud, HardDrive, Loader2, Calendar, Filter, FolderOpen, FolderPlus, Folder } from "lucide-react";
+import { History, Trash2, FileText, Search, Tag, X, Edit, Cloud, HardDrive, Loader2, Calendar, Filter, FolderOpen, FolderPlus, Folder, Download } from "lucide-react";
 import type { CloudTranscript } from "@/hooks/useCloudTranscripts";
+import JSZip from "jszip";
+import { saveAs } from "file-saver";
 
 interface CloudTranscriptHistoryProps {
   transcripts: CloudTranscript[];
@@ -186,6 +188,28 @@ export const CloudTranscriptHistory = ({
         <Button variant="outline" size="sm" onClick={onClearAll}>
           <Trash2 className="w-4 h-4 ml-2" />
           נקה הכל
+        </Button>
+        <Button variant="outline" size="sm" onClick={async () => {
+          if (filtered.length === 0) return;
+          const zip = new JSZip();
+          for (const t of filtered) {
+            const safeName = (t.title || 'תמלול').replace(/[/\\?%*:|"<>]/g, '_');
+            const content = JSON.stringify({
+              title: t.title,
+              text: t.text,
+              engine: t.engine,
+              folder: t.folder,
+              tags: t.tags,
+              notes: t.notes,
+              createdAt: t.created_at,
+            }, null, 2);
+            zip.file(`${safeName}-${t.id.slice(0, 8)}.json`, content);
+          }
+          const blob = await zip.generateAsync({ type: 'blob' });
+          saveAs(blob, `transcripts-${Date.now()}.zip`);
+        }}>
+          <Download className="w-4 h-4 ml-2" />
+          ייצוא ZIP ({filtered.length})
         </Button>
       </div>
 

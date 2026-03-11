@@ -1,14 +1,60 @@
-const CACHE_NAME = 'transcriber-v1';
+const CACHE_NAME = 'transcriber-v2';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/manifest.json',
   '/favicon.ico',
+  '/pwa-192.svg',
+  '/pwa-512.svg',
+  '/offline.html',
 ];
+
+// Offline fallback page (inline)
+const OFFLINE_HTML = `<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>אופליין | מתמלל עברי חכם</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Rubik', 'Assistant', sans-serif;
+      background: linear-gradient(135deg, #f5f3ef 0%, #e8e4de 100%);
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      color: #1a3a6b;
+    }
+    .container { text-align: center; padding: 2rem; max-width: 500px; }
+    .icon { font-size: 4rem; margin-bottom: 1rem; }
+    h1 { font-size: 1.8rem; margin-bottom: 0.5rem; }
+    p { color: #666; margin-bottom: 1.5rem; line-height: 1.6; }
+    button {
+      background: #1a3a6b; color: white; border: none; padding: 0.75rem 2rem;
+      border-radius: 8px; font-size: 1rem; cursor: pointer; font-family: inherit;
+    }
+    button:hover { background: #2563eb; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="icon">📡</div>
+    <h1>אין חיבור לאינטרנט</h1>
+    <p>המתמלל העברי החכם זקוק לחיבור אינטרנט לתמלול.<br>בדוק את החיבור ונסה שוב.</p>
+    <button onclick="location.reload()">נסה שוב</button>
+  </div>
+</body>
+</html>`;
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
+    caches.open(CACHE_NAME).then(async (cache) => {
+      // Cache static assets
+      await cache.addAll(STATIC_ASSETS);
+      // Store offline page
+      await cache.put('/offline.html', new Response(OFFLINE_HTML, {
+        headers: { 'Content-Type': 'text/html; charset=utf-8' }
+      }));
+    })
   );
   self.skipWaiting();
 });
@@ -30,6 +76,45 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
 
+  // For navigation requests, show offline page on failure
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          return response;
+        })
+        .catch(async () => {
+          const cached = await caches.match(event.request);
+          if (cached) return cached;
+          const offline = await caches.match('/offline.html');
+          if (offline) return offline;
+          return new Response(OFFLINE_HTML, {
+            status: 503,
+            headers: { 'Content-Type': 'text/html; charset=utf-8' }
+          });
+        })
+    );
+    return;
+  }
+
+  // For JS/CSS build assets — cache first (they have content hashes)
+  if (url.pathname.startsWith('/assets/')) {
+    event.respondWith(
+      caches.match(event.request).then((cached) => {
+        if (cached) return cached;
+        return fetch(event.request).then((response) => {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          return response;
+        });
+      })
+    );
+    return;
+  }
+
+  // Everything else — network first, cache fallback
   event.respondWith(
     fetch(event.request)
       .then((response) => {
@@ -40,7 +125,6 @@ self.addEventListener('fetch', (event) => {
       .catch(async () => {
         const cached = await caches.match(event.request);
         if (cached) return cached;
-        // Return a proper 503 response instead of undefined
         return new Response('Service Unavailable', { status: 503, statusText: 'Service Unavailable' });
       })
   );

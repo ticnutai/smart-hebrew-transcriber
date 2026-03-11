@@ -20,6 +20,7 @@ export interface WordTiming {
   word: string;
   start: number;
   end: number;
+  probability?: number;
 }
 
 // ─── AI Noise Reduction Presets ───────────────────────────────

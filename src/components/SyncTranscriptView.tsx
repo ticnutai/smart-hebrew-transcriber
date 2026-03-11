@@ -127,12 +127,22 @@ export const SyncTranscriptView = ({
               {sentence.words.map((wt) => {
                 const isActive = wt.globalIndex === currentWordIndex;
                 const isPast = wt.globalIndex < currentWordIndex;
+                const prob = wt.probability;
+                const confidenceStyle = prob != null && prob < 0.5
+                  ? 'border-b-2 border-red-400/70'
+                  : prob != null && prob < 0.7
+                    ? 'border-b-2 border-orange-400/60'
+                    : '';
+                const confidenceTitle = prob != null
+                  ? ` | ביטחון: ${(prob * 100).toFixed(0)}%`
+                  : '';
                 return (
                   <span
                     key={wt.globalIndex}
                     ref={isActive ? activeWordRef : undefined}
                     className={`
                       px-0.5 py-0.5 rounded cursor-pointer transition-all duration-150 inline-block
+                      ${confidenceStyle}
                       ${isActive
                         ? 'bg-primary text-primary-foreground font-bold scale-110 shadow-md mx-0.5'
                         : isPast
@@ -141,7 +151,7 @@ export const SyncTranscriptView = ({
                       }
                     `}
                     onClick={() => onWordClick(wt.start)}
-                    title={`${formatTime(wt.start)} → ${formatTime(wt.end)}`}
+                    title={`${formatTime(wt.start)} → ${formatTime(wt.end)}${confidenceTitle}`}
                   >
                     {wt.word}
                   </span>

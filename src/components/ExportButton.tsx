@@ -4,9 +4,10 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Download, FileText, File, Loader2 } from "lucide-react";
+import { Download, FileText, File, Loader2, Braces } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { jsPDF } from "jspdf";
 import { Document, Packer, Paragraph, TextRun, HeadingLevel } from "docx";
@@ -139,6 +140,29 @@ export const ExportButton = ({ text, title = "תמלול", disabled, wordTimings
     toast({ title: "TXT הורד בהצלחה" });
   };
 
+  const exportToJSON = () => {
+    const data = {
+      title,
+      text,
+      exportedAt: new Date().toISOString(),
+      wordCount: text.split(/\s+/).filter(Boolean).length,
+      charCount: text.length,
+      ...(wordTimings && wordTimings.length > 0 ? {
+        wordTimings: wordTimings.map(w => ({
+          word: w.word,
+          start: w.start,
+          end: w.end,
+          ...(w.probability != null ? { probability: w.probability } : {}),
+        })),
+        audioDuration: wordTimings[wordTimings.length - 1]?.end,
+      } : {}),
+    };
+    const json = JSON.stringify(data, null, 2);
+    const blob = new Blob([json], { type: "application/json;charset=utf-8" });
+    saveAs(blob, `${title}-${Date.now()}.json`);
+    toast({ title: "JSON הורד בהצלחה" });
+  };
+
   const formatTimeSRT = (seconds: number) => {
     const h = Math.floor(seconds / 3600);
     const m = Math.floor((seconds % 3600) / 60);
@@ -225,8 +249,13 @@ export const ExportButton = ({ text, title = "תמלול", disabled, wordTimings
           <FileText className="w-4 h-4 ml-2" />
           ייצוא ל-TXT
         </DropdownMenuItem>
+        <DropdownMenuItem onClick={exportToJSON}>
+          <Braces className="w-4 h-4 ml-2" />
+          ייצוא ל-JSON (מטא-דאטה)
+        </DropdownMenuItem>
         {wordTimings && wordTimings.length > 0 && (
           <>
+            <DropdownMenuSeparator />
             <DropdownMenuItem onClick={exportToSRT}>
               <FileText className="w-4 h-4 ml-2" />
               ייצוא ל-SRT (כתוביות)
