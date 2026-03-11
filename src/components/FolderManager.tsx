@@ -38,6 +38,7 @@ interface FolderManagerProps {
   transcripts: CloudTranscript[];
   onUpdate: (id: string, updates: Partial<Pick<CloudTranscript, 'folder' | 'tags' | 'title' | 'notes' | 'category' | 'is_favorite'>>) => void;
   onDelete: (id: string) => void;
+  onGetAudioUrl?: (filePath: string) => Promise<string | null>;
 }
 
 export const FolderManager = ({ transcripts, onUpdate, onDelete }: FolderManagerProps) => {
