@@ -1,14 +1,27 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Mic, Square, Pause, Play, Loader2 } from "lucide-react";
+import { Mic, Square, Pause, Play, Loader2, Zap, Globe, Chrome, Waves, Server, Cpu } from "lucide-react";
+import { Mic as MicIcon } from "lucide-react";
+
+const ENGINE_META: Record<string, { label: string; icon: React.ReactNode; color: string }> = {
+  groq: { label: 'Groq', icon: <Zap className="w-3 h-3" />, color: 'text-primary' },
+  openai: { label: 'OpenAI', icon: <Globe className="w-3 h-3" />, color: 'text-primary' },
+  google: { label: 'Google', icon: <Chrome className="w-3 h-3" />, color: 'text-blue-500' },
+  assemblyai: { label: 'AssemblyAI', icon: <MicIcon className="w-3 h-3" />, color: 'text-green-500' },
+  deepgram: { label: 'Deepgram', icon: <Waves className="w-3 h-3" />, color: 'text-purple-500' },
+  'local-server': { label: 'CUDA', icon: <Server className="w-3 h-3" />, color: 'text-purple-500' },
+  local: { label: 'ONNX', icon: <Cpu className="w-3 h-3" />, color: 'text-accent' },
+};
 
 interface AudioRecorderProps {
   onRecordingComplete: (file: File) => void;
   isTranscribing: boolean;
+  engine?: string;
 }
 
-export const AudioRecorder = ({ onRecordingComplete, isTranscribing }: AudioRecorderProps) => {
+export const AudioRecorder = ({ onRecordingComplete, isTranscribing, engine }: AudioRecorderProps) => {
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [duration, setDuration] = useState(0);
@@ -145,6 +158,12 @@ export const AudioRecorder = ({ onRecordingComplete, isTranscribing }: AudioReco
   return (
     <Card className="p-6" dir="rtl">
       <div className="flex flex-col items-center gap-4">
+        {engine && ENGINE_META[engine] && (
+          <Badge variant="outline" className={`self-end flex items-center gap-1 text-[10px] px-2 py-0.5 ${ENGINE_META[engine].color}`}>
+            {ENGINE_META[engine].icon}
+            {ENGINE_META[engine].label}
+          </Badge>
+        )}
         <h3 className="text-lg font-semibold">
           {isTranscribing ? "מתמלל הקלטה..." : isRecording ? "מקליט..." : "הקלט ישירות"}
         </h3>

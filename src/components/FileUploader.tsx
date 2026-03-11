@@ -1,16 +1,29 @@
 import { useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Upload, Loader2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Upload, Loader2, Zap, Globe, Chrome, Mic, Waves, Server, Cpu } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
+
+const ENGINE_META: Record<string, { label: string; icon: React.ReactNode; color: string }> = {
+  groq: { label: 'Groq', icon: <Zap className="w-3 h-3" />, color: 'text-primary' },
+  openai: { label: 'OpenAI', icon: <Globe className="w-3 h-3" />, color: 'text-primary' },
+  google: { label: 'Google', icon: <Chrome className="w-3 h-3" />, color: 'text-blue-500' },
+  assemblyai: { label: 'AssemblyAI', icon: <Mic className="w-3 h-3" />, color: 'text-green-500' },
+  deepgram: { label: 'Deepgram', icon: <Waves className="w-3 h-3" />, color: 'text-purple-500' },
+  'local-server': { label: 'CUDA', icon: <Server className="w-3 h-3" />, color: 'text-purple-500' },
+  local: { label: 'ONNX', icon: <Cpu className="w-3 h-3" />, color: 'text-accent' },
+};
 
 interface FileUploaderProps {
   onFileSelect: (file: File) => void;
   isLoading: boolean;
   progress?: number;
+  engine?: string;
 }
 
-export const FileUploader = ({ onFileSelect, isLoading, progress }: FileUploaderProps) => {
+export const FileUploader = ({ onFileSelect, isLoading, progress, engine }: FileUploaderProps) => {
+  const meta = engine ? ENGINE_META[engine] : null;
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -23,6 +36,12 @@ export const FileUploader = ({ onFileSelect, isLoading, progress }: FileUploader
   return (
     <Card className="p-8" dir="rtl">
       <div className="flex flex-col gap-4">
+        {meta && (
+          <Badge variant="outline" className={`self-end flex items-center gap-1 text-[10px] px-2 py-0.5 ${meta.color}`}>
+            {meta.icon}
+            {meta.label}
+          </Badge>
+        )}
         <div className="rounded-full bg-primary/10 p-4">
           {isLoading ? (
             <Loader2 className="w-8 h-8 text-primary animate-spin" />

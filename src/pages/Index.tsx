@@ -21,7 +21,7 @@ import { useLocalServer } from "@/hooks/useLocalServer";
 import { useBackgroundTask } from "@/hooks/useBackgroundTask";
 import { debugLog } from "@/lib/debugLogger";
 import { useCloudTranscripts } from "@/hooks/useCloudTranscripts";
-import { Settings, FileEdit, ChevronDown, X } from "lucide-react";
+import { Settings, FileEdit, ChevronDown, X, Zap, Globe, Chrome, Mic, Waves, Server, Cpu } from "lucide-react";
 import { BatchUploader } from "@/components/BatchUploader";
 import { BackgroundJobsPanel } from "@/components/BackgroundJobsPanel";
 import { useTranscriptionJobs } from "@/hooks/useTranscriptionJobs";
@@ -776,10 +776,12 @@ const Index = () => {
             onFileSelect={handleFileSelect} 
             isLoading={isLoading}
             progress={progress}
+            engine={engine}
           />
           <AudioRecorder
             onRecordingComplete={handleFileSelect}
             isTranscribing={isLoading}
+            engine={engine}
           />
         </div>
 
@@ -792,9 +794,29 @@ const Index = () => {
                   <span className="font-mono text-xs text-muted-foreground">
                     {String(Math.floor(elapsedSeconds / 60)).padStart(2, '0')}:{String(elapsedSeconds % 60).padStart(2, '0')} ⏱
                   </span>
-                  <span className="font-medium">
-                    {progress !== undefined && progress > 0 ? `מתמלל... ${progress}%` : 'מתמלל...'}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">
+                      {progress !== undefined && progress > 0 ? `מתמלל... ${progress}%` : 'מתמלל...'}
+                    </span>
+                    <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border ${
+                      engine === 'groq' ? 'text-primary border-primary/30' :
+                      engine === 'google' ? 'text-blue-500 border-blue-500/30' :
+                      engine === 'assemblyai' ? 'text-green-500 border-green-500/30' :
+                      engine === 'deepgram' ? 'text-purple-500 border-purple-500/30' :
+                      engine === 'local-server' ? 'text-purple-500 border-purple-500/30' :
+                      engine === 'local' ? 'text-accent border-accent/30' :
+                      'text-primary border-primary/30'
+                    }`}>
+                      {engine === 'groq' && <Zap className="w-3 h-3" />}
+                      {engine === 'openai' && <Globe className="w-3 h-3" />}
+                      {engine === 'google' && <Chrome className="w-3 h-3" />}
+                      {engine === 'assemblyai' && <Mic className="w-3 h-3" />}
+                      {engine === 'deepgram' && <Waves className="w-3 h-3" />}
+                      {engine === 'local-server' && <Server className="w-3 h-3" />}
+                      {engine === 'local' && <Cpu className="w-3 h-3" />}
+                      {engine === 'groq' ? 'Groq' : engine === 'openai' ? 'OpenAI' : engine === 'google' ? 'Google' : engine === 'assemblyai' ? 'AssemblyAI' : engine === 'deepgram' ? 'Deepgram' : engine === 'local-server' ? 'CUDA' : 'ONNX'}
+                    </span>
+                  </div>
                 </div>
                 <div className="relative h-2.5 rounded-full bg-muted overflow-hidden">
                   {progress === undefined || progress === 0 ? (
