@@ -34,8 +34,8 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
   // When user selects CUDA server, start polling; otherwise stop
   useEffect(() => {
     if (selected === 'local-server') {
-      // Fast poll (2s) while waiting, normal (10s) once connected
-      startPolling(isConnected ? 10000 : 2000);
+      // Poll (5s) while waiting, normal (10s) once connected
+      startPolling(isConnected ? 10000 : 5000);
       if (isConnected) setIsStarting(false);
       return () => stopPolling();
     } else {

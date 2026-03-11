@@ -1047,8 +1047,8 @@ const Index = () => {
           </Card>
         )}
 
-        {/* Background transcription option for authenticated users */}
-        {isAuthenticated && (
+        {/* Background transcription option for authenticated users (cloud engines only) */}
+        {isAuthenticated && engine !== 'local' && engine !== 'local-server' && (
           <div className="flex flex-row-reverse items-center gap-2">
             <span className="text-xs text-muted-foreground">הקובץ יעלה לשרת ויתומלל גם בלי שהעמוד פתוח</span>
             <Button
@@ -1099,15 +1099,17 @@ const Index = () => {
           }}
         />
 
-        {/* Batch Upload */}
-        <BatchUploader
-          onSubmitBatch={(files) => submitBatchJobs(files, engine, sourceLanguage)}
-          onSaveTranscript={batchSaveTranscript}
-          onRetryJob={retryJob}
-          jobs={jobs}
-          isDisabled={isLoading}
-          isAuthenticated={isAuthenticated}
-        />
+        {/* Batch Upload (cloud engines only) */}
+        {engine !== 'local' && engine !== 'local-server' && (
+          <BatchUploader
+            onSubmitBatch={(files) => submitBatchJobs(files, engine, sourceLanguage)}
+            onSaveTranscript={batchSaveTranscript}
+            onRetryJob={retryJob}
+            jobs={jobs}
+            isDisabled={isLoading}
+            isAuthenticated={isAuthenticated}
+          />
+        )}
 
         {/* Local Model Manager - shown when local engine or local-server selected */}
         {(engine === 'local' || engine === 'local-server') && (
