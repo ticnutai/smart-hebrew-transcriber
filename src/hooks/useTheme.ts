@@ -302,15 +302,20 @@ export function useTheme() {
 
   // Load on mount
   useEffect(() => {
-    const savedId = localStorage.getItem('app_theme_id') || 'default';
-    const savedCustom = localStorage.getItem('app_custom_themes');
-    const customs: AppTheme[] = savedCustom ? JSON.parse(savedCustom) : [];
-    setCustomThemes(customs);
-    setActiveThemeId(savedId);
-
-    const allThemes = [...BUILT_IN_THEMES, ...customs];
-    const theme = allThemes.find(t => t.id === savedId) || BUILT_IN_THEMES[0];
-    applyThemeToDOM(theme.colors);
+    const applyFromStorage = () => {
+      const savedId = localStorage.getItem('app_theme_id') || 'default';
+      const savedCustom = localStorage.getItem('app_custom_themes');
+      const customs: AppTheme[] = savedCustom ? JSON.parse(savedCustom) : [];
+      setCustomThemes(customs);
+      setActiveThemeId(savedId);
+      const all = [...BUILT_IN_THEMES, ...customs];
+      const theme = all.find(t => t.id === savedId) || BUILT_IN_THEMES[0];
+      applyThemeToDOM(theme.colors);
+    };
+    applyFromStorage();
+    // Re-apply when cloud preferences load (may have different theme)
+    window.addEventListener('cloud-prefs-loaded', applyFromStorage);
+    return () => window.removeEventListener('cloud-prefs-loaded', applyFromStorage);
   }, []);
 
   const allThemes = [...BUILT_IN_THEMES, ...customThemes];

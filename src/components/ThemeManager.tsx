@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useTheme, BUILT_IN_THEMES, type AppTheme, type ThemeColors } from "@/hooks/useTheme";
+import { useCloudPreferences } from "@/hooks/useCloudPreferences";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -218,14 +219,22 @@ function ThemeEditor({ initial, onSave, onCancel }: { initial?: AppTheme; onSave
 
 export function ThemeManager() {
   const { activeThemeId, allThemes, setTheme, saveCustomTheme, deleteCustomTheme } = useTheme();
+  const { updatePreferences } = useCloudPreferences();
   const [editingTheme, setEditingTheme] = useState<AppTheme | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+
+  const syncThemeToCloud = (themeId: string) => {
+    const customJson = localStorage.getItem('app_custom_themes') || '[]';
+    updatePreferences({ theme: themeId, custom_themes: customJson });
+  };
 
   const handleSave = (theme: AppTheme) => {
     saveCustomTheme(theme);
     setTheme(theme.id);
     setEditingTheme(null);
     setIsCreating(false);
+    // Sync to cloud after localStorage is updated by saveCustomTheme + setTheme
+    setTimeout(() => syncThemeToCloud(theme.id), 0);
     toast.success(`ערכת הנושא "${theme.nameHe}" נשמרה!`);
   };
 
@@ -264,7 +273,7 @@ export function ThemeManager() {
               key={theme.id}
               theme={theme}
               isActive={activeThemeId === theme.id}
-              onClick={() => setTheme(theme.id)}
+              onClick={() => { setTheme(theme.id); syncThemeToCloud(theme.id); }}
             />
           ))}
         </div>
@@ -280,7 +289,7 @@ export function ThemeManager() {
                 <ThemePreview
                   theme={theme}
                   isActive={activeThemeId === theme.id}
-                  onClick={() => setTheme(theme.id)}
+                  onClick={() => { setTheme(theme.id); syncThemeToCloud(theme.id); }}
                 />
                 <div className="absolute bottom-2 left-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                   <Dialog open={editingTheme?.id === theme.id} onOpenChange={open => !open && setEditingTheme(null)}>
@@ -300,7 +309,7 @@ export function ThemeManager() {
                     size="icon"
                     variant="ghost"
                     className="h-6 w-6 text-destructive"
-                    onClick={e => { e.stopPropagation(); deleteCustomTheme(theme.id); toast.success('ערכת הנושא נמחקה'); }}
+                    onClick={e => { e.stopPropagation(); deleteCustomTheme(theme.id); setTimeout(() => syncThemeToCloud(activeThemeId), 0); toast.success('ערכת הנושא נמחקה'); }}
                   >
                     <Trash2 className="h-3 w-3" />
                   </Button>

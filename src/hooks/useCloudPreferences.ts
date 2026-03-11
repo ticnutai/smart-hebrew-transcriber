@@ -8,7 +8,10 @@ export interface UserPreferences {
   text_color: string;
   line_height: number;
   sidebar_pinned: boolean;
-  theme: string;
+  theme: string;          // theme ID (e.g. 'default', 'royal-gold')
+  engine: string;         // transcription engine
+  source_language: string; // source language for transcription
+  custom_themes: string;  // JSON string of custom themes array
 }
 
 const DEFAULT_PREFERENCES: UserPreferences = {
@@ -17,7 +20,10 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   text_color: 'hsl(var(--foreground))',
   line_height: 1.6,
   sidebar_pinned: false,
-  theme: 'light',
+  theme: 'default',
+  engine: 'groq',
+  source_language: 'auto',
+  custom_themes: '[]',
 };
 
 export const useCloudPreferences = () => {
@@ -32,7 +38,30 @@ export const useCloudPreferences = () => {
       // Load from localStorage as fallback
       try {
         const saved = localStorage.getItem('user_preferences');
-        if (saved) setPreferences(JSON.parse(saved));
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          setPreferences({ ...DEFAULT_PREFERENCES, ...parsed });
+        } else {
+          // Try individual keys for backward compat
+          const prefs = { ...DEFAULT_PREFERENCES };
+          const engine = localStorage.getItem('transcript_engine');
+          const srcLang = localStorage.getItem('transcript_sourceLanguage');
+          const fontSize = localStorage.getItem('transcript_fontSize');
+          const fontFamily = localStorage.getItem('transcript_fontFamily');
+          const textColor = localStorage.getItem('transcript_textColor');
+          const lineHeight = localStorage.getItem('transcript_lineHeight');
+          const themeId = localStorage.getItem('app_theme_id');
+          const customThemes = localStorage.getItem('app_custom_themes');
+          if (engine) prefs.engine = engine;
+          if (srcLang) prefs.source_language = srcLang;
+          if (fontSize) prefs.font_size = Number(fontSize);
+          if (fontFamily) prefs.font_family = fontFamily;
+          if (textColor) prefs.text_color = textColor;
+          if (lineHeight) prefs.line_height = Number(lineHeight);
+          if (themeId) prefs.theme = themeId;
+          if (customThemes) prefs.custom_themes = customThemes;
+          setPreferences(prefs);
+        }
       } catch {}
       setIsLoaded(true);
       return;
@@ -46,14 +75,24 @@ export const useCloudPreferences = () => {
         .maybeSingle();
 
       if (data) {
-        setPreferences({
+        const loaded: UserPreferences = {
           font_size: data.font_size ?? DEFAULT_PREFERENCES.font_size,
           font_family: data.font_family ?? DEFAULT_PREFERENCES.font_family,
           text_color: data.text_color ?? DEFAULT_PREFERENCES.text_color,
           line_height: Number(data.line_height) || DEFAULT_PREFERENCES.line_height,
           sidebar_pinned: data.sidebar_pinned ?? DEFAULT_PREFERENCES.sidebar_pinned,
           theme: data.theme ?? DEFAULT_PREFERENCES.theme,
-        });
+          engine: (data as any).engine ?? DEFAULT_PREFERENCES.engine,
+          source_language: (data as any).source_language ?? DEFAULT_PREFERENCES.source_language,
+          custom_themes: typeof (data as any).custom_themes === 'string'
+            ? (data as any).custom_themes
+            : JSON.stringify((data as any).custom_themes ?? []),
+        };
+        setPreferences(loaded);
+        // Mirror to localStorage so useTheme picks up cloud values
+        localStorage.setItem('app_theme_id', loaded.theme);
+        localStorage.setItem('app_custom_themes', loaded.custom_themes);
+        window.dispatchEvent(new CustomEvent('cloud-prefs-loaded'));
       } else if (!error) {
         // Create initial record
         await supabase.from('user_preferences').insert({
@@ -72,17 +111,55 @@ export const useCloudPreferences = () => {
     // Always save to localStorage for quick access
     localStorage.setItem('user_preferences', JSON.stringify(updated));
 
+    // Also mirror individual localStorage keys for backward compat
+    localStorage.setItem('transcript_engine', updated.engine);
+    localStorage.setItem('transcript_sourceLanguage', updated.source_language);
+    localStorage.setItem('transcript_fontSize', String(updated.font_size));
+    localStorage.setItem('transcript_fontFamily', updated.font_family);
+    localStorage.setItem('transcript_textColor', updated.text_color);
+    localStorage.setItem('transcript_lineHeight', String(updated.line_height));
+    localStorage.setItem('app_theme_id', updated.theme);
+    localStorage.setItem('app_custom_themes', updated.custom_themes);
+
     if (!user) return;
 
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
-      await supabase
+      // Parse custom_themes string to JSON for DB storage
+      let customThemesParsed: unknown = [];
+      try { customThemesParsed = JSON.parse(updated.custom_themes); } catch {}
+
+      const { error } = await supabase
         .from('user_preferences')
         .upsert({
           user_id: user.id,
-          ...updated,
+          font_size: updated.font_size,
+          font_family: updated.font_family,
+          text_color: updated.text_color,
+          line_height: updated.line_height,
+          sidebar_pinned: updated.sidebar_pinned,
+          theme: updated.theme,
+          engine: updated.engine,
+          source_language: updated.source_language,
+          custom_themes: customThemesParsed,
           updated_at: new Date().toISOString(),
-        }, { onConflict: 'user_id' });
+        } as any, { onConflict: 'user_id' });
+
+      // Fallback: if new columns don't exist yet, save without them
+      if (error) {
+        await supabase
+          .from('user_preferences')
+          .upsert({
+            user_id: user.id,
+            font_size: updated.font_size,
+            font_family: updated.font_family,
+            text_color: updated.text_color,
+            line_height: updated.line_height,
+            sidebar_pinned: updated.sidebar_pinned,
+            theme: updated.theme,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'user_id' });
+      }
     }, 500);
   }, [user]);
 

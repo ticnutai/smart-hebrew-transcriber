@@ -228,6 +228,9 @@ export type Database = {
           sidebar_pinned: boolean | null
           text_color: string | null
           theme: string | null
+          engine: string | null
+          source_language: string | null
+          custom_themes: unknown | null
           updated_at: string
           user_id: string
         }
@@ -240,6 +243,9 @@ export type Database = {
           sidebar_pinned?: boolean | null
           text_color?: string | null
           theme?: string | null
+          engine?: string | null
+          source_language?: string | null
+          custom_themes?: unknown | null
           updated_at?: string
           user_id: string
         }
@@ -252,6 +258,9 @@ export type Database = {
           sidebar_pinned?: boolean | null
           text_color?: string | null
           theme?: string | null
+          engine?: string | null
+          source_language?: string | null
+          custom_themes?: unknown | null
           updated_at?: string
           user_id?: string
         }

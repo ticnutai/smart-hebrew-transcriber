@@ -17,6 +17,7 @@ import { useCloudTranscripts } from "@/hooks/useCloudTranscripts";
 import { Settings, FileEdit, ChevronDown, X, Zap, Globe, Chrome, Mic, Waves, Server, Cpu, Film, Pause, Play } from "lucide-react";
 import { useTranscriptionJobs } from "@/hooks/useTranscriptionJobs";
 import { useAuth } from "@/contexts/AuthContext";
+import { useCloudPreferences } from "@/hooks/useCloudPreferences";
 import { isVideoFile, extractAudioFromVideo, VIDEO_NEEDS_EXTRACTION, MAX_VIDEO_SIZE_MB, MAX_AUDIO_SIZE_MB } from "@/lib/videoUtils";
 import { compressAudio, needsCompression, formatFileSize, CLOUD_API_LIMIT } from "@/lib/audioCompression";
 
@@ -28,7 +29,6 @@ const TranscriptSummary = lazy(() => import("@/components/TranscriptSummary").th
 const ShareTranscript = lazy(() => import("@/components/ShareTranscript").then(m => ({ default: m.ShareTranscript })));
 const TextStyleControl = lazy(() => import("@/components/TextStyleControl").then(m => ({ default: m.TextStyleControl })));
 const LocalModelManager = lazy(() => import("@/components/LocalModelManager").then(m => ({ default: m.LocalModelManager })));
-const BatchUploader = lazy(() => import("@/components/BatchUploader").then(m => ({ default: m.BatchUploader })));
 const BackgroundJobsPanel = lazy(() => import("@/components/BackgroundJobsPanel").then(m => ({ default: m.BackgroundJobsPanel })));
 
 type Engine = 'openai' | 'groq' | 'google' | 'local' | 'local-server' | 'assemblyai' | 'deepgram';
@@ -39,20 +39,25 @@ const Index = () => {
   const [searchParams] = useSearchParams();
   const folderFromUrl = searchParams.get('folder') || undefined;
   const { isAuthenticated } = useAuth();
-  const [engine, setEngine] = useState<Engine>(() => {
-    const saved = localStorage.getItem('transcript_engine') as Engine | null;
-    return saved || 'groq';
-  });
-  const [sourceLanguage, setSourceLanguage] = useState<SourceLanguage>('auto');
+
+  // Cloud-synced preferences
+  const { preferences, updatePreference, isLoaded: prefsLoaded } = useCloudPreferences();
+  const engine = preferences.engine as Engine;
+  const sourceLanguage = preferences.source_language as SourceLanguage;
+  const fontSize = preferences.font_size;
+  const fontFamily = preferences.font_family;
+  const textColor = preferences.text_color;
+  const lineHeight = preferences.line_height;
+  const setEngine = (v: Engine) => updatePreference('engine', v);
+  const setSourceLanguage = (v: SourceLanguage) => updatePreference('source_language', v);
+  const setFontSize = (v: number) => updatePreference('font_size', v);
+  const setFontFamily = (v: string) => updatePreference('font_family', v);
+  const setTextColor = (v: string) => updatePreference('text_color', v);
+  const setLineHeight = (v: number) => updatePreference('line_height', v);
+
   const [transcript, setTranscript] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  
-  // Formatting settings
-  const [fontSize, setFontSize] = useState(16);
-  const [fontFamily, setFontFamily] = useState('Assistant');
-  const [textColor, setTextColor] = useState('hsl(var(--foreground))');
-  const [lineHeight, setLineHeight] = useState(1.6);
 
   // Audio & word timing state for sync player
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
@@ -69,21 +74,8 @@ const Index = () => {
   const { transcripts, isLoading: isCloudLoading, saveTranscript, updateTranscript, deleteTranscript, deleteAll, isCloud, getAudioUrl } = useCloudTranscripts();
   const { jobs, submitJob, submitBatchJobs, retryJob, deleteJob } = useTranscriptionJobs();
 
-  // Load formatting settings from localStorage
+  // Recover partial transcription on mount
   useEffect(() => {
-    const savedFontSize = localStorage.getItem('transcript_fontSize');
-    const savedFontFamily = localStorage.getItem('transcript_fontFamily');
-    const savedTextColor = localStorage.getItem('transcript_textColor');
-    const savedLineHeight = localStorage.getItem('transcript_lineHeight');
-    const savedSourceLang = localStorage.getItem('transcript_sourceLanguage');
-
-    if (savedFontSize) setFontSize(Number(savedFontSize));
-    if (savedFontFamily) setFontFamily(savedFontFamily);
-    if (savedTextColor) setTextColor(savedTextColor);
-    if (savedLineHeight) setLineHeight(Number(savedLineHeight));
-    if (savedSourceLang) setSourceLanguage(savedSourceLang as SourceLanguage);
-
-    // Recover partial transcription from a previous interrupted session
     const partial = recoverPartial();
     if (partial && partial.text) {
       setTranscript(partial.text);
@@ -96,20 +88,6 @@ const Index = () => {
       debugLog.info('Recovery', `Restored partial transcript: ${partial.progress}%, ${partial.text.length} chars`);
     }
   }, []);
-
-  // Save formatting settings
-  useEffect(() => {
-    localStorage.setItem('transcript_fontSize', String(fontSize));
-    localStorage.setItem('transcript_fontFamily', fontFamily);
-    localStorage.setItem('transcript_textColor', textColor);
-    localStorage.setItem('transcript_lineHeight', String(lineHeight));
-    localStorage.setItem('transcript_sourceLanguage', sourceLanguage);
-  }, [fontSize, fontFamily, textColor, lineHeight, sourceLanguage]);
-
-  // Save engine choice & auto-switch to local GPU when available
-  useEffect(() => {
-    localStorage.setItem('transcript_engine', engine);
-  }, [engine]);
 
   useEffect(() => {
     if (serverConnected && engine === 'groq') {
@@ -911,6 +889,14 @@ const Index = () => {
             isLoading={isLoading}
             progress={progress}
             engine={engine}
+            isAuthenticated={isAuthenticated}
+            isCloudEngine={engine !== 'local' && engine !== 'local-server'}
+            onSubmitBatch={(files) => submitBatchJobs(files, engine, sourceLanguage)}
+            onSaveTranscript={batchSaveTranscript}
+            onRetryJob={retryJob}
+            onSubmitBackgroundJob={(file) => submitJob(file, engine, sourceLanguage)}
+            jobs={jobs}
+            maxFileSizeMB={MAX_AUDIO_SIZE_MB}
           />
           <AudioRecorder
             onRecordingComplete={handleFileSelect}
@@ -1047,34 +1033,7 @@ const Index = () => {
           </Card>
         )}
 
-        {/* Background transcription option for authenticated users (cloud engines only) */}
-        {isAuthenticated && engine !== 'local' && engine !== 'local-server' && (
-          <div className="flex flex-row-reverse items-center gap-2">
-            <span className="text-xs text-muted-foreground">הקובץ יעלה לשרת ויתומלל גם בלי שהעמוד פתוח</span>
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-xs"
-              onClick={() => {
-                const input = document.createElement('input');
-                input.type = 'file';
-                input.accept = 'audio/*,video/*,.mp3,.wav,.m4a,.flac,.ogg,.opus,.aac,.wma,.amr,.mp4,.webm,.avi,.mov,.mkv,.wmv,.3gp,.aiff,.aif,.caf,.spx,.gsm';
-                input.onchange = async (e) => {
-                  const file = (e.target as HTMLInputElement).files?.[0];
-                  if (!file) return;
-                  if (file.size > MAX_AUDIO_SIZE_MB * 1024 * 1024) {
-                    toast({ title: "הקובץ גדול מדי", description: `מקסימום ${MAX_AUDIO_SIZE_MB}MB לתמלול ברקע`, variant: "destructive" });
-                    return;
-                  }
-                  await submitJob(file, engine, sourceLanguage);
-                };
-                input.click();
-              }}
-            >
-              🔄 תמלול ברקע (ימשיך גם אם תעזוב)
-            </Button>
-          </div>
-        )}
+
 
         {/* Background Jobs Panel */}
         {isAuthenticated && jobs.length > 0 && (
@@ -1099,17 +1058,7 @@ const Index = () => {
           }}
         />
 
-        {/* Batch Upload (cloud engines only) */}
-        {engine !== 'local' && engine !== 'local-server' && (
-          <BatchUploader
-            onSubmitBatch={(files) => submitBatchJobs(files, engine, sourceLanguage)}
-            onSaveTranscript={batchSaveTranscript}
-            onRetryJob={retryJob}
-            jobs={jobs}
-            isDisabled={isLoading}
-            isAuthenticated={isAuthenticated}
-          />
-        )}
+
 
         {/* Local Model Manager - shown when local engine or local-server selected */}
         {(engine === 'local' || engine === 'local-server') && (
