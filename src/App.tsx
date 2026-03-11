@@ -8,6 +8,7 @@ import { AuthProvider } from "./contexts/AuthContext";
 import AppSidebar from "./components/AppSidebar";
 import AppLayout from "./components/AppLayout";
 import { Loader2 } from "lucide-react";
+import CloudKeySync from "./components/CloudKeySync";
 
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Index = lazy(() => import("./pages/Index"));
