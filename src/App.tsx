@@ -32,6 +32,7 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
+          <CloudKeySync />
           <AppSidebar />
           <AppLayout>
             <Suspense fallback={<PageLoader />}>
