@@ -92,10 +92,15 @@ serve(async (req) => {
         console.error('Groq API error:', response.status, errorText);
         
         if (response.status === 429) {
-          throw new Error('RATE_LIMIT');
+          // Don't retry rate limits - surface immediately
+          const err = new Error('RATE_LIMIT');
+          (err as any).noRetry = true;
+          throw err;
         }
         if (response.status === 401 || response.status === 403) {
-          throw new Error('AUTH_ERROR');
+          const err = new Error('AUTH_ERROR');
+          (err as any).noRetry = true;
+          throw err;
         }
         // 500 errors are retryable
         if (response.status >= 500) {
@@ -105,7 +110,7 @@ serve(async (req) => {
       }
 
       return await response.json();
-    });
+    }, 3, 3000);
 
     console.log('Groq transcription completed successfully');
 
