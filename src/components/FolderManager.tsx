@@ -41,6 +41,14 @@ interface FolderManagerProps {
   onGetAudioUrl?: (filePath: string) => Promise<string | null>;
 }
 
+const CUSTOM_FOLDERS_KEY = 'local_folders';
+const getCustomFolders = (): string[] => {
+  try { return JSON.parse(localStorage.getItem(CUSTOM_FOLDERS_KEY) || '[]'); } catch { return []; }
+};
+const saveCustomFolders = (folders: string[]) => {
+  localStorage.setItem(CUSTOM_FOLDERS_KEY, JSON.stringify(folders));
+};
+
 export const FolderManager = ({ transcripts, onUpdate, onDelete, onGetAudioUrl }: FolderManagerProps) => {
   const navigate = useNavigate();
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
@@ -61,12 +69,14 @@ export const FolderManager = ({ transcripts, onUpdate, onDelete, onGetAudioUrl }
   const [editingNotes, setEditingNotes] = useState("");
   const [newTagInput, setNewTagInput] = useState("");
   const [addingTagId, setAddingTagId] = useState<string | null>(null);
+  const [customFolders, setCustomFolders] = useState<string[]>(getCustomFolders);
 
-  // Derived data
+  // Merge transcript-derived folders + user-created custom folders
   const folders = useMemo(() => {
-    const s = new Set(transcripts.map(t => t.folder).filter(Boolean));
-    return Array.from(s).sort();
-  }, [transcripts]);
+    const fromTranscripts = transcripts.map(t => t.folder).filter(Boolean);
+    const all = new Set([...fromTranscripts, ...customFolders]);
+    return Array.from(all).sort((a, b) => a.localeCompare(b, 'he'));
+  }, [transcripts, customFolders]);
 
   const allTags = useMemo(() => {
     const s = new Set(transcripts.flatMap(t => t.tags || []));
@@ -106,10 +116,31 @@ export const FolderManager = ({ transcripts, onUpdate, onDelete, onGetAudioUrl }
   const unfolderedCount = transcripts.filter(t => !t.folder).length;
 
   const handleCreateFolder = () => {
-    if (!newFolderName.trim()) return;
-    setSelectedFolder(newFolderName.trim());
+    const name = newFolderName.trim();
+    if (!name) return;
+    if (folders.includes(name)) {
+      toast({ title: "התיקיה כבר קיימת", variant: "destructive" });
+      setSelectedFolder(name);
+    } else {
+      const updated = [...new Set([...customFolders, name])];
+      setCustomFolders(updated);
+      saveCustomFolders(updated);
+      setSelectedFolder(name);
+      toast({ title: "תיקיה נוצרה", description: name });
+    }
     setNewFolderName("");
     setShowNewFolder(false);
+  };
+
+  const handleDeleteFolder = (folderName: string) => {
+    // Remove from custom folders
+    const updated = customFolders.filter(f => f !== folderName);
+    setCustomFolders(updated);
+    saveCustomFolders(updated);
+    // Move transcripts out of this folder
+    transcripts.filter(t => t.folder === folderName).forEach(t => onUpdate(t.id, { folder: '' }));
+    if (selectedFolder === folderName) setSelectedFolder(null);
+    toast({ title: "תיקיה נמחקה", description: folderName });
   };
 
   const handleMoveToFolder = (transcriptId: string, folder: string) => {
@@ -271,12 +302,24 @@ export const FolderManager = ({ transcripts, onUpdate, onDelete, onGetAudioUrl }
             onClick={() => setSelectedFolder('')}>
             ללא תיקיה ({unfolderedCount})
           </Badge>
-          {folders.map(folder => (
-            <Badge key={folder} variant={selectedFolder === folder ? "default" : "outline"} className="cursor-pointer gap-1"
-              onClick={() => setSelectedFolder(folder)}>
-              <FolderOpen className="w-3 h-3" />{folder} ({transcripts.filter(t => t.folder === folder).length})
-            </Badge>
-          ))}
+          {folders.map(folder => {
+            const count = transcripts.filter(t => t.folder === folder).length;
+            return (
+              <div key={folder} className="relative group inline-flex">
+                <Badge variant={selectedFolder === folder ? "default" : "outline"} className="cursor-pointer gap-1"
+                  onClick={() => setSelectedFolder(folder)}>
+                  <FolderOpen className="w-3 h-3" />{folder} ({count})
+                </Badge>
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleDeleteFolder(folder); }}
+                  className="absolute -top-1 -left-1 opacity-0 group-hover:opacity-100 bg-destructive text-destructive-foreground rounded-full w-4 h-4 flex items-center justify-center text-[10px] transition-opacity"
+                  title="מחק תיקיה"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            );
+          })}
         </div>
 
         {/* Categories */}
