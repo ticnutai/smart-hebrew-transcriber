@@ -90,6 +90,8 @@ export default defineConfig(({ mode }) => ({
       host: "localhost",
       port: 8080,
     },
+    // Allow Cloudflare Tunnel and other external origins
+    allowedHosts: 'all',
   },
   plugins: [react(), mode === "development" && componentTagger(), whisperServerLauncher()].filter(Boolean),
   resolve: {

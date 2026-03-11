@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Globe, Cpu, Zap, Chrome, Mic, Waves, Server, Power, PowerOff, Loader2, CheckCircle2, XCircle, Copy, Rabbit, Turtle, Settings, ChevronDown, Flame, Download, Sparkles } from "lucide-react";
+import { Globe, Cpu, Zap, Chrome, Mic, Waves, Server, Power, PowerOff, Loader2, CheckCircle2, XCircle, Copy, Rabbit, Turtle, Settings, ChevronDown, Flame, Download, Sparkles, Link2 } from "lucide-react";
 import { useLocalServer } from "@/hooks/useLocalServer";
 import { toast } from "@/hooks/use-toast";
 
@@ -44,6 +44,8 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
   const [cloudSaveMode, setCloudSaveMode] = useState<'immediate' | 'text-only' | 'skip'>(() => (localStorage.getItem('cuda_cloud_save') as 'immediate' | 'text-only' | 'skip') || 'immediate');
   const [hotwords, setHotwords] = useState(() => localStorage.getItem('cuda_hotwords') || '');
   const [paragraphThreshold, setParagraphThreshold] = useState(() => parseFloat(localStorage.getItem('cuda_paragraph_threshold') || '0'));
+  const [serverUrl, setServerUrl] = useState(() => localStorage.getItem('whisper_server_url') || '');
+  const [ollamaUrl, setOllamaUrl] = useState(() => localStorage.getItem('ollama_base_url') || '');
 
   // When user selects CUDA server, start polling; otherwise stop
   useEffect(() => {
@@ -533,6 +535,49 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
                   {isWarmingUp ? 'מחמם GPU...' : 'חמם GPU (Warmup)'}
                 </Button>
               )}
+
+              {/* Remote Server URLs */}
+              <div className="space-y-2 border-t pt-2">
+                <div className="flex items-center gap-1.5">
+                  <Link2 className="w-3.5 h-3.5 text-blue-500" />
+                  <Label className="text-xs font-medium text-right block">גישה מרחוק — כתובות שרתים</Label>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[11px] text-muted-foreground text-right block">כתובת שרת Whisper (CUDA)</Label>
+                  <input
+                    type="url"
+                    className="w-full h-8 text-xs rounded-md border bg-background px-3 text-left dir-ltr font-mono"
+                    dir="ltr"
+                    placeholder="http://localhost:8765"
+                    value={serverUrl}
+                    onChange={(e) => {
+                      const v = e.target.value.trim();
+                      setServerUrl(v);
+                      if (v) localStorage.setItem('whisper_server_url', v);
+                      else localStorage.removeItem('whisper_server_url');
+                    }}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[11px] text-muted-foreground text-right block">כתובת שרת Ollama (AI עריכה)</Label>
+                  <input
+                    type="url"
+                    className="w-full h-8 text-xs rounded-md border bg-background px-3 text-left dir-ltr font-mono"
+                    dir="ltr"
+                    placeholder="http://localhost:11434"
+                    value={ollamaUrl}
+                    onChange={(e) => {
+                      const v = e.target.value.trim();
+                      setOllamaUrl(v);
+                      if (v) localStorage.setItem('ollama_base_url', v);
+                      else localStorage.removeItem('ollama_base_url');
+                    }}
+                  />
+                </div>
+                <p className="text-[10px] text-muted-foreground text-right">
+                  לגישה מרחוק: הפעל <code className="font-mono bg-muted px-1 rounded">scripts\start-remote.ps1</code> במחשב — יקבל כתובות אינטרנט. השאר ריק לשימוש מקומי.
+                </p>
+              </div>
 
               {/* Cloud Save Mode */}
               <div className="space-y-1 border-t pt-2">
