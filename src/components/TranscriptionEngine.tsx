@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Globe, Cpu, Zap, Chrome, Mic, Waves, Server, Power, PowerOff, Loader2, CheckCircle2, XCircle, Copy, Rabbit, Turtle, Settings, ChevronDown, Flame } from "lucide-react";
+import { Globe, Cpu, Zap, Chrome, Mic, Waves, Server, Power, PowerOff, Loader2, CheckCircle2, XCircle, Copy, Rabbit, Turtle, Settings, ChevronDown, Flame, Download, Sparkles } from "lucide-react";
 import { useLocalServer } from "@/hooks/useLocalServer";
 import { toast } from "@/hooks/use-toast";
 
@@ -30,7 +30,7 @@ const getLocalModelLabel = (): string => {
 const START_CMD = '.\\scripts\\start-whisper-server.ps1';
 
 export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSourceLanguageChange }: TranscriptionEngineProps) => {
-  const { isConnected, serverStatus, checkConnection, startPolling, stopPolling, shutdownServer, warmupServer, getBaseUrl } = useLocalServer();
+  const { isConnected, serverStatus, checkConnection, startPolling, stopPolling, shutdownServer, warmupServer, preloadModelStream, cancelPreload, modelReady, modelLoading, getBaseUrl } = useLocalServer();
   const [isStarting, setIsStarting] = useState(false);
   const [fastMode, setFastMode] = useState(() => localStorage.getItem('cuda_fast_mode') === '1');
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -39,6 +39,11 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
   const [noConditionPrev, setNoConditionPrev] = useState(() => localStorage.getItem('cuda_no_condition_prev') === '1');
   const [vadAggressive, setVadAggressive] = useState(() => localStorage.getItem('cuda_vad_aggressive') === '1');
   const [isWarmingUp, setIsWarmingUp] = useState(false);
+  const [preloadMode, setPreloadMode] = useState<'preload' | 'direct'>(() => (localStorage.getItem('cuda_preload_mode') as 'preload' | 'direct') || 'preload');
+  const [preloadMsg, setPreloadMsg] = useState('');
+  const [cloudSaveMode, setCloudSaveMode] = useState<'immediate' | 'text-only' | 'skip'>(() => (localStorage.getItem('cuda_cloud_save') as 'immediate' | 'text-only' | 'skip') || 'immediate');
+  const [hotwords, setHotwords] = useState(() => localStorage.getItem('cuda_hotwords') || '');
+  const [paragraphThreshold, setParagraphThreshold] = useState(() => parseFloat(localStorage.getItem('cuda_paragraph_threshold') || '0'));
 
   // When user selects CUDA server, start polling; otherwise stop
   useEffect(() => {
@@ -52,6 +57,19 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
       setIsStarting(false);
     }
   }, [selected, isConnected, startPolling, stopPolling]);
+
+  // Auto-preload model when connected + preload mode
+  useEffect(() => {
+    if (selected === 'local-server' && isConnected && preloadMode === 'preload' && !modelReady && !modelLoading) {
+      preloadModelStream(undefined, undefined, (msg) => setPreloadMsg(msg)).then((r) => {
+        if (r.ready) {
+          toast({ title: '✅ המודל מוכן!', description: r.elapsed ? `נטען ב-${r.elapsed}s` : 'המודל טעון ומוכן לתמלול' });
+        }
+        setPreloadMsg('');
+      }).catch(() => setPreloadMsg(''));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, isConnected, preloadMode]);
 
   const handleStartServer = useCallback(async () => {
     setIsStarting(true);
@@ -221,6 +239,22 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
                       {serverStatus.current_model.split('/').pop()}
                     </Badge>
                   )}
+                  {/* Model status badge */}
+                  {modelReady ? (
+                    <Badge variant="outline" className="text-[10px] bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-green-300">
+                      <Sparkles className="w-3 h-3 ml-1" />
+                      מודל מוכן
+                    </Badge>
+                  ) : modelLoading ? (
+                    <Badge variant="outline" className="text-[10px] bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border-amber-300">
+                      <Loader2 className="w-3 h-3 ml-1 animate-spin" />
+                      טוען מודל...
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-[10px] bg-gray-50 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+                      מודל לא טעון
+                    </Badge>
+                  )}
                 </>
               ) : (
                 <>
@@ -275,6 +309,77 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
                   <Copy className="w-3 h-3" />
                 </Button>
               </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Model preload mode + manual preload */}
+      {selected === 'local-server' && isConnected && (
+        <div className="border-t pt-3 mt-3 space-y-2">
+          <Label className="text-xs font-medium text-right block">מצב טעינת מודל</Label>
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              variant={preloadMode === 'preload' ? 'default' : 'outline'}
+              size="sm"
+              className={`gap-1.5 text-xs h-8 ${preloadMode === 'preload' ? 'bg-blue-500 hover:bg-blue-600 text-white' : ''}`}
+              onClick={(e) => {
+                e.preventDefault();
+                setPreloadMode('preload');
+                localStorage.setItem('cuda_preload_mode', 'preload');
+                toast({ title: '📦 מצב טעינה מראש', description: 'המודל ייטען אוטומטית ברגע שהשרת מחובר' });
+              }}
+            >
+              <Download className="w-3.5 h-3.5" />
+              טען מראש
+            </Button>
+            <Button
+              variant={preloadMode === 'direct' ? 'default' : 'outline'}
+              size="sm"
+              className={`gap-1.5 text-xs h-8 ${preloadMode === 'direct' ? 'bg-blue-500 hover:bg-blue-600 text-white' : ''}`}
+              onClick={(e) => {
+                e.preventDefault();
+                setPreloadMode('direct');
+                localStorage.setItem('cuda_preload_mode', 'direct');
+                toast({ title: '⚡ תמלול ישיר', description: 'המודל ייטען רק כשתתחיל לתמלל (חיסכון VRAM)' });
+              }}
+            >
+              <Zap className="w-3.5 h-3.5" />
+              תמלל ישיר
+            </Button>
+          </div>
+          <p className="text-[10px] text-muted-foreground text-right">
+            {preloadMode === 'preload' ? 'המודל נטען ברקע מיד כשהשרת מוכן — תמלול ראשון מהיר' : 'חוסך VRAM — המודל נטען רק כשמתחילים לתמלל'}
+          </p>
+
+          {/* Manual preload / progress */}
+          {!modelReady && !modelLoading && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full gap-1.5 text-xs h-8"
+              onClick={async (e) => {
+                e.preventDefault();
+                setPreloadMsg('מתחיל טעינה...');
+                try {
+                  const r = await preloadModelStream(undefined, undefined, (msg) => setPreloadMsg(msg));
+                  if (r.ready) {
+                    toast({ title: '✅ המודל מוכן!', description: r.elapsed ? `נטען ב-${r.elapsed}s` : 'מוכן לתמלול' });
+                  }
+                } catch {
+                  toast({ title: '❌ טעינה נכשלה', variant: 'destructive' });
+                }
+                setPreloadMsg('');
+              }}
+            >
+              <Download className="w-3.5 h-3.5" />
+              טען מודל עכשיו
+            </Button>
+          )}
+          {modelLoading && preloadMsg && (
+            <div className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400">
+              <Loader2 className="w-3.5 h-3.5 animate-spin flex-shrink-0" />
+              <span className="truncate">{preloadMsg}</span>
             </div>
           )}
         </div>
@@ -377,6 +482,38 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
                 />
               </div>
 
+              {/* Hotwords */}
+              <div className="space-y-1 border-t pt-2">
+                <Label className="text-xs font-medium text-right block">מילון מותאם אישית (Hotwords)</Label>
+                <textarea
+                  className="w-full h-16 text-xs rounded-md border bg-background px-3 py-2 text-right resize-none"
+                  dir="rtl"
+                  placeholder="הכנס מילים מופרדות בפסיקים: שלום, ירושלים, כנסת..."
+                  value={hotwords}
+                  onChange={(e) => { setHotwords(e.target.value); localStorage.setItem('cuda_hotwords', e.target.value); }}
+                />
+                <p className="text-[10px] text-muted-foreground text-right">מילים שחוזרות בהקלטה — משפר דיוק זיהוי שמות, מונחים מקצועיים</p>
+              </div>
+
+              {/* Auto Paragraph Detection */}
+              <div className="space-y-1">
+                <Label className="text-xs font-medium text-right block">זיהוי פסקאות אוטומטי</Label>
+                <Select value={String(paragraphThreshold)} onValueChange={(v) => { setParagraphThreshold(Number(v)); localStorage.setItem('cuda_paragraph_threshold', v); }}>
+                  <SelectTrigger className="h-8 text-xs" dir="rtl">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent dir="rtl">
+                    <SelectItem value="0">כבוי</SelectItem>
+                    <SelectItem value="1">1 שניות שקט</SelectItem>
+                    <SelectItem value="1.5">1.5 שניות שקט</SelectItem>
+                    <SelectItem value="2">2 שניות שקט</SelectItem>
+                    <SelectItem value="3">3 שניות שקט</SelectItem>
+                    <SelectItem value="5">5 שניות שקט</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-[10px] text-muted-foreground text-right">מוסיף מעבר פסקה כשיש שקט ארוך — מתאים להרצאות</p>
+              </div>
+
               {/* GPU Warmup */}
               {isConnected && (
                 <Button
@@ -396,6 +533,26 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
                   {isWarmingUp ? 'מחמם GPU...' : 'חמם GPU (Warmup)'}
                 </Button>
               )}
+
+              {/* Cloud Save Mode */}
+              <div className="space-y-1 border-t pt-2">
+                <Label className="text-xs font-medium text-right block">שמירה בענן</Label>
+                <Select value={cloudSaveMode} onValueChange={(v: 'immediate' | 'text-only' | 'skip') => { setCloudSaveMode(v); localStorage.setItem('cuda_cloud_save', v); }}>
+                  <SelectTrigger className="h-8 text-xs" dir="rtl">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent dir="rtl">
+                    <SelectItem value="immediate">מלא — טקסט + אודיו לענן</SelectItem>
+                    <SelectItem value="text-only">טקסט בלבד — בלי להעלות אודיו</SelectItem>
+                    <SelectItem value="skip">מקומי בלבד — ללא ענן כלל</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-[10px] text-muted-foreground text-right">
+                  {cloudSaveMode === 'immediate' ? 'התמלול + קובץ האודיו יישמרו בענן' :
+                   cloudSaveMode === 'text-only' ? 'רק הטקסט יעלה לענן — מהיר יותר, חוסך נפח' :
+                   'הכל נשאר מקומי — תמלול אופליין מלא'}
+                </p>
+              </div>
 
             </div>
           </CollapsibleContent>

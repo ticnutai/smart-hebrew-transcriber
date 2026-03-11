@@ -74,7 +74,7 @@ const Index = () => {
   const pendingServerFileRef = useRef<{ file: File; audioUrl: string } | null>(null);
 
   const { transcribe: localTranscribe, isLoading: isLocalLoading, progress: localProgress } = useLocalTranscription();
-  const { transcribeStream: serverTranscribeStream, isLoading: isServerLoading, progress: serverProgress, phase: serverPhase, isConnected: serverConnected, recoverPartial, clearPartial, cancelStream: cancelServerStream, checkConnection, startPolling, stopPolling } = useLocalServer();
+  const { transcribeStream: serverTranscribeStream, transcribeStreamParallel: serverTranscribeParallel, isLoading: isServerLoading, progress: serverProgress, phase: serverPhase, isConnected: serverConnected, modelReady: serverModelReady, recoverPartial, clearPartial, cancelStream: cancelServerStream, checkConnection, startPolling, stopPolling } = useLocalServer();
   const bgTask = useBackgroundTask();
   const { transcripts, isLoading: isCloudLoading, saveTranscript, updateTranscript, deleteTranscript, deleteAll, isCloud, getAudioUrl } = useCloudTranscripts();
   const { jobs, submitJob, submitBatchJobs, retryJob, deleteJob } = useTranscriptionJobs();
@@ -89,7 +89,7 @@ const Index = () => {
     }
   }, [engine, serverConnected, startPolling, stopPolling]);
 
-  // Recover partial transcription on mount
+  // Recover partial transcription on mount (runs once)
   useEffect(() => {
     const partial = recoverPartial();
     if (partial && partial.text) {
@@ -102,7 +102,8 @@ const Index = () => {
       });
       debugLog.info('Recovery', `Restored partial transcript: ${partial.progress}%, ${partial.text.length} chars`);
     }
-  }, [recoverPartial]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Auto-start transcription when server comes up and there's a pending file
   useEffect(() => {
@@ -121,9 +122,22 @@ const Index = () => {
   // Keep reference to current file for saving with transcript
   const currentFileRef = useRef<File | null>(null);
 
-  // Save to cloud history
-  const saveToHistory = async (text: string, engineUsed: string) => {
+  // Save to cloud history (respects cloud save mode for CUDA engine)
+  const saveToHistory = async (text: string, engineUsed: string, skipCloud?: boolean) => {
+    if (skipCloud) {
+      // Save only to localStorage, skip cloud upload entirely
+      const history = JSON.parse(localStorage.getItem('transcript_history') || '[]');
+      const entry = { text, timestamp: Date.now(), engine: engineUsed, tags: [], notes: '' };
+      const updated = [entry, ...history].slice(0, 50);
+      localStorage.setItem('transcript_history', JSON.stringify(updated));
+      return;
+    }
     await saveTranscript(text, engineUsed, undefined, currentFileRef.current || undefined);
+  };
+
+  // Save text-only to cloud (deferred mode — upload text without audio file)
+  const saveTextOnlyToCloud = async (text: string, engineUsed: string) => {
+    await saveTranscript(text, engineUsed, undefined, undefined);
   };
 
   // Helper: invoke edge function with real upload progress via XHR and multipart form
@@ -596,9 +610,19 @@ const Index = () => {
         beamSize: parseInt(localStorage.getItem('cuda_beam_size') || '0') || undefined,
         noConditionOnPrevious: localStorage.getItem('cuda_no_condition_prev') === '1',
         vadAggressive: localStorage.getItem('cuda_vad_aggressive') === '1',
+        hotwords: localStorage.getItem('cuda_hotwords') || undefined,
+        paragraphThreshold: parseFloat(localStorage.getItem('cuda_paragraph_threshold') || '0') || undefined,
       };
 
-      const result = await serverTranscribeStream(file, preferredModel, lang, (partial) => {
+      // Use parallel mode (stage audio + preload model simultaneously) when model isn't ready
+      const useParallel = !serverModelReady;
+      const transcribeFn = useParallel ? serverTranscribeParallel : serverTranscribeStream;
+      if (useParallel) {
+        debugLog.info('CUDA', 'Using parallel mode: staging audio + preloading model simultaneously');
+        toast({ title: "⚡ מצב מקבילי", description: "מעלה אודיו + טוען מודל במקביל" });
+      }
+
+      const result = await transcribeFn(file, preferredModel, lang, (partial) => {
         // Update live as segments arrive
         setTranscript(partial.text);
         setWordTimings(partial.wordTimings);
@@ -608,7 +632,18 @@ const Index = () => {
       setTranscript(result.text);
       setWordTimings(timings);
       if (result.stats) setLastStats(result.stats);
-      saveToHistory(result.text, `Local CUDA (${result.model || 'server'})`);
+
+      // Cloud save mode: 'immediate' (default), 'text-only' (no audio upload), 'skip' (local only)
+      const cloudSaveMode = localStorage.getItem('cuda_cloud_save') || 'immediate';
+      const engineLabel = `Local CUDA (${result.model || 'server'})`;
+      if (cloudSaveMode === 'skip') {
+        saveToHistory(result.text, engineLabel, true);  // localStorage only
+      } else if (cloudSaveMode === 'text-only') {
+        saveTextOnlyToCloud(result.text, engineLabel);  // text to cloud, no audio upload
+      } else {
+        saveToHistory(result.text, engineLabel);  // full: text + audio to cloud
+      }
+
       clearPartial();
       const statsInfo = result.stats ? ` | RTF=${result.stats.rtf} | ${result.stats.compute_type}` : '';
       toast({

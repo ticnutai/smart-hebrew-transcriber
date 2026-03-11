@@ -469,6 +469,43 @@ export const SyncAudioPlayer = ({
     seekTo(wordTimings[targetIdx].start);
   }, [wordTimings, currentWordIndex, seekTo]);
 
+  // ─── Keyboard Shortcuts ──────────────────────────────────────
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      // Don't interfere with input/textarea/contenteditable
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return;
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        togglePlay();
+      } else if (e.code === 'ArrowLeft' && e.ctrlKey) {
+        e.preventDefault();
+        seek(-5);
+      } else if (e.code === 'ArrowRight' && e.ctrlKey) {
+        e.preventDefault();
+        seek(5);
+      } else if (e.code === 'ArrowLeft' && e.shiftKey) {
+        e.preventDefault();
+        jumpToWord('next'); // RTL: left = forward
+      } else if (e.code === 'ArrowRight' && e.shiftKey) {
+        e.preventDefault();
+        jumpToWord('prev'); // RTL: right = backward
+      } else if (e.code === 'KeyR' && e.ctrlKey && !e.shiftKey) {
+        e.preventDefault();
+        restart();
+      } else if (e.code === 'KeyM') {
+        e.preventDefault();
+        toggleMute();
+      } else if (e.code === 'KeyS' && e.altKey) {
+        e.preventDefault();
+        cycleSpeed();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [togglePlay, seek, jumpToWord, restart, toggleMute, cycleSpeed]);
+
   const formatTime = (t: number) => {
     if (!isFinite(t)) return '00:00';
     const m = Math.floor(t / 60).toString().padStart(2, '0');
@@ -808,6 +845,11 @@ export const SyncAudioPlayer = ({
             </div>
           </>
         )}
+
+        {/* ─── Keyboard shortcuts hint ──────────────────────── */}
+        <p className="text-[10px] text-muted-foreground text-center opacity-60">
+          ⌨️ Space=נגן/עצור · Ctrl+←→=±5s · Shift+←→=מילה · M=השתק · Alt+S=מהירות
+        </p>
       </Card>
     </TooltipProvider>
   );

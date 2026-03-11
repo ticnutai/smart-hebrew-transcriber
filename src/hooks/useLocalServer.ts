@@ -33,6 +33,8 @@ export interface CudaOptions {
   beamSize?: number;            // 1-5
   noConditionOnPrevious?: boolean;
   vadAggressive?: boolean;
+  hotwords?: string;            // comma-separated hotwords for improved recognition
+  paragraphThreshold?: number;  // seconds of silence to trigger paragraph break (0=off)
 }
 
 export interface PartialTranscript {
@@ -51,6 +53,9 @@ interface ServerStatus {
   cached_models: string[];
   downloaded_models: string[];
   available_models: string[];
+  model_loading: boolean;
+  model_loading_id: string | null;
+  model_ready: boolean;
 }
 
 const DEFAULT_SERVER_URL = 'http://localhost:8765';
@@ -67,8 +72,11 @@ export const useLocalServer = () => {
   const [progress, setProgress] = useState(0);
   const [phase, setPhase] = useState<TranscriptionPhase>('idle');
   const [partialTranscript, setPartialTranscript] = useState<PartialTranscript | null>(null);
+  const [modelReady, setModelReady] = useState(false);
+  const [modelLoading, setModelLoading] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval>>();
   const abortRef = useRef<AbortController | null>(null);
+  const preloadAbortRef = useRef<AbortController | null>(null);
 
   const getBaseUrl = () => {
     return localStorage.getItem('whisper_server_url') || DEFAULT_SERVER_URL;
@@ -82,6 +90,8 @@ export const useLocalServer = () => {
         const data = await res.json();
         setServerStatus(data);
         setIsConnected(true);
+        setModelReady(data.model_ready ?? false);
+        setModelLoading(data.model_loading ?? false);
         return true;
       }
     } catch {
@@ -89,6 +99,8 @@ export const useLocalServer = () => {
     }
     setIsConnected(false);
     setServerStatus(null);
+    setModelReady(false);
+    setModelLoading(false);
     return false;
   }, []);
 
@@ -160,6 +172,211 @@ export const useLocalServer = () => {
     }
   };
 
+  // ─── Stage audio: pre-upload to server while model loads in parallel ───
+  const stageAudio = async (file: File): Promise<string | null> => {
+    try {
+      const form = new FormData();
+      form.append('file', file, file.name);
+      const res = await fetch(`${getBaseUrl()}/stage-audio`, {
+        method: 'POST',
+        body: form,
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data.stage_id || null;
+    } catch {
+      return null;
+    }
+  };
+
+  // ─── Parallel: stage audio + preload model simultaneously, then transcribe ───
+  const transcribeStreamParallel = async (
+    file: File,
+    model?: string,
+    language: string = 'he',
+    onPartial?: (partial: PartialTranscript) => void,
+    resumeFrom?: { startFrom: number; existingText: string; existingWords: WordTiming[] },
+    cudaOptions?: CudaOptions,
+  ): Promise<ServerTranscriptionResult> => {
+    setIsLoading(true);
+    setPhase('loading-model');
+    setProgress(0);
+    setPartialTranscript(null);
+
+    if (!resumeFrom) {
+      localStorage.removeItem(PARTIAL_STORAGE_KEY);
+    }
+
+    const ct = cudaOptions?.computeType || localStorage.getItem('cuda_compute_type') || undefined;
+
+    // 1. PARALLEL: stage audio + ensure model is loaded
+    console.log('[parallel] Starting parallel stage + preload...');
+    const [stageId] = await Promise.all([
+      stageAudio(file),
+      // Only preload if model not ready (preloadModelStream is a no-op if already cached)
+      !modelReady ? preloadModelStream(model, ct).catch(() => ({ ready: false })) : Promise.resolve({ ready: true }),
+    ]);
+    console.log(`[parallel] Stage: ${stageId ? 'OK' : 'FAILED'}, model ready: ${modelReady}`);
+
+    // 2. Build form — use stage_id if available, otherwise fall back to normal upload
+    const form = new FormData();
+    if (stageId) {
+      form.append('stage_id', stageId);
+    } else {
+      form.append('file', file, file.name);
+    }
+    if (model) form.append('model', model);
+    form.append('language', language);
+    if (resumeFrom) {
+      form.append('start_from', String(resumeFrom.startFrom));
+    }
+    if (cudaOptions?.fastMode) {
+      form.append('fast_mode', '1');
+    }
+    if (cudaOptions?.computeType) {
+      form.append('compute_type', cudaOptions.computeType);
+    }
+    if (cudaOptions?.beamSize) {
+      form.append('beam_size', String(cudaOptions.beamSize));
+    }
+    if (cudaOptions?.noConditionOnPrevious) {
+      form.append('no_condition_on_previous', '1');
+    }
+    if (cudaOptions?.vadAggressive) {
+      form.append('vad_aggressive', '1');
+    }
+    if (cudaOptions?.hotwords) {
+      form.append('hotwords', cudaOptions.hotwords);
+    }
+    if (cudaOptions?.paragraphThreshold && cudaOptions.paragraphThreshold > 0) {
+      form.append('paragraph_threshold', String(cudaOptions.paragraphThreshold));
+    }
+
+    const prefixText = resumeFrom?.existingText ? [resumeFrom.existingText] : [];
+    const prefixWords = resumeFrom?.existingWords ? [...resumeFrom.existingWords] : [];
+
+    // 3. Stream transcription (model should already be loaded)
+    try {
+      abortRef.current = new AbortController();
+      setPhase('transcribing');
+
+      const res = await fetch(`${getBaseUrl()}/transcribe-stream`, {
+        method: 'POST',
+        body: form,
+        signal: abortRef.current.signal,
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        throw new Error(err.error || `Server error ${res.status}`);
+      }
+
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error('Streaming not supported');
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+      const accText: string[] = [...prefixText];
+      const accWords: WordTiming[] = [...prefixWords];
+      let audioDuration = 0;
+      let resolvedModel = model;
+      let lastSegEnd = resumeFrom?.startFrom || 0;
+      let finalResult: ServerTranscriptionResult | null = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const raw = line.slice(6).trim();
+          if (!raw) continue;
+
+          let evt: any;
+          try { evt = JSON.parse(raw); } catch { continue; }
+
+          if (evt.type === 'loading') {
+            setPhase('loading-model');
+          } else if (evt.type === 'info') {
+            audioDuration = evt.duration || 0;
+            if (evt.model) resolvedModel = evt.model;
+            setPhase('transcribing');
+          } else if (evt.type === 'segment') {
+            setPhase('transcribing');
+            if (evt.paragraphBreak) accText.push('\n\n');
+            accText.push(evt.text);
+            if (evt.words) accWords.push(...evt.words);
+            if (evt.segEnd) lastSegEnd = evt.segEnd;
+            const realProgress = evt.progress ?? 0;
+            setProgress(realProgress);
+            const partial: PartialTranscript = {
+              text: accText.join(' '),
+              wordTimings: [...accWords],
+              progress: realProgress,
+              audioDuration,
+              lastSegEnd,
+            };
+            setPartialTranscript(partial);
+            onPartial?.(partial);
+            localStorage.setItem(PARTIAL_STORAGE_KEY, JSON.stringify(partial));
+          } else if (evt.type === 'done') {
+            setProgress(100);
+            const fullText = resumeFrom?.existingText
+              ? resumeFrom.existingText + ' ' + evt.text
+              : evt.text;
+            const fullTimings = resumeFrom?.existingWords
+              ? [...resumeFrom.existingWords, ...(evt.wordTimings || [])]
+              : (evt.wordTimings || []);
+            finalResult = {
+              text: fullText,
+              wordTimings: fullTimings,
+              duration: evt.duration,
+              language: evt.language,
+              model: evt.model,
+              processing_time: evt.processing_time,
+              stats: evt.rtf != null ? {
+                rtf: evt.rtf,
+                file_size: evt.file_size,
+                compute_type: evt.compute_type,
+                beam_size: evt.beam_size,
+                fast_mode: evt.fast_mode,
+                processing_time: evt.processing_time,
+                duration: evt.duration,
+              } : undefined,
+            };
+            localStorage.removeItem(PARTIAL_STORAGE_KEY);
+          } else if (evt.type === 'error') {
+            throw new Error(evt.error || 'Server transcription error');
+          }
+        }
+      }
+
+      if (finalResult) return finalResult;
+      if (accText.length > 0) {
+        return {
+          text: accText.join(' '),
+          wordTimings: accWords,
+          duration: audioDuration,
+          model: resolvedModel,
+        };
+      }
+      throw new Error('Stream ended without results');
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        throw new Error('CANCELLED');
+      }
+      throw err;
+    } finally {
+      setIsLoading(false);
+      setPhase('idle');
+      abortRef.current = null;
+    }
+  };
+
   // ─── Streaming transcribe with real progress + incremental saves ───
   const transcribeStream = async (
     file: File,
@@ -200,6 +417,12 @@ export const useLocalServer = () => {
     }
     if (cudaOptions?.vadAggressive) {
       form.append('vad_aggressive', '1');
+    }
+    if (cudaOptions?.hotwords) {
+      form.append('hotwords', cudaOptions.hotwords);
+    }
+    if (cudaOptions?.paragraphThreshold && cudaOptions.paragraphThreshold > 0) {
+      form.append('paragraph_threshold', String(cudaOptions.paragraphThreshold));
     }
 
     // Prepend existing text/words when resuming
@@ -252,6 +475,8 @@ export const useLocalServer = () => {
           let evt: any;
           try { evt = JSON.parse(raw); } catch { continue; }
 
+          console.log(`[SSE] event: ${evt.type}`, evt.type === 'segment' ? `progress=${evt.progress}% words=${evt.words?.length}` : evt);
+
           if (evt.type === 'loading') {
             setPhase('loading-model');
           } else if (evt.type === 'info') {
@@ -260,6 +485,7 @@ export const useLocalServer = () => {
             setPhase('transcribing');
           } else if (evt.type === 'segment') {
             setPhase('transcribing'); // ensure phase transitions even if info event was missed
+            if (evt.paragraphBreak) accText.push('\n\n');
             accText.push(evt.text);
             if (evt.words) accWords.push(...evt.words);
             if (evt.segEnd) lastSegEnd = evt.segEnd;
@@ -347,7 +573,7 @@ export const useLocalServer = () => {
    * Recover a partial transcript from a previous interrupted session.
    * Returns null if nothing was saved.
    */
-  const recoverPartial = (): PartialTranscript | null => {
+  const recoverPartial = useCallback((): PartialTranscript | null => {
     try {
       const raw = localStorage.getItem(PARTIAL_STORAGE_KEY);
       if (!raw) return null;
@@ -355,7 +581,7 @@ export const useLocalServer = () => {
     } catch {
       return null;
     }
-  };
+  }, []);
 
   const clearPartial = () => {
     localStorage.removeItem(PARTIAL_STORAGE_KEY);
@@ -419,6 +645,91 @@ export const useLocalServer = () => {
     return null;
   }, []);
 
+  /** Preload model via SSE — returns a promise that resolves when the model is ready */
+  const preloadModelStream = useCallback(async (
+    modelId?: string,
+    computeType?: string,
+    onProgress?: (message: string) => void,
+  ): Promise<{ ready: boolean; elapsed?: number }> => {
+    const model = modelId || localStorage.getItem('preferred_local_model') || undefined;
+    const ct = computeType || localStorage.getItem('cuda_compute_type') || undefined;
+
+    setModelLoading(true);
+    preloadAbortRef.current = new AbortController();
+
+    try {
+      const res = await fetch(`${getBaseUrl()}/preload-stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model, compute_type: ct }),
+        signal: preloadAbortRef.current.signal,
+      });
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error('Streaming not supported');
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let result: { ready: boolean; elapsed?: number } = { ready: false };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const raw = line.slice(6).trim();
+          if (!raw) continue;
+
+          let evt: any;
+          try { evt = JSON.parse(raw); } catch { continue; }
+
+          if (evt.type === 'progress') {
+            onProgress?.(evt.message || 'Loading...');
+          } else if (evt.type === 'status') {
+            if (evt.status === 'ready') {
+              setModelReady(true);
+              setModelLoading(false);
+              result = { ready: true, elapsed: evt.elapsed };
+              onProgress?.(evt.message || 'Model ready');
+            } else if (evt.status === 'loading') {
+              onProgress?.(evt.message || 'Loading...');
+            } else if (evt.status === 'error') {
+              setModelLoading(false);
+              result = { ready: false };
+              onProgress?.(evt.message || 'Error');
+            }
+          }
+        }
+      }
+
+      return result;
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        return { ready: false };
+      }
+      throw err;
+    } finally {
+      setModelLoading(false);
+      preloadAbortRef.current = null;
+      await checkConnection(); // Refresh status
+    }
+  }, [checkConnection]);
+
+  const cancelPreload = useCallback(() => {
+    if (preloadAbortRef.current) {
+      preloadAbortRef.current.abort();
+    }
+  }, []);
+
   return {
     isConnected,
     serverStatus,
@@ -426,13 +737,19 @@ export const useLocalServer = () => {
     progress,
     phase,
     partialTranscript,
+    modelReady,
+    modelLoading,
     transcribe,
     transcribeStream,
+    transcribeStreamParallel,
+    stageAudio,
     cancelStream,
     recoverPartial,
     clearPartial,
     loadModel,
     downloadModel,
+    preloadModelStream,
+    cancelPreload,
     checkConnection,
     startPolling,
     stopPolling,

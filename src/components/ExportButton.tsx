@@ -16,9 +16,10 @@ interface ExportButtonProps {
   text: string;
   title?: string;
   disabled?: boolean;
+  wordTimings?: Array<{ word: string; start: number; end: number }>;
 }
 
-export const ExportButton = ({ text, title = "תמלול", disabled }: ExportButtonProps) => {
+export const ExportButton = ({ text, title = "תמלול", disabled, wordTimings }: ExportButtonProps) => {
   const [isExporting, setIsExporting] = useState(false);
 
   const exportToPDF = async () => {
@@ -138,6 +139,67 @@ export const ExportButton = ({ text, title = "תמלול", disabled }: ExportBut
     toast({ title: "TXT הורד בהצלחה" });
   };
 
+  const formatTimeSRT = (seconds: number) => {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    const ms = Math.round((seconds % 1) * 1000);
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
+  };
+
+  const formatTimeVTT = (seconds: number) => {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    const ms = Math.round((seconds % 1) * 1000);
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(ms).padStart(3, '0')}`;
+  };
+
+  const buildSubtitleSegments = () => {
+    if (!wordTimings || wordTimings.length === 0) return [];
+    const segments: Array<{ start: number; end: number; text: string }> = [];
+    let segWords: typeof wordTimings = [];
+    for (const w of wordTimings) {
+      segWords.push(w);
+      if (segWords.length >= 8 || (segments.length > 0 && w.end - segWords[0].start > 5)) {
+        segments.push({ start: segWords[0].start, end: segWords[segWords.length - 1].end, text: segWords.map(sw => sw.word).join(' ') });
+        segWords = [];
+      }
+    }
+    if (segWords.length > 0) {
+      segments.push({ start: segWords[0].start, end: segWords[segWords.length - 1].end, text: segWords.map(sw => sw.word).join(' ') });
+    }
+    return segments;
+  };
+
+  const exportToSRT = () => {
+    const segments = buildSubtitleSegments();
+    if (segments.length === 0) {
+      toast({ title: "אין חותמות זמן", description: "SRT דורש חותמות זמן — תמלל עם שרת CUDA", variant: "destructive" });
+      return;
+    }
+    const srt = segments.map((seg, i) =>
+      `${i + 1}\n${formatTimeSRT(seg.start)} --> ${formatTimeSRT(seg.end)}\n${seg.text}\n`
+    ).join('\n');
+    const blob = new Blob([srt], { type: "text/srt;charset=utf-8" });
+    saveAs(blob, `${title}-${Date.now()}.srt`);
+    toast({ title: "SRT הורד בהצלחה" });
+  };
+
+  const exportToVTT = () => {
+    const segments = buildSubtitleSegments();
+    if (segments.length === 0) {
+      toast({ title: "אין חותמות זמן", description: "VTT דורש חותמות זמן — תמלל עם שרת CUDA", variant: "destructive" });
+      return;
+    }
+    const vtt = 'WEBVTT\n\n' + segments.map((seg, i) =>
+      `${i + 1}\n${formatTimeVTT(seg.start)} --> ${formatTimeVTT(seg.end)}\n${seg.text}\n`
+    ).join('\n');
+    const blob = new Blob([vtt], { type: "text/vtt;charset=utf-8" });
+    saveAs(blob, `${title}-${Date.now()}.vtt`);
+    toast({ title: "VTT הורד בהצלחה" });
+  };
+
   return (
     <DropdownMenu dir="rtl">
       <DropdownMenuTrigger asChild>
@@ -163,6 +225,18 @@ export const ExportButton = ({ text, title = "תמלול", disabled }: ExportBut
           <FileText className="w-4 h-4 ml-2" />
           ייצוא ל-TXT
         </DropdownMenuItem>
+        {wordTimings && wordTimings.length > 0 && (
+          <>
+            <DropdownMenuItem onClick={exportToSRT}>
+              <FileText className="w-4 h-4 ml-2" />
+              ייצוא ל-SRT (כתוביות)
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={exportToVTT}>
+              <FileText className="w-4 h-4 ml-2" />
+              ייצוא ל-VTT (כתוביות)
+            </DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

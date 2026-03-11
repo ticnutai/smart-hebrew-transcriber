@@ -3,7 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { Wand2, BookOpen, FileText, Copy, Download, Loader2, Upload, Settings2, CheckCheck, AlignJustify, Quote } from "lucide-react";
+import { Wand2, BookOpen, FileText, Copy, Download, Loader2, Upload, Settings2, CheckCheck, AlignJustify, Quote, Users } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { ExportButton } from "@/components/ExportButton";
@@ -28,7 +28,7 @@ export const TranscriptEditor = ({ transcript, onTranscriptChange, wordTimings }
   const [customPrompt, setCustomPrompt] = useState("");
   const [showPromptDialog, setShowPromptDialog] = useState(false);
 
-  const handleEdit = async (action: 'improve' | 'sources' | 'readable' | 'custom' | 'grammar' | 'punctuation' | 'paragraphs', prompt?: string) => {
+  const handleEdit = async (action: 'improve' | 'sources' | 'readable' | 'custom' | 'grammar' | 'punctuation' | 'paragraphs' | 'speakers', prompt?: string) => {
     if (!transcript.trim()) {
       toast({
         title: "שגיאה",
@@ -181,7 +181,7 @@ export const TranscriptEditor = ({ transcript, onTranscriptChange, wordTimings }
             <Copy className="w-4 h-4 ml-2" />
             העתק
           </Button>
-          <ExportButton text={transcript} disabled={isEditing} />
+          <ExportButton text={transcript} disabled={isEditing} wordTimings={wordTimings} />
           {wordTimings && wordTimings.some(w => w.probability != null) && (
             <Button
               variant={showConfidence ? "default" : "outline"}
@@ -309,6 +309,19 @@ export const TranscriptEditor = ({ transcript, onTranscriptChange, wordTimings }
               <BookOpen className="w-4 h-4 ml-2" />
             )}
             עשה זורם לקריאה
+          </Button>
+
+          <Button
+            variant="secondary"
+            onClick={() => handleEdit('speakers')}
+            disabled={!transcript.trim() || isEditing}
+          >
+            {isEditing ? (
+              <Loader2 className="w-4 h-4 ml-2 animate-spin" />
+            ) : (
+              <Users className="w-4 h-4 ml-2" />
+            )}
+            זהה דוברים
           </Button>
 
           <Dialog open={showPromptDialog} onOpenChange={setShowPromptDialog}>
