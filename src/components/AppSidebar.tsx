@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useCloudPreferences } from "@/hooks/useCloudPreferences";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -34,14 +35,8 @@ const navItems: NavItem[] = [
 ];
 
 export const useSidebarPinned = () => {
-  const [isPinned, setIsPinned] = useState(() => {
-    try {
-      return localStorage.getItem("sidebar-pinned") === "true";
-    } catch {
-      return false;
-    }
-  });
-  return isPinned;
+  const { preferences } = useCloudPreferences();
+  return preferences.sidebar_pinned;
 };
 
 const AppSidebar = () => {
@@ -53,18 +48,15 @@ const AppSidebar = () => {
   const closeTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   const [isOpen, setIsOpen] = useState(false);
-  const [isPinned, setIsPinned] = useState(() => {
-    try {
-      return localStorage.getItem("sidebar-pinned") === "true";
-    } catch {
-      return false;
-    }
-  });
+  const { preferences, updatePreference } = useCloudPreferences();
+  const [isPinned, setIsPinned] = useState(preferences.sidebar_pinned);
 
   useEffect(() => {
-    try {
-      localStorage.setItem("sidebar-pinned", String(isPinned));
-    } catch {}
+    setIsPinned(preferences.sidebar_pinned);
+  }, [preferences.sidebar_pinned]);
+
+  useEffect(() => {
+    updatePreference('sidebar_pinned', isPinned);
     window.dispatchEvent(new CustomEvent("sidebar-pin-change", { detail: isPinned }));
   }, [isPinned]);
 

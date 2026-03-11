@@ -215,6 +215,45 @@ export type Database = {
         }
         Relationships: []
       }
+      user_preferences: {
+        Row: {
+          created_at: string
+          font_family: string | null
+          font_size: number | null
+          id: string
+          line_height: number | null
+          sidebar_pinned: boolean | null
+          text_color: string | null
+          theme: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          font_family?: string | null
+          font_size?: number | null
+          id?: string
+          line_height?: number | null
+          sidebar_pinned?: boolean | null
+          text_color?: string | null
+          theme?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          font_family?: string | null
+          font_size?: number | null
+          id?: string
+          line_height?: number | null
+          sidebar_pinned?: boolean | null
+          text_color?: string | null
+          theme?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           id: string

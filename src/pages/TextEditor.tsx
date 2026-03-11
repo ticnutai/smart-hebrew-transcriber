@@ -12,6 +12,7 @@ import { TextEditHistory, TextVersion } from "@/components/TextEditHistory";
 import { ArrowRight, Home, Wand2, SplitSquareVertical, SpellCheck, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
+import { useCloudPreferences } from "@/hooks/useCloudPreferences";
 
 const TextEditor = () => {
   const navigate = useNavigate();
@@ -20,11 +21,16 @@ const TextEditor = () => {
   const [versions, setVersions] = useState<TextVersion[]>([]);
   const [selectedVersionId, setSelectedVersionId] = useState<string>();
   
-  // Style settings
-  const [fontSize, setFontSize] = useState(16);
-  const [fontFamily, setFontFamily] = useState('Assistant');
-  const [textColor, setTextColor] = useState('hsl(var(--foreground))');
-  const [lineHeight, setLineHeight] = useState(1.6);
+  // Cloud-synced style settings
+  const { preferences, updatePreference } = useCloudPreferences();
+  const fontSize = preferences.font_size;
+  const fontFamily = preferences.font_family;
+  const textColor = preferences.text_color;
+  const lineHeight = preferences.line_height;
+  const setFontSize = (v: number) => updatePreference('font_size', v);
+  const setFontFamily = (v: string) => updatePreference('font_family', v);
+  const setTextColor = (v: string) => updatePreference('text_color', v);
+  const setLineHeight = (v: number) => updatePreference('line_height', v);
 
   useEffect(() => {
     // Get text from navigation state or localStorage
@@ -61,16 +67,6 @@ const TextEditor = () => {
       }
     }
 
-    // Load style settings
-    const savedFontSize = localStorage.getItem('editor_fontSize');
-    const savedFontFamily = localStorage.getItem('editor_fontFamily');
-    const savedTextColor = localStorage.getItem('editor_textColor');
-    const savedLineHeight = localStorage.getItem('editor_lineHeight');
-
-    if (savedFontSize) setFontSize(Number(savedFontSize));
-    if (savedFontFamily) setFontFamily(savedFontFamily);
-    if (savedTextColor) setTextColor(savedTextColor);
-    if (savedLineHeight) setLineHeight(Number(savedLineHeight));
   }, [location.state]);
 
   // Auto-save text and versions to localStorage
@@ -101,13 +97,7 @@ const TextEditor = () => {
     setText(version.text);
   };
 
-  // Save style settings
-  useEffect(() => {
-    localStorage.setItem('editor_fontSize', String(fontSize));
-    localStorage.setItem('editor_fontFamily', fontFamily);
-    localStorage.setItem('editor_textColor', textColor);
-    localStorage.setItem('editor_lineHeight', String(lineHeight));
-  }, [fontSize, fontFamily, textColor, lineHeight]);
+  
 
   const [aiAction, setAiAction] = useState<string | null>(null);
 
