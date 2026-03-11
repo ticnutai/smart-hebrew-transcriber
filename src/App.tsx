@@ -18,6 +18,7 @@ const Index = lazy(() => import("./pages/Index"));
 const Login = lazy(() => import("./pages/Login"));
 const Settings = lazy(() => import("./pages/Settings"));
 const TextEditor = lazy(() => import("./pages/TextEditor"));
+const Folders = lazy(() => import("./pages/Folders"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
@@ -51,6 +52,7 @@ const App = () => {
                 <Route path="/login" element={<Login />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/text-editor" element={<TextEditor />} />
+                <Route path="/folders" element={<Folders />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </Suspense>

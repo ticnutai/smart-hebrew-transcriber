@@ -1,20 +1,23 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RichTextEditor } from "@/components/RichTextEditor";
-import { AIEditorDual } from "@/components/AIEditorDual";
-import { TextComparisonMulti } from "@/components/TextComparisonMulti";
-import { EditingTemplates } from "@/components/EditingTemplates";
-import { AdvancedDiffView } from "@/components/AdvancedDiffView";
-import { TextStyleControl } from "@/components/TextStyleControl";
-import { TextEditHistory, TextVersion } from "@/components/TextEditHistory";
-import { PromptLibrary } from "@/components/PromptLibrary";
-import { EditPipeline } from "@/components/EditPipeline";
-import { OllamaManager } from "@/components/OllamaManager";
-import { SyncAudioPlayer } from "@/components/SyncAudioPlayer";
-import { SyncTranscriptView } from "@/components/SyncTranscriptView";
+import type { TextVersion } from "@/components/TextEditHistory";
 import type { WordTiming } from "@/components/SyncAudioPlayer";
+
+// Lazy-loaded heavy components
+const AIEditorDual = lazy(() => import("@/components/AIEditorDual").then(m => ({ default: m.AIEditorDual })));
+const TextComparisonMulti = lazy(() => import("@/components/TextComparisonMulti").then(m => ({ default: m.TextComparisonMulti })));
+const EditingTemplates = lazy(() => import("@/components/EditingTemplates").then(m => ({ default: m.EditingTemplates })));
+const AdvancedDiffView = lazy(() => import("@/components/AdvancedDiffView").then(m => ({ default: m.AdvancedDiffView })));
+const TextStyleControl = lazy(() => import("@/components/TextStyleControl").then(m => ({ default: m.TextStyleControl })));
+const TextEditHistory = lazy(() => import("@/components/TextEditHistory").then(m => ({ default: m.TextEditHistory })));
+const PromptLibrary = lazy(() => import("@/components/PromptLibrary").then(m => ({ default: m.PromptLibrary })));
+const EditPipeline = lazy(() => import("@/components/EditPipeline").then(m => ({ default: m.EditPipeline })));
+const OllamaManager = lazy(() => import("@/components/OllamaManager").then(m => ({ default: m.OllamaManager })));
+const SyncAudioPlayer = lazy(() => import("@/components/SyncAudioPlayer").then(m => ({ default: m.SyncAudioPlayer })));
+const SyncTranscriptView = lazy(() => import("@/components/SyncTranscriptView").then(m => ({ default: m.SyncTranscriptView })));
 import { ArrowRight, Home, Wand2, SplitSquareVertical, SpellCheck, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
@@ -158,6 +161,7 @@ const TextEditor = () => {
   };
 
   return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>}>
     <div className="min-h-screen bg-background p-4 md:p-8" dir="rtl">
       <div className="max-w-7xl mx-auto space-y-6">
         {/* Header */}
@@ -373,6 +377,7 @@ const TextEditor = () => {
         </div>
       </div>
     </div>
+    </Suspense>
   );
 };
 

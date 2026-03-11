@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,7 @@ interface CloudTranscriptHistoryProps {
   onClearAll: () => void;
   onDelete: (id: string) => void;
   onUpdate: (id: string, updates: Partial<Pick<CloudTranscript, 'tags' | 'notes' | 'title' | 'folder'>>) => void;
+  initialFolderFilter?: string;
 }
 
 export const CloudTranscriptHistory = ({
@@ -27,6 +28,7 @@ export const CloudTranscriptHistory = ({
   onClearAll,
   onDelete,
   onUpdate,
+  initialFolderFilter,
 }: CloudTranscriptHistoryProps) => {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
@@ -34,11 +36,18 @@ export const CloudTranscriptHistory = ({
   const [editingTagId, setEditingTagId] = useState<string | null>(null);
   const [engineFilter, setEngineFilter] = useState<string>("all");
   const [dateFilter, setDateFilter] = useState<string>("all");
-  const [folderFilter, setFolderFilter] = useState<string>("all");
+  const [folderFilter, setFolderFilter] = useState<string>(initialFolderFilter || "all");
   const [showFilters, setShowFilters] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [assigningFolderId, setAssigningFolderId] = useState<string | null>(null);
+
+  // Sync folder filter from URL when it changes
+  useEffect(() => {
+    if (initialFolderFilter !== undefined) {
+      setFolderFilter(initialFolderFilter);
+    }
+  }, [initialFolderFilter]);
 
   // Get unique engines for filter
   const engines = useMemo(() => 

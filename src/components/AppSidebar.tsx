@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useCloudPreferences } from "@/hooks/useCloudPreferences";
+import { useCloudFolders } from "@/hooks/useCloudFolders";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -13,10 +14,18 @@ import {
   PinOff,
   User,
   ChevronLeft,
+  Folder,
+  FolderPlus,
+  FolderOpen,
+  ChevronDown,
+  Plus,
+  Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Input } from "@/components/ui/input";
+import { toast } from "@/hooks/use-toast";
 
 const SIDEBAR_WIDTH = 260;
 const TRIGGER_ZONE = 16;
@@ -30,6 +39,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { label: "דשבורד", icon: LayoutDashboard, path: "/" },
   { label: "תמלול", icon: Mic, path: "/transcribe" },
+  { label: "תיקיות", icon: FolderOpen, path: "/folders" },
   { label: "עורך טקסט", icon: FileText, path: "/text-editor" },
   { label: "הגדרות", icon: Settings, path: "/settings" },
 ];
@@ -39,8 +49,18 @@ export const useSidebarPinned = () => {
   return preferences.sidebar_pinned;
 };
 
+/** Local (non-cloud) folder management via localStorage */
+const LOCAL_FOLDERS_KEY = 'local_folders';
+const getLocalFolders = (): string[] => {
+  try { return JSON.parse(localStorage.getItem(LOCAL_FOLDERS_KEY) || '[]'); } catch { return []; }
+};
+const saveLocalFolders = (folders: string[]) => {
+  localStorage.setItem(LOCAL_FOLDERS_KEY, JSON.stringify(folders));
+};
+
 const AppSidebar = () => {
   const { isAuthenticated, user, logout, isLoading } = useAuth();
+  const { folders: cloudFolders } = useCloudFolders();
   const navigate = useNavigate();
   const location = useLocation();
   const sidebarRef = useRef<HTMLDivElement>(null);
@@ -48,6 +68,30 @@ const AppSidebar = () => {
   const closeTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   const [isOpen, setIsOpen] = useState(false);
+  const [foldersOpen, setFoldersOpen] = useState(true);
+  const [showNewFolder, setShowNewFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [localFolders, setLocalFolders] = useState<string[]>(getLocalFolders);
+
+  // Merge cloud and local folders
+  const folders = useMemo(() => {
+    if (isAuthenticated) return cloudFolders;
+    return localFolders.map(name => ({ name, count: 0 }));
+  }, [isAuthenticated, cloudFolders, localFolders]);
+
+  const addLocalFolder = (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const updated = [...new Set([...localFolders, trimmed])];
+    setLocalFolders(updated);
+    saveLocalFolders(updated);
+  };
+
+  const removeLocalFolder = (name: string) => {
+    const updated = localFolders.filter(f => f !== name);
+    setLocalFolders(updated);
+    saveLocalFolders(updated);
+  };
   const { preferences, updatePreference } = useCloudPreferences();
   const [isPinned, setIsPinned] = useState(preferences.sidebar_pinned);
 
@@ -179,6 +223,141 @@ const AppSidebar = () => {
               </button>
             ))}
           </nav>
+
+          {/* Folders section - always visible */}
+          <Separator className="my-2" />
+          <div className="px-3">
+            <div className="flex items-center justify-between">
+              <button
+                onClick={() => {
+                  navigate('/folders');
+                  if (!isPinned) setIsOpen(false);
+                }}
+                className={cn(
+                  "flex items-center gap-2 px-3 py-2 text-sm font-bold rounded-lg transition-colors",
+                  isActive('/folders')
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-foreground hover:bg-muted"
+                )}
+              >
+                <FolderOpen className="w-4 h-4" />
+                <span>תיקיות</span>
+                {folders.length > 0 && (
+                  <span className={cn("text-[10px] rounded-full px-1.5 py-0.5", isActive('/folders') ? "bg-primary-foreground/20 text-primary-foreground" : "text-muted-foreground bg-muted")}>{folders.length}</span>
+                )}
+              </button>
+              <div className="flex items-center gap-0.5">
+                <button
+                  onClick={() => setFoldersOpen(p => !p)}
+                  className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                  title={foldersOpen ? "סגור רשימה" : "פתח רשימה"}
+                >
+                  <ChevronDown className={cn("w-4 h-4 transition-transform", foldersOpen && "rotate-180")} />
+                </button>
+                <button
+                  onClick={() => setShowNewFolder(true)}
+                  className="p-1.5 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                  title="תיקיה חדשה"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {foldersOpen && (
+              <div className="flex flex-col gap-0.5 mt-1">
+                {/* All transcripts */}
+                <button
+                  onClick={() => {
+                    navigate('/transcribe');
+                    if (!isPinned) setIsOpen(false);
+                  }}
+                  className={cn(
+                    "flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-colors w-full text-right",
+                    location.pathname === '/transcribe' && !new URLSearchParams(location.search).get('folder')
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                  )}
+                >
+                  <FolderOpen className="w-3.5 h-3.5 shrink-0" />
+                  <span>הכל</span>
+                </button>
+
+                {/* Folder list */}
+                {folders.map(f => {
+                  const isActiveFolder = location.pathname === '/transcribe' &&
+                    new URLSearchParams(location.search).get('folder') === f.name;
+                  return (
+                    <div
+                      key={f.name}
+                      className={cn(
+                        "flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-colors w-full text-right group",
+                        isActiveFolder
+                          ? "bg-primary/10 text-primary"
+                          : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                      )}
+                    >
+                      <button
+                        className="flex items-center gap-2 flex-1 min-w-0 text-right"
+                        onClick={() => {
+                          navigate(`/transcribe?folder=${encodeURIComponent(f.name)}`);
+                          if (!isPinned) setIsOpen(false);
+                        }}
+                        title={f.name}
+                      >
+                        <Folder className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate flex-1">{f.name}</span>
+                        {f.count > 0 && <span className="text-[10px] opacity-60">{f.count}</span>}
+                      </button>
+                      {!isAuthenticated && (
+                        <button
+                          onClick={() => {
+                            removeLocalFolder(f.name);
+                            toast({ title: "תיקיה נמחקה", description: f.name });
+                          }}
+                          className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-destructive transition-all"
+                          title="מחק תיקיה"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {folders.length === 0 && !showNewFolder && (
+                  <p className="text-[11px] text-muted-foreground px-3 py-1">אין תיקיות עדיין — לחץ + להוספה</p>
+                )}
+
+                {/* Create new folder */}
+                {showNewFolder && (
+                  <div className="flex gap-1 px-2 mt-1">
+                    <Input
+                      placeholder="שם תיקיה..."
+                      value={newFolderName}
+                      onChange={(e) => setNewFolderName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && newFolderName.trim()) {
+                          if (!isAuthenticated) addLocalFolder(newFolderName.trim());
+                          navigate(`/transcribe?folder=${encodeURIComponent(newFolderName.trim())}`);
+                          setShowNewFolder(false);
+                          setNewFolderName("");
+                          if (!isPinned) setIsOpen(false);
+                        }
+                        if (e.key === 'Escape') {
+                          setShowNewFolder(false);
+                          setNewFolderName("");
+                        }
+                      }}
+                      className="text-xs h-7"
+                      dir="rtl"
+                      autoFocus
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </ScrollArea>
 
         <Separator />

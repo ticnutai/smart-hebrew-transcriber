@@ -1,15 +1,8 @@
-import { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useEffect, useRef, lazy, Suspense } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { TranscriptionEngine } from "@/components/TranscriptionEngine";
 import { FileUploader } from "@/components/FileUploader";
 import { AudioRecorder } from "@/components/AudioRecorder";
-import { LiveTranscriber } from "@/components/LiveTranscriber";
-import { TranscriptEditor } from "@/components/TranscriptEditor";
-import { CloudTranscriptHistory } from "@/components/CloudTranscriptHistory";
-import { TranscriptSummary } from "@/components/TranscriptSummary";
-import { ShareTranscript } from "@/components/ShareTranscript";
-import { TextStyleControl } from "@/components/TextStyleControl";
-import { LocalModelManager } from "@/components/LocalModelManager";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -22,18 +15,29 @@ import { useBackgroundTask } from "@/hooks/useBackgroundTask";
 import { debugLog } from "@/lib/debugLogger";
 import { useCloudTranscripts } from "@/hooks/useCloudTranscripts";
 import { Settings, FileEdit, ChevronDown, X, Zap, Globe, Chrome, Mic, Waves, Server, Cpu, Film, Pause, Play } from "lucide-react";
-import { BatchUploader } from "@/components/BatchUploader";
-import { BackgroundJobsPanel } from "@/components/BackgroundJobsPanel";
 import { useTranscriptionJobs } from "@/hooks/useTranscriptionJobs";
 import { useAuth } from "@/contexts/AuthContext";
 import { isVideoFile, extractAudioFromVideo, VIDEO_NEEDS_EXTRACTION, MAX_VIDEO_SIZE_MB, MAX_AUDIO_SIZE_MB } from "@/lib/videoUtils";
 import { compressAudio, needsCompression, formatFileSize, CLOUD_API_LIMIT } from "@/lib/audioCompression";
+
+// Lazy-loaded heavy components
+const LiveTranscriber = lazy(() => import("@/components/LiveTranscriber").then(m => ({ default: m.LiveTranscriber })));
+const TranscriptEditor = lazy(() => import("@/components/TranscriptEditor").then(m => ({ default: m.TranscriptEditor })));
+const CloudTranscriptHistory = lazy(() => import("@/components/CloudTranscriptHistory").then(m => ({ default: m.CloudTranscriptHistory })));
+const TranscriptSummary = lazy(() => import("@/components/TranscriptSummary").then(m => ({ default: m.TranscriptSummary })));
+const ShareTranscript = lazy(() => import("@/components/ShareTranscript").then(m => ({ default: m.ShareTranscript })));
+const TextStyleControl = lazy(() => import("@/components/TextStyleControl").then(m => ({ default: m.TextStyleControl })));
+const LocalModelManager = lazy(() => import("@/components/LocalModelManager").then(m => ({ default: m.LocalModelManager })));
+const BatchUploader = lazy(() => import("@/components/BatchUploader").then(m => ({ default: m.BatchUploader })));
+const BackgroundJobsPanel = lazy(() => import("@/components/BackgroundJobsPanel").then(m => ({ default: m.BackgroundJobsPanel })));
 
 type Engine = 'openai' | 'groq' | 'google' | 'local' | 'local-server' | 'assemblyai' | 'deepgram';
 type SourceLanguage = 'auto' | 'he' | 'yi' | 'en';
 
 const Index = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const folderFromUrl = searchParams.get('folder') || undefined;
   const { isAuthenticated } = useAuth();
   const [engine, setEngine] = useState<Engine>(() => {
     const saved = localStorage.getItem('transcript_engine') as Engine | null;
@@ -846,6 +850,7 @@ const Index = () => {
   };
 
   return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>}>
     <div className="min-h-screen bg-background p-4 md:p-8" dir="rtl">
       <div className="max-w-6xl mx-auto space-y-6">
         {/* Header with Tabs */}
@@ -1130,6 +1135,7 @@ const Index = () => {
           }}
           onDelete={deleteTranscript}
           onUpdate={(id, updates) => updateTranscript(id, updates)}
+          initialFolderFilter={folderFromUrl}
         />
 
         {transcript && (
@@ -1157,6 +1163,7 @@ const Index = () => {
         )}
       </div>
     </div>
+    </Suspense>
   );
 };
 

@@ -564,7 +564,20 @@ def main():
     print("    POST /unload-models     — Free GPU memory")
     print()
 
-    app.run(host="0.0.0.0", port=args.port, debug=False)
+    # Use waitress production server with multi-threading (4 threads)
+    # Falls back to Flask dev server if waitress is not installed
+    try:
+        from waitress import serve
+        print("  Server: waitress (4 threads, production)")
+        print()
+        serve(app, host="0.0.0.0", port=args.port, threads=4,
+              channel_timeout=300, recv_bytes=65536,
+              send_bytes=65536, url_scheme='http')
+    except ImportError:
+        print("  Server: Flask dev server (install waitress for production)")
+        print("  Tip: pip install waitress")
+        print()
+        app.run(host="0.0.0.0", port=args.port, debug=False)
 
 
 if __name__ == "__main__":

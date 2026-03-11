@@ -53,7 +53,6 @@ export const useLocalServer = () => {
 
   const checkConnection = useCallback(async () => {
     const url = `${getBaseUrl()}/health`;
-    console.log('[useLocalServer] checkConnection → ', url);
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
       if (res.ok) {
@@ -63,9 +62,8 @@ export const useLocalServer = () => {
         setIsConnected(true);
         return true;
       }
-      console.warn('[useLocalServer] ⚠️ health returned HTTP', res.status);
-    } catch (e) {
-      console.warn('[useLocalServer] ❌ server not reachable:', e);
+    } catch {
+      // Server not running — silent, no spam
     }
     setIsConnected(false);
     setServerStatus(null);
