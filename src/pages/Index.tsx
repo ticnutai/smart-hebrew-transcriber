@@ -311,7 +311,12 @@ const Index = () => {
 
       if (error) {
         debugLog.error('Groq', 'Edge function error', error);
-        throw error;
+        const errMsg = error.message || error.error || 'שגיאה לא ידועה';
+        if (errMsg === 'RATE_LIMIT' || error.retryAfter) {
+          const wait = error.retryAfter || 60;
+          throw new Error(`חרגת ממגבלת Groq. נסה שוב בעוד ${wait} שניות.`);
+        }
+        throw new Error(errMsg);
       }
 
       if (data?.text) {
