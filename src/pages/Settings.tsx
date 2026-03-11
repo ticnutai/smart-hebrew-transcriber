@@ -5,11 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { Settings as SettingsIcon, ArrowRight, LogOut, Eye, EyeOff, Wrench, Cpu } from "lucide-react";
+import { Settings as SettingsIcon, ArrowRight, LogOut, Eye, EyeOff, Wrench, Cpu, Palette, Key } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import DevToolsPanel from "@/components/DevToolsPanel";
 import { OllamaManager } from "@/components/OllamaManager";
+import { ThemeManager } from "@/components/ThemeManager";
 
 const Settings = () => {
   const { isAuthenticated, logout, isLoading, isAdmin, user } = useAuth();
@@ -180,6 +182,36 @@ const Settings = () => {
           </Card>
         )}
 
+        <Tabs defaultValue="api-keys" dir="rtl" className="space-y-4">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="api-keys" className="gap-2">
+              <Key className="h-4 w-4" />
+              מפתחות API
+            </TabsTrigger>
+            <TabsTrigger value="themes" className="gap-2">
+              <Palette className="h-4 w-4" />
+              ערכות נושא
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="themes">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <Palette className="w-6 h-6 text-primary" />
+                  <CardTitle className="text-2xl">ערכות נושא</CardTitle>
+                </div>
+                <CardDescription>
+                  בחר ערכת נושא מובנית או צור ערכה אישית
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ThemeManager />
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="api-keys">
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
@@ -361,6 +393,8 @@ const Settings = () => {
 
         {/* Ollama Local AI */}
         <OllamaManager />
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );

@@ -103,4 +103,9 @@ All colors MUST be HSL.
     direction: rtl;
     font-family: system-ui, -apple-system, sans-serif;
   }
+
+  /* Theme icon color override */
+  :root[style*="--icon-color"] svg:not(.no-theme-icon) {
+    color: var(--icon-color, inherit);
+  }
 }

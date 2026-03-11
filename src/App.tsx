@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -11,6 +11,7 @@ import { Loader2 } from "lucide-react";
 import CloudKeySync from "./components/CloudKeySync";
 import UserFloatingBadge from "./components/UserFloatingBadge";
 import { DebugPanel } from "./components/DebugPanel";
+import { useTheme } from "./hooks/useTheme";
 
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Index = lazy(() => import("./pages/Index"));
@@ -27,7 +28,11 @@ const PageLoader = () => (
   </div>
 );
 
-const App = () => (
+const App = () => {
+  // Initialize theme on app load
+  useTheme();
+
+  return (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
       <TooltipProvider>
@@ -54,6 +59,7 @@ const App = () => (
       </TooltipProvider>
     </AuthProvider>
   </QueryClientProvider>
-);
+  );
+};
 
 export default App;
