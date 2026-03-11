@@ -16,7 +16,7 @@ import {
   FolderOpen, FolderPlus, FileText, Search, Edit, Trash2,
   Star, StarOff, Tag, Grid3X3, List, ArrowUpDown, X, Check,
   StickyNote, Briefcase, GraduationCap, Users, MessageSquare, MoreHorizontal,
-  Download, Loader2
+  Download, Loader2, Play, Pause, Volume2
 } from "lucide-react";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
