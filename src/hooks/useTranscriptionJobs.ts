@@ -102,6 +102,11 @@ export const useTranscriptionJobs = () => {
       return null;
     }
 
+    if (engine === 'local' || engine === 'local-server') {
+      toast({ title: "מנוע מקומי", description: "מנועים מקומיים לא נתמכים בתמלול ברקע. בחר מנוע אונליין.", variant: "destructive" });
+      return null;
+    }
+
     try {
       const chunks = splitFileIntoChunks(file);
 
