@@ -12,6 +12,7 @@ interface LiveTranscriberProps {
 
 export const LiveTranscriber = ({ onTranscriptComplete }: LiveTranscriberProps) => {
   const [isListening, setIsListening] = useState(false);
+  const isListeningRef = useRef(false);
   const [interimText, setInterimText] = useState("");
   const [finalText, setFinalText] = useState("");
   const [isSupported, setIsSupported] = useState(true);
@@ -70,10 +71,11 @@ export const LiveTranscriber = ({ onTranscriptComplete }: LiveTranscriberProps) 
 
     recognition.onend = () => {
       // Auto-restart if still in listening mode
-      if (recognitionRef.current && isListening) {
+      if (recognitionRef.current && isListeningRef.current) {
         try {
           recognition.start();
         } catch {
+          isListeningRef.current = false;
           setIsListening(false);
         }
       }
@@ -81,10 +83,12 @@ export const LiveTranscriber = ({ onTranscriptComplete }: LiveTranscriberProps) 
 
     recognitionRef.current = recognition;
     recognition.start();
+    isListeningRef.current = true;
     setIsListening(true);
-  }, [isListening]);
+  }, []);
 
   const stopListening = useCallback(() => {
+    isListeningRef.current = false;
     if (recognitionRef.current) {
       recognitionRef.current.abort();
       recognitionRef.current = null;

@@ -172,20 +172,17 @@ export const useTranscriptionJobs = () => {
     }
 
     const ids: string[] = [];
-    let nextIdx = 0;
+    const concurrency = Math.min(MAX_CONCURRENT_JOBS, files.length);
+    // Pre-assign files to workers to avoid race on shared index
+    const buckets: File[][] = Array.from({ length: concurrency }, () => []);
+    files.forEach((f, i) => buckets[i % concurrency].push(f));
 
-    async function worker() {
-      while (nextIdx < files.length) {
-        const idx = nextIdx++;
-        const id = await submitJob(files[idx], engine, language);
+    const workers = buckets.map(bucket => (async () => {
+      for (const file of bucket) {
+        const id = await submitJob(file, engine, language);
         if (id) ids.push(id);
       }
-    }
-
-    const workers = Array.from(
-      { length: Math.min(MAX_CONCURRENT_JOBS, files.length) },
-      () => worker()
-    );
+    })());
     await Promise.all(workers);
 
     toast({ title: `${ids.length} עבודות נשלחו לתמלול ברקע` });

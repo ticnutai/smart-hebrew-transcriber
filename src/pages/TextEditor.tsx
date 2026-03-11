@@ -88,16 +88,6 @@ const TextEditor = () => {
       setWordTimings(location.state.wordTimings);
     }
 
-    // Load style settings
-    const savedFontSize = localStorage.getItem('editor_fontSize');
-    const savedFontFamily = localStorage.getItem('editor_fontFamily');
-    const savedTextColor = localStorage.getItem('editor_textColor');
-    const savedLineHeight = localStorage.getItem('editor_lineHeight');
-
-    if (savedFontSize) setFontSize(Number(savedFontSize));
-    if (savedFontFamily) setFontFamily(savedFontFamily);
-    if (savedTextColor) setTextColor(savedTextColor);
-    if (savedLineHeight) setLineHeight(Number(savedLineHeight));
   }, [location.state]);
 
   // Auto-save text and versions to localStorage

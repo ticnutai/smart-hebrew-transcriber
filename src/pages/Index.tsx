@@ -102,17 +102,11 @@ const Index = () => {
       });
       debugLog.info('Recovery', `Restored partial transcript: ${partial.progress}%, ${partial.text.length} chars`);
     }
-  }, []);
-
-  useEffect(() => {
-    if (serverConnected && engine === 'groq') {
-      setEngine('local-server');
-    }
-  }, [serverConnected]);
+  }, [recoverPartial]);
 
   // Auto-start transcription when server comes up and there's a pending file
   useEffect(() => {
-    if (serverConnected && pendingServerFileRef.current) {
+    if (serverConnected && pendingServerFileRef.current && engine === 'local-server') {
       const { file, audioUrl } = pendingServerFileRef.current;
       pendingServerFileRef.current = null;
       toast({ title: "\u2705 \u05d4\u05e9\u05e8\u05ea \u05e2\u05dc\u05d4!", description: `\u05de\u05ea\u05d7\u05d9\u05dc \u05ea\u05de\u05dc\u05d5\u05dc: ${file.name}` });
@@ -192,6 +186,7 @@ const Index = () => {
 
   const handleFileSelect = async (file: File) => {
     currentFileRef.current = file;
+    pendingServerFileRef.current = null; // Clear pending queue when new file is selected
     setRecoveredPartialInfo(null); // Clear recovery banner on new transcription
     
     const isVideo = isVideoFile(file);
@@ -209,6 +204,7 @@ const Index = () => {
     }
 
     // Preserve media URL for playback
+    if (audioUrl) URL.revokeObjectURL(audioUrl);
     const url = URL.createObjectURL(file);
     setAudioUrl(url);
 
@@ -890,7 +886,7 @@ const Index = () => {
   };
 
   const batchSaveTranscript = async (text: string, engineUsed: string, title: string) => {
-    await saveTranscript(text, engineUsed);
+    await saveTranscript(text, engineUsed, title);
   };
 
   return (
@@ -1199,11 +1195,15 @@ const Index = () => {
                 variant="outline"
                 size="sm"
                 className="gap-1.5"
-                onClick={() => {
-                  navigator.clipboard.writeText(transcript);
-                  setCopied(true);
-                  toast({ title: "הטקסט הועתק!" });
-                  setTimeout(() => setCopied(false), 2000);
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(transcript);
+                    setCopied(true);
+                    toast({ title: "הטקסט הועתק!" });
+                    setTimeout(() => setCopied(false), 2000);
+                  } catch {
+                    toast({ title: "שגיאה", description: "לא ניתן להעתיק ללוח", variant: "destructive" });
+                  }
                 }}
               >
                 {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}

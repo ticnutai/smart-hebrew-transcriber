@@ -57,9 +57,25 @@ export const useCloudTranscripts = () => {
       .channel('transcripts-changes')
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'transcripts' },
-        () => {
-          fetchTranscripts();
+        { event: 'INSERT', schema: 'public', table: 'transcripts' },
+        (payload) => {
+          const newItem = payload.new as CloudTranscript;
+          setTranscripts(prev => [newItem, ...prev]);
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'transcripts' },
+        (payload) => {
+          const updated = payload.new as CloudTranscript;
+          setTranscripts(prev => prev.map(t => t.id === updated.id ? updated : t));
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'transcripts' },
+        (payload) => {
+          setTranscripts(prev => prev.filter(t => t.id !== payload.old.id));
         }
       )
       .subscribe();
@@ -196,17 +212,28 @@ export const useCloudTranscripts = () => {
   const deleteAll = useCallback(async () => {
     if (!user) return;
     try {
+      // Collect audio file paths before deleting records
+      const audioPaths = transcripts
+        .filter(t => t.audio_file_path)
+        .map(t => t.audio_file_path!);
+
       const { error } = await supabase
         .from('transcripts')
         .delete()
         .eq('user_id', user.id);
 
       if (error) throw error;
+
+      // Delete audio files from storage
+      if (audioPaths.length > 0) {
+        await supabase.storage.from('permanent-audio').remove(audioPaths);
+      }
+
       setTranscripts([]);
     } catch (error) {
       console.error('Error deleting all transcripts:', error);
     }
-  }, [user]);
+  }, [user, transcripts]);
 
   // Stats
   const stats = {

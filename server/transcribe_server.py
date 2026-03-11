@@ -231,8 +231,12 @@ def _patch_feature_extractor(model, model_id: str):
         print(f"  ⚠️  Could not patch feature extractor: {e}")
 
 
-def get_downloaded_models():
-    """Check which models are already downloaded to disk."""
+# Cached downloaded-model list (refreshed on load/download, not on every health check)
+_downloaded_models_cache: list[str] | None = None
+
+def _refresh_downloaded_models_cache():
+    """Refresh the cached list of downloaded models."""
+    global _downloaded_models_cache
     download_root = str(Path.home() / ".cache" / "whisper-models")
     downloaded = []
     for model_id, resolved in MODEL_REGISTRY.items():
@@ -248,7 +252,14 @@ def get_downloaded_models():
                     downloaded.append(model_id)
             except Exception:
                 pass
+    _downloaded_models_cache = downloaded
     return downloaded
+
+def get_downloaded_models():
+    """Return cached list of downloaded models (cheap for /health polling)."""
+    if _downloaded_models_cache is None:
+        return _refresh_downloaded_models_cache()
+    return _downloaded_models_cache
 
 
 @app.route("/health", methods=["GET"])
@@ -517,6 +528,7 @@ def transcribe_stream():
     return Response(generate(), mimetype="text/event-stream", headers={
         "Cache-Control": "no-cache",
         "X-Accel-Buffering": "no",
+        "Transfer-Encoding": "chunked",
     })
 
 
@@ -538,6 +550,7 @@ def load_model_endpoint():
         import gc; gc.collect()
 
         load_model(resolved, compute_type_override=compute_type)
+        _refresh_downloaded_models_cache()
         return jsonify({"status": "loaded", "model": resolved})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -556,11 +569,13 @@ def download_model_endpoint():
         if resolved in MODELS_NEEDING_CONVERSION:
             # Download and convert HF model to CT2
             path = convert_hf_to_ct2(resolved)
+            _refresh_downloaded_models_cache()
             return jsonify({"status": "downloaded", "model": resolved, "path": path})
         else:
             # Use the same cache_dir as WhisperModel uses
             from faster_whisper.utils import download_model
             path = download_model(resolved, cache_dir=download_root)
+            _refresh_downloaded_models_cache()
             return jsonify({"status": "downloaded", "model": resolved, "path": str(path)})
     except Exception as e:
         print(f"  Download error for {resolved}: {e}")
@@ -622,7 +637,10 @@ def shutdown_endpoint():
     print("\n  Server shutdown requested — bye!")
     # Return response before shutting down
     import threading
-    threading.Timer(0.5, lambda: os._exit(0)).start()
+    def _do_shutdown():
+        import signal
+        os.kill(os.getpid(), signal.SIGTERM)
+    threading.Timer(0.5, _do_shutdown).start()
     return jsonify({"status": "shutting_down"})
 
 
@@ -701,7 +719,7 @@ def main():
         print()
         serve(app, host="0.0.0.0", port=args.port, threads=4,
               channel_timeout=300, recv_bytes=65536,
-              send_bytes=1, url_scheme='http')
+              send_bytes=65536, url_scheme='http')
     except ImportError:
         print("  Server: Flask dev server (install waitress for production)")
         print("  Tip: pip install waitress")

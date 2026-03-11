@@ -230,6 +230,7 @@ export const useLocalServer = () => {
       const accText: string[] = [...prefixText];
       const accWords: WordTiming[] = [...prefixWords];
       let audioDuration = 0;
+      let resolvedModel = model; // track model from SSE info event
       let lastSegEnd = resumeFrom?.startFrom || 0;
       let finalResult: ServerTranscriptionResult | null = null;
 
@@ -255,6 +256,7 @@ export const useLocalServer = () => {
             setPhase('loading-model');
           } else if (evt.type === 'info') {
             audioDuration = evt.duration || 0;
+            if (evt.model) resolvedModel = evt.model;
             setPhase('transcribing');
           } else if (evt.type === 'segment') {
             setPhase('transcribing'); // ensure phase transitions even if info event was missed
@@ -320,7 +322,7 @@ export const useLocalServer = () => {
           text: accText.join(' '),
           wordTimings: accWords,
           duration: audioDuration,
-          model: model,
+          model: resolvedModel,
         };
       }
 

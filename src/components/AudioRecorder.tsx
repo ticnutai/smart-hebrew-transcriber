@@ -32,6 +32,7 @@ export const AudioRecorder = ({ onRecordingComplete, isTranscribing, engine }: A
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
   const animFrameRef = useRef<number | null>(null);
 
   // Cleanup on unmount
@@ -50,10 +51,15 @@ export const AudioRecorder = ({ onRecordingComplete, isTranscribing, engine }: A
       cancelAnimationFrame(animFrameRef.current);
       animFrameRef.current = null;
     }
+    if (audioCtxRef.current) {
+      audioCtxRef.current.close().catch(() => {});
+      audioCtxRef.current = null;
+    }
   };
 
   const startVisualization = (stream: MediaStream) => {
     const audioCtx = new AudioContext();
+    audioCtxRef.current = audioCtx;
     const source = audioCtx.createMediaStreamSource(stream);
     const analyser = audioCtx.createAnalyser();
     analyser.fftSize = 256;
