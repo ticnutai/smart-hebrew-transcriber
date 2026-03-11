@@ -133,6 +133,7 @@ export type Database = {
       }
       transcripts: {
         Row: {
+          audio_file_path: string | null
           category: string | null
           created_at: string
           engine: string
@@ -147,6 +148,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          audio_file_path?: string | null
           category?: string | null
           created_at?: string
           engine?: string
@@ -161,6 +163,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          audio_file_path?: string | null
           category?: string | null
           created_at?: string
           engine?: string
