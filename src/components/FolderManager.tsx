@@ -476,6 +476,10 @@ const TranscriptItem = ({
           {t.category && (
             <Badge variant="secondary" className="text-xs">{getCategoryLabel(t.category)}</Badge>
           )}
+          {t.audio_file_path && (
+            <Badge variant="outline" className="text-xs gap-1">
+              <Volume2 className="w-3 h-3" />אודיו
+            </Badge>
         </div>
         <span className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(t.created_at)}</span>
       </div>
