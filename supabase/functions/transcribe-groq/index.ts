@@ -13,13 +13,15 @@ function sanitizeFileName(name: string): string {
 }
 
 // Retry wrapper
-async function withRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 2000): Promise<T> {
+async function withRetry<T>(fn: () => Promise<T>, retries = 3, delayMs = 3000): Promise<T> {
   let lastError: Error | undefined;
   for (let i = 0; i <= retries; i++) {
     try {
       return await fn();
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
+      // Don't retry non-retryable errors (rate limit, auth)
+      if ((lastError as any).noRetry) throw lastError;
       if (i < retries) {
         console.log(`Retry ${i + 1}/${retries} after error: ${lastError.message}`);
         await new Promise(r => setTimeout(r, delayMs * (i + 1)));
