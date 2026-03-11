@@ -174,6 +174,7 @@ const Index = () => {
 
   const handleFileSelect = async (file: File) => {
     console.log(`[Index] handleFileSelect — file:${file.name} (${(file.size/1024).toFixed(0)}KB), engine:${engine}, serverConnected:${serverConnected}`);
+    currentFileRef.current = file;
     
     const isVideo = isVideoFile(file);
     const maxMB = isVideo ? MAX_VIDEO_SIZE_MB : MAX_AUDIO_SIZE_MB;
