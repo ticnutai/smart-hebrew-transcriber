@@ -546,6 +546,12 @@ const TranscriptItem = ({
 
       {/* Actions */}
       <div className="flex gap-1 flex-wrap flex-row-reverse">
+        {t.audio_file_path && onGetAudioUrl && (
+          <Button size="sm" variant={playingAudio ? "default" : "outline"} className="text-xs h-7" onClick={handlePlayAudio} disabled={isLoadingAudio}>
+            {isLoadingAudio ? <Loader2 className="w-3 h-3 ml-1 animate-spin" /> : playingAudio ? <Pause className="w-3 h-3 ml-1" /> : <Play className="w-3 h-3 ml-1" />}
+            {playingAudio ? 'עצור' : 'נגן'}
+          </Button>
+        )}
         <Button size="sm" variant="outline" className="text-xs h-7" onClick={onNavigateEdit}>
           <Edit className="w-3 h-3 ml-1" />ערוך
         </Button>
