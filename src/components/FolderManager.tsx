@@ -429,10 +429,10 @@ const TranscriptItem = ({
   formatDate, getCategoryLabel, viewMode
 }: TranscriptItemProps) => {
   return (
-    <div className={`p-3 rounded-lg border hover:bg-accent/50 transition-colors ${isSelected ? 'ring-2 ring-primary bg-primary/5' : ''}`}>
+    <div dir="rtl" className={`p-3 rounded-lg border hover:bg-accent/50 transition-colors text-right ${isSelected ? 'ring-2 ring-primary bg-primary/5' : ''}`}>
       {/* Top row */}
-      <div className="flex items-center justify-between mb-1 gap-2">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between mb-1 gap-2 flex-row-reverse">
+        <div className="flex items-center gap-2 flex-row-reverse">
           <Checkbox checked={isSelected} onCheckedChange={onToggleSelect} />
           <button onClick={onToggleFavorite} className="hover:scale-110 transition-transform">
             {t.is_favorite
@@ -462,7 +462,7 @@ const TranscriptItem = ({
           <Button size="sm" variant="ghost" className="h-7 px-2" onClick={onCancelEditTitle}><X className="w-3 h-3" /></Button>
         </div>
       ) : (
-        <p className="text-sm font-medium truncate mb-1 cursor-pointer hover:text-primary"
+        <p className="text-sm font-medium truncate mb-1 cursor-pointer hover:text-primary text-right"
           onDoubleClick={onStartEditTitle}>
           {t.title || t.text.substring(0, 60)}
         </p>
@@ -517,7 +517,7 @@ const TranscriptItem = ({
       </div>
 
       {/* Actions */}
-      <div className="flex gap-1 flex-wrap">
+      <div className="flex gap-1 flex-wrap flex-row-reverse">
         <Button size="sm" variant="outline" className="text-xs h-7" onClick={onNavigateEdit}>
           <Edit className="w-3 h-3 ml-1" />ערוך
         </Button>

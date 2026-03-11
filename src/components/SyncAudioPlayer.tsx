@@ -222,7 +222,7 @@ export const SyncAudioPlayer = ({
 
     // Warmth boost (200-400Hz shelf)
     const warmth = ctx.createBiquadFilter();
-    warmth.type = 'lowShelf';
+    warmth.type = 'lowshelf';
     warmth.frequency.value = 300;
     warmth.gain.value = 0;
     warmthRef.current = warmth;
