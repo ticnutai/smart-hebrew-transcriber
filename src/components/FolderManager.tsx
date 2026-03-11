@@ -462,7 +462,7 @@ const TranscriptItem = ({
           <Button size="sm" variant="ghost" className="h-7 px-2" onClick={onCancelEditTitle}><X className="w-3 h-3" /></Button>
         </div>
       ) : (
-        <p className="text-sm font-medium truncate mb-1 cursor-pointer hover:text-primary"
+        <p className="text-sm font-medium truncate mb-1 cursor-pointer hover:text-primary text-right"
           onDoubleClick={onStartEditTitle}>
           {t.title || t.text.substring(0, 60)}
         </p>
