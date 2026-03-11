@@ -170,7 +170,7 @@ serve(async (req) => {
         console.log(`Processing chunk ${i + 1}/${actualChunks}`);
         
         const chunkText = await transcribeBlob(
-          chunkBlob, engine, job.language || 'he', job.file_name || 'audio.webm'
+          chunkBlob, engine, job.language || 'he', job.file_name || 'audio.webm', userApiKeys
         );
 
         partialResult += (partialResult ? ' ' : '') + chunkText;
