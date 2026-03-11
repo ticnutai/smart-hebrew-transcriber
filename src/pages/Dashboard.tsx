@@ -194,6 +194,7 @@ const Dashboard = () => {
             transcripts={transcripts}
             onUpdate={(id, updates) => updateTranscript(id, updates)}
             onDelete={deleteTranscript}
+            onGetAudioUrl={getAudioUrl}
           />
         )}
 
