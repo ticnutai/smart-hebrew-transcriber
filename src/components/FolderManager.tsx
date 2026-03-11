@@ -517,7 +517,7 @@ const TranscriptItem = ({
       </div>
 
       {/* Actions */}
-      <div className="flex gap-1 flex-wrap">
+      <div className="flex gap-1 flex-wrap flex-row-reverse">
         <Button size="sm" variant="outline" className="text-xs h-7" onClick={onNavigateEdit}>
           <Edit className="w-3 h-3 ml-1" />ערוך
         </Button>
