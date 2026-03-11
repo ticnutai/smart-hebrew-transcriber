@@ -120,7 +120,7 @@ export function extractAudioFromVideo(
           const baseName = videoFile.name.replace(/\.[^.]+$/, '');
           const audioFile = new File(
             [audioBlob],
-            `${baseName}-audio.${audioExt === 'webm' ? 'webm' : 'webm'}`,
+            `${baseName}-audio.${audioExt}`,
             { type: mimeType },
           );
           resolve(audioFile);

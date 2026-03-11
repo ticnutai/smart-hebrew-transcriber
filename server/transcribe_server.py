@@ -49,7 +49,9 @@ CORS(app)
 
 # Global model cache
 _model_cache: dict[str, faster_whisper.WhisperModel] = {}
+_model_last_used: dict[str, float] = {}  # cache_key → last access timestamp
 _current_model_id: str | None = None
+MODEL_TTL_SECONDS = 30 * 60  # 30 minutes — evict unused models to free VRAM
 
 # Model registry - maps friendly names to HuggingFace model IDs
 MODEL_REGISTRY = {
@@ -164,6 +166,7 @@ def load_model(model_id: str, compute_type_override: str | None = None) -> faste
 
     if cache_key in _model_cache:
         _current_model_id = model_id
+        _model_last_used[cache_key] = time.time()
         return _model_cache[cache_key]
 
     # Check if this model needs conversion from HuggingFace format
@@ -206,6 +209,7 @@ def load_model(model_id: str, compute_type_override: str | None = None) -> faste
     _patch_feature_extractor(model, model_id)
 
     _model_cache[cache_key] = model
+    _model_last_used[cache_key] = time.time()
     _current_model_id = model_id
     return model
 
@@ -323,6 +327,7 @@ def transcribe():
                         "word": w.word.strip(),
                         "start": round(w.start, 3),
                         "end": round(w.end, 3),
+                        "probability": round(w.probability, 3),
                     })
 
         full_text = " ".join(full_text_parts)
@@ -463,7 +468,7 @@ def transcribe_stream():
                 if segment.words:
                     for w in segment.words:
                         # Offset timestamps by start_from so they match original audio
-                        wt = {"word": w.word.strip(), "start": round(w.start + start_from, 3), "end": round(w.end + start_from, 3)}
+                        wt = {"word": w.word.strip(), "start": round(w.start + start_from, 3), "end": round(w.end + start_from, 3), "probability": round(w.probability, 3)}
                         seg_words.append(wt)
                         all_word_timings.append(wt)
 
@@ -568,6 +573,7 @@ def unload_models_endpoint():
     global _current_model_id
     count = len(_model_cache)
     _model_cache.clear()
+    _model_last_used.clear()
     _current_model_id = None
     import gc; gc.collect()
     print(f"  Unloaded {count} models from memory")
@@ -610,6 +616,7 @@ def shutdown_endpoint():
     """Gracefully shut down the server."""
     global _current_model_id
     _model_cache.clear()
+    _model_last_used.clear()
     _current_model_id = None
     import gc; gc.collect()
     print("\n  Server shutdown requested — bye!")
@@ -617,6 +624,22 @@ def shutdown_endpoint():
     import threading
     threading.Timer(0.5, lambda: os._exit(0)).start()
     return jsonify({"status": "shutting_down"})
+
+
+def _evict_stale_models():
+    """Background thread: evict models unused for MODEL_TTL_SECONDS to free VRAM."""
+    import gc
+    while True:
+        time.sleep(60)  # check every minute
+        now = time.time()
+        stale = [k for k, ts in _model_last_used.items() if now - ts > MODEL_TTL_SECONDS]
+        for key in stale:
+            if key in _model_cache:
+                del _model_cache[key]
+                del _model_last_used[key]
+                print(f"  [cache] Evicted idle model: {key}")
+        if stale:
+            gc.collect()
 
 
 def main():
@@ -652,6 +675,13 @@ def main():
             print("  Server will still start — model will load on first request.")
 
     print(f"\n  Server starting on http://localhost:{args.port}")
+
+    # Start model cache eviction thread (frees VRAM for idle models)
+    import threading
+    eviction_thread = threading.Thread(target=_evict_stale_models, daemon=True)
+    eviction_thread.start()
+    print(f"  Model cache TTL: {MODEL_TTL_SECONDS // 60} minutes")
+
     print("  Endpoints:")
     print("    GET  /health            — Server status + downloaded models")
     print("    GET  /models            — Available models")

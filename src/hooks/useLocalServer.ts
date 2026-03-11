@@ -4,6 +4,7 @@ export interface WordTiming {
   word: string;
   start: number;
   end: number;
+  probability?: number;
 }
 
 export interface ServerTranscriptionResult {
@@ -168,10 +169,8 @@ export const useLocalServer = () => {
     resumeFrom?: { startFrom: number; existingText: string; existingWords: WordTiming[] },
     cudaOptions?: CudaOptions,
   ): Promise<ServerTranscriptionResult> => {
-    console.log(`[useLocalServer] 🎙️ transcribeStream START — file:${file.name} (${(file.size/1024).toFixed(0)}KB), model:${model ?? 'default'}, lang:${language}${resumeFrom ? `, resumeFrom=${resumeFrom.startFrom}s` : ''}`);
     setIsLoading(true);
     setPhase('loading-model');
-    console.log('[useLocalServer] setIsLoading(true)');
     setProgress(resumeFrom ? Math.round((resumeFrom.startFrom / 1) * 0) : 0);
     setPartialTranscript(null);
 
@@ -210,14 +209,12 @@ export const useLocalServer = () => {
     try {
       abortRef.current = new AbortController();
       const streamUrl = `${getBaseUrl()}/transcribe-stream`;
-      console.log(`[useLocalServer] → fetching ${streamUrl}`);
+
       const res = await fetch(streamUrl, {
         method: 'POST',
         body: form,
         signal: abortRef.current.signal,
       });
-
-      console.log(`[useLocalServer] response status: ${res.status}, ok: ${res.ok}, content-type: ${res.headers.get('content-type')}`);
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
@@ -226,7 +223,7 @@ export const useLocalServer = () => {
 
       const reader = res.body?.getReader();
       if (!reader) throw new Error('Streaming not supported');
-      console.log('[useLocalServer] ✅ got reader, entering stream loop');
+
 
       const decoder = new TextDecoder();
       let buffer = '';
@@ -254,8 +251,6 @@ export const useLocalServer = () => {
           let evt: any;
           try { evt = JSON.parse(raw); } catch { continue; }
 
-          console.log(`[useLocalServer] SSE evt: type=${evt.type}${ evt.type==='segment' ? ` progress=${evt.progress} text="${(evt.text||'').slice(0,40)}"` : evt.type==='info' ? ` duration=${evt.duration}` : evt.type==='done' ? ` processing_time=${evt.processing_time}` : '' }`);
-
           if (evt.type === 'loading') {
             setPhase('loading-model');
           } else if (evt.type === 'info') {
@@ -268,7 +263,6 @@ export const useLocalServer = () => {
             if (evt.segEnd) lastSegEnd = evt.segEnd;
 
             const realProgress = evt.progress ?? 0;
-            console.log(`[useLocalServer] setProgress(${realProgress}) — accumulated ${accText.length} segments`);
             setProgress(realProgress);
 
             const partial: PartialTranscript = {
@@ -284,7 +278,7 @@ export const useLocalServer = () => {
             // Persist partial to localStorage for crash recovery
             localStorage.setItem(PARTIAL_STORAGE_KEY, JSON.stringify(partial));
           } else if (evt.type === 'done') {
-            console.log('[useLocalServer] ✅ done event received, setProgress(100)');
+
             setProgress(100);
             // When resuming, merge with prefix text
             const fullText = resumeFrom?.existingText
@@ -334,13 +328,13 @@ export const useLocalServer = () => {
       throw new Error('Stream ended without results');
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
-        console.log('[useLocalServer] stream aborted by user');
+
         throw new Error('CANCELLED');
       }
       console.error('[useLocalServer] ❌ transcribeStream error:', err);
       throw err;
     } finally {
-      console.log('[useLocalServer] setIsLoading(false)');
+
       setIsLoading(false);
       setPhase('idle');
       abortRef.current = null;

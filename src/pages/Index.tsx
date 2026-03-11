@@ -14,7 +14,7 @@ import { useLocalServer, type TranscriptionStats, type CudaOptions } from "@/hoo
 import { useBackgroundTask } from "@/hooks/useBackgroundTask";
 import { debugLog } from "@/lib/debugLogger";
 import { useCloudTranscripts } from "@/hooks/useCloudTranscripts";
-import { Settings, FileEdit, ChevronDown, X, Zap, Globe, Chrome, Mic, Waves, Server, Cpu, Film, Pause, Play, Square } from "lucide-react";
+import { Settings, FileEdit, ChevronDown, X, Zap, Globe, Chrome, Mic, Waves, Server, Cpu, Film, Pause, Play, Square, Copy, Check } from "lucide-react";
 import { useTranscriptionJobs } from "@/hooks/useTranscriptionJobs";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCloudPreferences } from "@/hooks/useCloudPreferences";
@@ -61,9 +61,10 @@ const Index = () => {
 
   // Audio & word timing state for sync player
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
-  const [wordTimings, setWordTimings] = useState<Array<{word: string, start: number, end: number}>>([]);
+  const [wordTimings, setWordTimings] = useState<Array<{word: string, start: number, end: number, probability?: number}>>([]);
   const [recoveredPartialInfo, setRecoveredPartialInfo] = useState<{progress: number, wordCount: number, lastSegEnd?: number} | null>(null);
   const [lastStats, setLastStats] = useState<TranscriptionStats | null>(null);
+  const [copied, setCopied] = useState(false);
 
   // Save reference to last uploaded file for resume functionality
   const lastFileRef = useRef<File | null>(null);
@@ -190,7 +191,6 @@ const Index = () => {
   };
 
   const handleFileSelect = async (file: File) => {
-    console.log(`[Index] handleFileSelect — file:${file.name} (${(file.size/1024).toFixed(0)}KB), engine:${engine}, serverConnected:${serverConnected}`);
     currentFileRef.current = file;
     setRecoveredPartialInfo(null); // Clear recovery banner on new transcription
     
@@ -211,6 +211,21 @@ const Index = () => {
     // Preserve media URL for playback
     const url = URL.createObjectURL(file);
     setAudioUrl(url);
+
+    // Show audio/video duration after file select
+    try {
+      const mediaEl = isVideo ? document.createElement('video') : new Audio();
+      mediaEl.preload = 'metadata';
+      mediaEl.src = url;
+      mediaEl.onloadedmetadata = () => {
+        const dur = mediaEl.duration;
+        if (dur && isFinite(dur)) {
+          const mins = Math.floor(dur / 60);
+          const secs = Math.round(dur % 60);
+          toast({ title: `${isVideo ? '🎬' : '🎵'} ${file.name}`, description: `משך: ${mins}:${secs.toString().padStart(2, '0')} | ${formatFileSize(file.size)}` });
+        }
+      };
+    } catch { /* ignore duration detection errors */ }
 
     // Step 1: If video file and engine requires audio-only → extract audio
     let fileToTranscribe = file;
@@ -281,7 +296,6 @@ const Index = () => {
     }
 
     debugLog.info('Transcription', `התחלת תמלול: ${fileToTranscribe.name} (${formatFileSize(fileToTranscribe.size)}) עם ${engine}`);
-    console.log(`[Index] bgTask.run starting — bgTask.status=${bgTask.status}, isRunning=${bgTask.isRunning}`);
 
     // Run in background — doesn't block tab, sends notification on complete
     bgTask.run(`${engine} — ${file.name}`, async () => {
@@ -558,11 +572,9 @@ const Index = () => {
   };
 
   const transcribeWithLocalServer = async (file: File, fileAudioUrl?: string, resumeFrom?: { startFrom: number; existingText: string; existingWords: Array<{word: string, start: number, end: number}> }) => {
-    console.log(`[Index] transcribeWithLocalServer — serverConnected:${serverConnected}, engine:${engine}`);
     // Fresh connection check before transcription (serverConnected state may be stale)
     const isUp = await checkConnection();
     if (!isUp) {
-      console.log('[Index] ⏳ server not ready — queuing file, will auto-start when server comes up');
       pendingServerFileRef.current = { file, audioUrl: fileAudioUrl || '' };
       // Aggressive polling while waiting
       startPolling(2000);
@@ -576,7 +588,6 @@ const Index = () => {
     try {
       const preferredModel = localStorage.getItem('preferred_local_model') || undefined;
       const lang = sourceLanguage === 'auto' ? 'auto' : sourceLanguage;
-      console.log(`[Index] 🚀 calling serverTranscribeStream — model:${preferredModel ?? 'default'}, lang:${lang}, file:${file.name}`);
       setTranscript('');
       setWordTimings([]);
       setLastStats(null);
@@ -595,11 +606,8 @@ const Index = () => {
         // Update live as segments arrive
         setTranscript(partial.text);
         setWordTimings(partial.wordTimings);
-        console.log(`[Index] 📊 partial callback — progress:${partial.progress}%, words:${partial.wordTimings.length}`);
         debugLog.info('CUDA Stream', `${partial.progress}% — ${partial.wordTimings.length} מילים`);
       }, resumeFrom, cudaOptions);
-      console.log(`[Index] ✅ serverTranscribeStream finished — text length:${result.text?.length}, processing_time:${result.processing_time}s`);
-
       const timings = result.wordTimings || [];
       setTranscript(result.text);
       setWordTimings(timings);
@@ -746,11 +754,6 @@ const Index = () => {
 
   const isLoading = isUploading || isLocalLoading || isServerLoading || bgTask.isRunning;
   const progress = engine === 'local' ? localProgress : engine === 'local-server' ? serverProgress : (isUploading ? uploadProgress : undefined);
-
-  // ── Debug: watch loading/progress state ──
-  useEffect(() => {
-    console.log(`[Index] 🔄 STATE — isLoading:${isLoading} | bgTask:${bgTask.status} | isServerLoading:${isServerLoading} | serverProgress:${serverProgress} | isUploading:${isUploading} | serverConnected:${serverConnected}`);
-  }, [isLoading, bgTask.status, isServerLoading, serverProgress, isUploading, serverConnected]);
 
   // Elapsed time counter — starts fresh each time a transcription begins
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -1191,9 +1194,24 @@ const Index = () => {
 
         {transcript && (
           <>
+            <div className="flex gap-2 items-center justify-end" dir="rtl">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                onClick={() => {
+                  navigator.clipboard.writeText(transcript);
+                  setCopied(true);
+                  toast({ title: "הטקסט הועתק!" });
+                  setTimeout(() => setCopied(false), 2000);
+                }}
+              >
+                {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                {copied ? "הועתק!" : "העתק תמלול"}
+              </Button>
+              <ShareTranscript transcript={transcript} />
+            </div>
             <TranscriptSummary transcript={transcript} />
-            
-            <ShareTranscript transcript={transcript} />
           </>
         )}
 
@@ -1209,6 +1227,7 @@ const Index = () => {
             <TranscriptEditor 
               transcript={transcript}
               onTranscriptChange={setTranscript}
+              wordTimings={wordTimings}
             />
           </div>
         )}

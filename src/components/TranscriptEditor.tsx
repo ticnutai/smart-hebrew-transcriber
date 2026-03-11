@@ -19,10 +19,12 @@ import {
 interface TranscriptEditorProps {
   transcript: string;
   onTranscriptChange: (text: string) => void;
+  wordTimings?: Array<{word: string, start: number, end: number, probability?: number}>;
 }
 
-export const TranscriptEditor = ({ transcript, onTranscriptChange }: TranscriptEditorProps) => {
+export const TranscriptEditor = ({ transcript, onTranscriptChange, wordTimings }: TranscriptEditorProps) => {
   const [isEditing, setIsEditing] = useState(false);
+  const [showConfidence, setShowConfidence] = useState(false);
   const [customPrompt, setCustomPrompt] = useState("");
   const [showPromptDialog, setShowPromptDialog] = useState(false);
 
@@ -180,17 +182,53 @@ export const TranscriptEditor = ({ transcript, onTranscriptChange }: TranscriptE
             העתק
           </Button>
           <ExportButton text={transcript} disabled={isEditing} />
+          {wordTimings && wordTimings.some(w => w.probability != null) && (
+            <Button
+              variant={showConfidence ? "default" : "outline"}
+              size="sm"
+              onClick={() => setShowConfidence(!showConfidence)}
+              title="הצג ציון ביטחון למילים"
+            >
+              <Settings2 className="w-4 h-4 ml-2" />
+              ביטחון
+            </Button>
+          )}
         </div>
       </div>
 
-      <Textarea
-        value={transcript}
-        onChange={(e) => onTranscriptChange(e.target.value)}
-        placeholder="התמלול יופיע כאן..."
-        className="min-h-[300px] mb-4 font-mono text-base text-right"
-        dir="rtl"
-        disabled={isEditing}
-      />
+      {showConfidence && wordTimings && wordTimings.some(w => w.probability != null) ? (
+        <div className="min-h-[300px] mb-4 p-3 bg-background border rounded-md text-right overflow-y-auto" dir="rtl">
+          <div className="flex flex-wrap gap-1 leading-relaxed font-mono text-base">
+            {wordTimings.map((w, i) => {
+              const p = w.probability ?? 1;
+              const bg = p >= 0.9 ? '' : p >= 0.7 ? 'bg-yellow-200 dark:bg-yellow-900/40' : 'bg-red-200 dark:bg-red-900/40';
+              return (
+                <span
+                  key={i}
+                  className={`inline-block px-0.5 rounded ${bg}`}
+                  title={`ביטחון: ${Math.round(p * 100)}%`}
+                >
+                  {w.word}
+                </span>
+              );
+            })}
+          </div>
+          <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground border-t pt-2">
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-200 dark:bg-red-900/40 inline-block" /> &lt;70%</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-yellow-200 dark:bg-yellow-900/40 inline-block" /> 70-90%</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded border inline-block" /> &gt;90%</span>
+          </div>
+        </div>
+      ) : (
+        <Textarea
+          value={transcript}
+          onChange={(e) => onTranscriptChange(e.target.value)}
+          placeholder="התמלול יופיע כאן..."
+          className="min-h-[300px] mb-4 font-mono text-base text-right"
+          dir="rtl"
+          disabled={isEditing}
+        />
+      )}
 
       <div className="border-t pt-4">
         <h3 className="text-sm font-semibold mb-3 text-right">עריכת טקסט עם AI</h3>
