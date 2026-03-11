@@ -68,6 +68,9 @@ const Index = () => {
   const lastFileRef = useRef<File | null>(null);
   const lastAudioUrlRef = useRef<string | null>(null);
 
+  // Pending file waiting for local server to come up
+  const pendingServerFileRef = useRef<{ file: File; audioUrl: string } | null>(null);
+
   const { transcribe: localTranscribe, isLoading: isLocalLoading, progress: localProgress } = useLocalTranscription();
   const { transcribeStream: serverTranscribeStream, isLoading: isServerLoading, progress: serverProgress, isConnected: serverConnected, recoverPartial, clearPartial, cancelStream: cancelServerStream, checkConnection, startPolling, stopPolling } = useLocalServer();
   const bgTask = useBackgroundTask();
@@ -102,6 +105,20 @@ const Index = () => {
   useEffect(() => {
     if (serverConnected && engine === 'groq') {
       setEngine('local-server');
+    }
+  }, [serverConnected]);
+
+  // Auto-start transcription when server comes up and there's a pending file
+  useEffect(() => {
+    if (serverConnected && pendingServerFileRef.current) {
+      const { file, audioUrl } = pendingServerFileRef.current;
+      pendingServerFileRef.current = null;
+      toast({ title: "\u2705 \u05d4\u05e9\u05e8\u05ea \u05e2\u05dc\u05d4!", description: `\u05de\u05ea\u05d7\u05d9\u05dc \u05ea\u05de\u05dc\u05d5\u05dc: ${file.name}` });
+      currentFileRef.current = file;
+      debugLog.info('Transcription', `\u05e9\u05e8\u05ea \u05e2\u05dc\u05d4 \u2014 \u05de\u05ea\u05d7\u05d9\u05dc \u05ea\u05de\u05dc\u05d5\u05dc \u05de\u05de\u05ea\u05d9\u05df: ${file.name}`);
+      bgTask.run(`local-server \u2014 ${file.name}`, async () => {
+        await transcribeWithLocalServer(file, audioUrl);
+      }).catch(() => {});
     }
   }, [serverConnected]);
 
@@ -544,11 +561,13 @@ const Index = () => {
     // Fresh connection check before transcription (serverConnected state may be stale)
     const isUp = await checkConnection();
     if (!isUp) {
-      console.warn('[Index] ❌ server health check failed — aborting transcription');
+      console.log('[Index] ⏳ server not ready — queuing file, will auto-start when server comes up');
+      pendingServerFileRef.current = { file, audioUrl: fileAudioUrl || '' };
+      // Aggressive polling while waiting
+      startPolling(2000);
       toast({
-        title: "שרת לא מחובר",
-        description: "הפעל את השרת המקומי: python server/transcribe_server.py",
-        variant: "destructive",
+        title: "⏳ ממתין לשרת...",
+        description: `${file.name} בתור — התמלול יתחיל אוטומטית כשהשרת יעלה`,
       });
       return;
     }
