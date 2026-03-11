@@ -86,11 +86,12 @@ serve(async (req) => {
     const typedBlob = new Blob([await fileBlob!.arrayBuffer()], { type: mimeType });
 
     const models = ['whisper-large-v3-turbo', 'whisper-large-v3'];
+    let result: any = null;
     let lastError: Error | undefined;
 
     for (const model of models) {
       try {
-        const result = await withRetry(async () => {
+        result = await withRetry(async () => {
           const fd = new FormData();
           fd.append('file', typedBlob, safeFileName);
           fd.append('model', model);
@@ -129,19 +130,16 @@ serve(async (req) => {
           return await response.json();
         }, 2, 3000);
 
-        // Success - return result
         console.log(`Groq transcription completed with model: ${model}`);
-        return result;
+        break; // Success - exit loop
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
-        // If it's a non-retryable error, throw immediately
         if ((lastError as any).noRetry) throw lastError;
         console.log(`Model ${model} failed, trying next...`);
       }
     }
-    throw lastError!;
 
-    console.log('Groq transcription completed successfully');
+    if (!result) throw lastError!;
 
     // Extract word-level timestamps
     const wordTimings = (result.words || []).map((w: any) => ({
