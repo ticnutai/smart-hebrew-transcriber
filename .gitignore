@@ -34,3 +34,4 @@ test_*.wav
 build_log*.txt
 install_log.txt
 _status.txt
+__pycache__/
