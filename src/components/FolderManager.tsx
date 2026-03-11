@@ -365,6 +365,7 @@ export const FolderManager = ({ transcripts, onUpdate, onDelete, onGetAudioUrl }
                 setMovingId={setMovingId}
                 folders={folders}
                 onMoveToFolder={(folder) => handleMoveToFolder(t.id, folder)}
+                onGetAudioUrl={onGetAudioUrl}
                 formatDate={formatDate}
                 getCategoryLabel={getCategoryLabel}
                 viewMode={viewMode}
