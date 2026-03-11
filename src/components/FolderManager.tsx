@@ -428,9 +428,34 @@ const TranscriptItem = ({
   editingTitleId, editingTitle, onStartEditTitle, onEditTitleChange, onSaveTitle, onCancelEditTitle,
   editingNotesId, editingNotes, onStartEditNotes, onEditNotesChange, onSaveNotes, onCancelEditNotes,
   addingTagId, newTagInput, allTags, onStartAddTag, onNewTagChange, onAddTag, onRemoveTag, onCancelAddTag,
-  onNavigateEdit, onDelete, movingId, setMovingId, folders, onMoveToFolder,
+  onNavigateEdit, onDelete, movingId, setMovingId, folders, onMoveToFolder, onGetAudioUrl,
   formatDate, getCategoryLabel, viewMode
 }: TranscriptItemProps) => {
+  const [playingAudio, setPlayingAudio] = useState<HTMLAudioElement | null>(null);
+  const [isLoadingAudio, setIsLoadingAudio] = useState(false);
+
+  const handlePlayAudio = async () => {
+    if (playingAudio) {
+      playingAudio.pause();
+      setPlayingAudio(null);
+      return;
+    }
+    if (!t.audio_file_path || !onGetAudioUrl) return;
+    setIsLoadingAudio(true);
+    try {
+      const url = await onGetAudioUrl(t.audio_file_path);
+      if (!url) throw new Error('No URL');
+      const audio = new Audio(url);
+      audio.onended = () => setPlayingAudio(null);
+      await audio.play();
+      setPlayingAudio(audio);
+    } catch {
+      toast({ title: 'שגיאה בהפעלת אודיו', variant: 'destructive' });
+    } finally {
+      setIsLoadingAudio(false);
+    }
+  };
+
   return (
     <div dir="rtl" className={`p-3 rounded-lg border hover:bg-accent/50 transition-colors text-right ${isSelected ? 'ring-2 ring-primary bg-primary/5' : ''}`}>
       {/* Top row */}
