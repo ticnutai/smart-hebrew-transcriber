@@ -65,6 +65,13 @@ async function transcribeBlob(
       if (!response.ok) {
         const errorText = await response.text();
         console.error('Groq API error:', response.status, errorText);
+        if (response.status === 429) {
+          const retryMatch = errorText.match(/try again in ([^.]+)/i);
+          const waitMsg = retryMatch ? retryMatch[1] : 'מאוחר יותר';
+          const err = new Error(`חריגת מכסה ב-Groq. נסה שוב בעוד ${waitMsg}`);
+          (err as any).noRetry = true;
+          throw err;
+        }
         throw new Error(`Groq API error: ${response.status}`);
       }
       return await response.text();
