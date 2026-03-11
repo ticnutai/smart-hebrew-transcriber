@@ -38,11 +38,14 @@ const DEFAULT_SERVER_URL = 'http://localhost:8765';
 /** Key used to persist partial transcription in localStorage */
 const PARTIAL_STORAGE_KEY = 'transcription_partial';
 
+export type TranscriptionPhase = 'idle' | 'loading-model' | 'transcribing';
+
 export const useLocalServer = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [serverStatus, setServerStatus] = useState<ServerStatus | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [phase, setPhase] = useState<TranscriptionPhase>('idle');
   const [partialTranscript, setPartialTranscript] = useState<PartialTranscript | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval>>();
   const abortRef = useRef<AbortController | null>(null);
@@ -147,6 +150,7 @@ export const useLocalServer = () => {
   ): Promise<ServerTranscriptionResult> => {
     console.log(`[useLocalServer] 🎙️ transcribeStream START — file:${file.name} (${(file.size/1024).toFixed(0)}KB), model:${model ?? 'default'}, lang:${language}${resumeFrom ? `, resumeFrom=${resumeFrom.startFrom}s` : ''}`);
     setIsLoading(true);
+    setPhase('loading-model');
     console.log('[useLocalServer] setIsLoading(true)');
     setProgress(resumeFrom ? Math.round((resumeFrom.startFrom / 1) * 0) : 0);
     setPartialTranscript(null);
@@ -217,8 +221,11 @@ export const useLocalServer = () => {
 
           console.log(`[useLocalServer] SSE evt: type=${evt.type}${ evt.type==='segment' ? ` progress=${evt.progress} text="${(evt.text||'').slice(0,40)}"` : evt.type==='info' ? ` duration=${evt.duration}` : evt.type==='done' ? ` processing_time=${evt.processing_time}` : '' }`);
 
-          if (evt.type === 'info') {
+          if (evt.type === 'loading') {
+            setPhase('loading-model');
+          } else if (evt.type === 'info') {
             audioDuration = evt.duration || 0;
+            setPhase('transcribing');
           } else if (evt.type === 'segment') {
             accText.push(evt.text);
             if (evt.words) accWords.push(...evt.words);
@@ -290,6 +297,7 @@ export const useLocalServer = () => {
     } finally {
       console.log('[useLocalServer] setIsLoading(false)');
       setIsLoading(false);
+      setPhase('idle');
       abortRef.current = null;
     }
   };
@@ -347,11 +355,22 @@ export const useLocalServer = () => {
     await checkConnection(); // Refresh status
   };
 
+  const shutdownServer = useCallback(async () => {
+    try {
+      await fetch(`${getBaseUrl()}/shutdown`, { method: 'POST', signal: AbortSignal.timeout(3000) });
+    } catch {
+      // Expected — server dies before responding
+    }
+    setIsConnected(false);
+    setServerStatus(null);
+  }, []);
+
   return {
     isConnected,
     serverStatus,
     isLoading,
     progress,
+    phase,
     partialTranscript,
     transcribe,
     transcribeStream,
@@ -363,6 +382,7 @@ export const useLocalServer = () => {
     checkConnection,
     startPolling,
     stopPolling,
+    shutdownServer,
     getBaseUrl,
   };
 };

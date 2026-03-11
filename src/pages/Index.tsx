@@ -14,7 +14,7 @@ import { useLocalServer } from "@/hooks/useLocalServer";
 import { useBackgroundTask } from "@/hooks/useBackgroundTask";
 import { debugLog } from "@/lib/debugLogger";
 import { useCloudTranscripts } from "@/hooks/useCloudTranscripts";
-import { Settings, FileEdit, ChevronDown, X, Zap, Globe, Chrome, Mic, Waves, Server, Cpu, Film, Pause, Play } from "lucide-react";
+import { Settings, FileEdit, ChevronDown, X, Zap, Globe, Chrome, Mic, Waves, Server, Cpu, Film, Pause, Play, Square } from "lucide-react";
 import { useTranscriptionJobs } from "@/hooks/useTranscriptionJobs";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCloudPreferences } from "@/hooks/useCloudPreferences";
@@ -72,7 +72,7 @@ const Index = () => {
   const pendingServerFileRef = useRef<{ file: File; audioUrl: string } | null>(null);
 
   const { transcribe: localTranscribe, isLoading: isLocalLoading, progress: localProgress } = useLocalTranscription();
-  const { transcribeStream: serverTranscribeStream, isLoading: isServerLoading, progress: serverProgress, isConnected: serverConnected, recoverPartial, clearPartial, cancelStream: cancelServerStream, checkConnection, startPolling, stopPolling } = useLocalServer();
+  const { transcribeStream: serverTranscribeStream, isLoading: isServerLoading, progress: serverProgress, phase: serverPhase, isConnected: serverConnected, recoverPartial, clearPartial, cancelStream: cancelServerStream, checkConnection, startPolling, stopPolling } = useLocalServer();
   const bgTask = useBackgroundTask();
   const { transcripts, isLoading: isCloudLoading, saveTranscript, updateTranscript, deleteTranscript, deleteAll, isCloud, getAudioUrl } = useCloudTranscripts();
   const { jobs, submitJob, submitBatchJobs, retryJob, deleteJob } = useTranscriptionJobs();
@@ -740,15 +740,32 @@ const Index = () => {
   // Elapsed time counter — starts fresh each time a transcription begins
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const elapsedIntervalRef = useRef<ReturnType<typeof setInterval>>();
+  // Track when actual transcription progress started (for ETA calc, excludes model loading)
+  const transcribeStartTimeRef = useRef<number>(0);
+  const [transcribeElapsed, setTranscribeElapsed] = useState(0);
   useEffect(() => {
     if (isLoading) {
       setElapsedSeconds(0);
-      elapsedIntervalRef.current = setInterval(() => setElapsedSeconds(s => s + 1), 1000);
+      setTranscribeElapsed(0);
+      transcribeStartTimeRef.current = 0;
+      elapsedIntervalRef.current = setInterval(() => {
+        setElapsedSeconds(s => s + 1);
+        if (transcribeStartTimeRef.current > 0) {
+          setTranscribeElapsed(Math.floor((Date.now() - transcribeStartTimeRef.current) / 1000));
+        }
+      }, 1000);
     } else {
       clearInterval(elapsedIntervalRef.current);
     }
     return () => clearInterval(elapsedIntervalRef.current);
   }, [isLoading]);
+
+  // Mark when first real progress arrives (phase changes to transcribing)
+  useEffect(() => {
+    if (engine === 'local-server' && serverPhase === 'transcribing' && transcribeStartTimeRef.current === 0) {
+      transcribeStartTimeRef.current = Date.now();
+    }
+  }, [engine, serverPhase]);
 
   const handleCancelTranscription = () => {
     if (engine === 'local-server') {
@@ -944,7 +961,7 @@ const Index = () => {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="text-xs"
+                  className="text-xs gap-1 text-destructive border-destructive/40 hover:bg-destructive/10"
                   onClick={() => {
                     clearPartial();
                     setRecoveredPartialInfo(null);
@@ -953,7 +970,8 @@ const Index = () => {
                     toast({ title: "התמלול החלקי נמחק" });
                   }}
                 >
-                  ✕ נקה
+                  <Square className="h-3 w-3" />
+                  עצור
                 </Button>
                 {recoveredPartialInfo.lastSegEnd && currentFileRef.current && (
                   <Button
@@ -963,7 +981,7 @@ const Index = () => {
                     onClick={handleResumeTranscription}
                   >
                     <Play className="h-3 w-3" />
-                    המשך תמלול
+                    המשך
                   </Button>
                 )}
               </div>
@@ -988,11 +1006,22 @@ const Index = () => {
               <div className="flex-1 space-y-2 text-right">
                 <div className="flex items-center justify-between text-sm">
                   <span className="font-mono text-xs text-muted-foreground">
+                    {/* Timer + ETA */}
                     {String(Math.floor(elapsedSeconds / 60)).padStart(2, '0')}:{String(elapsedSeconds % 60).padStart(2, '0')} ⏱
+                    {engine === 'local-server' && progress !== undefined && progress >= 5 && progress < 100 && transcribeElapsed > 3 && (() => {
+                      const etaSec = Math.round((transcribeElapsed / progress) * (100 - progress));
+                      const etaMin = Math.floor(etaSec / 60);
+                      const etaSecRem = etaSec % 60;
+                      return ` · נותרו ~${etaMin > 0 ? `${etaMin}:${String(etaSecRem).padStart(2, '0')}` : `${etaSecRem}s`}`;
+                    })()}
                   </span>
                   <div className="flex items-center gap-2">
                     <span className="font-medium">
-                      {progress !== undefined && progress > 0 ? `מתמלל... ${progress}%` : 'מתמלל...'}
+                      {engine === 'local-server' && serverPhase === 'loading-model'
+                        ? '⏳ טוען מודל...'
+                        : progress !== undefined && progress > 0
+                          ? `מתמלל... ${progress}%`
+                          : 'מתמלל...'}
                     </span>
                     <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border ${
                       engine === 'groq' ? 'text-primary border-primary/30' :
@@ -1015,20 +1044,20 @@ const Index = () => {
                   </div>
                 </div>
                 <div className="relative h-2.5 rounded-full bg-muted overflow-hidden">
-                  {progress === undefined || progress === 0 ? (
+                  {progress !== undefined && progress > 0 ? (
+                    <div
+                      className="absolute top-0 right-0 h-full rounded-full bg-primary transition-[width] duration-300 ease-out overflow-hidden"
+                      style={{ width: `${Math.max(progress, 3)}%` }}
+                    >
+                      <div className="absolute top-0 right-0 h-full w-5 bg-white/40 animate-pulse" />
+                    </div>
+                  ) : (
                     <div className="absolute inset-0 rounded-full overflow-hidden">
                       <div className="h-full w-full bg-primary/30 rounded-full" />
                       <div
                         className="absolute top-0 h-full w-1/3 bg-primary/70 rounded-full"
                         style={{ animation: 'transcription-scan 1.6s ease-in-out infinite' }}
                       />
-                    </div>
-                  ) : (
-                    <div
-                      className="absolute top-0 right-0 h-full rounded-full bg-primary transition-[width] duration-300 ease-out overflow-hidden"
-                      style={{ width: `${Math.max(progress, 3)}%` }}
-                    >
-                      <div className="absolute top-0 right-0 h-full w-5 bg-white/40 animate-pulse" />
                     </div>
                   )}
                 </div>

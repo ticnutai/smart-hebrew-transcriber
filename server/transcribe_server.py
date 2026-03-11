@@ -393,6 +393,9 @@ def transcribe_stream():
 
     def generate():
         try:
+            # Tell client we're loading the model (can take 10-30s on first load)
+            yield f"data: {json.dumps({'type': 'loading', 'message': 'Loading model...', 'model': resolved})}\n\n"
+
             model = load_model(resolved)
 
             transcribe_path = trimmed_path if trimmed_path else tmp_path
@@ -521,6 +524,20 @@ def unload_models_endpoint():
     return jsonify({"status": "ok", "unloaded": count})
 
 
+@app.route("/shutdown", methods=["POST"])
+def shutdown_endpoint():
+    """Gracefully shut down the server."""
+    global _current_model_id
+    _model_cache.clear()
+    _current_model_id = None
+    import gc; gc.collect()
+    print("\n  Server shutdown requested — bye!")
+    # Return response before shutting down
+    import threading
+    threading.Timer(0.5, lambda: os._exit(0)).start()
+    return jsonify({"status": "shutting_down"})
+
+
 def main():
     parser = argparse.ArgumentParser(description="Local Whisper Transcription Server")
     parser.add_argument("--port", type=int, default=8765, help="Port to listen on")
@@ -562,6 +579,7 @@ def main():
     print("    POST /load-model        — Load model into GPU memory")
     print("    POST /download-model    — Download model to disk only")
     print("    POST /unload-models     — Free GPU memory")
+    print("    POST /shutdown          — Gracefully stop the server")
     print()
 
     # Use waitress production server with multi-threading (4 threads)
@@ -572,7 +590,7 @@ def main():
         print()
         serve(app, host="0.0.0.0", port=args.port, threads=4,
               channel_timeout=300, recv_bytes=65536,
-              send_bytes=65536, url_scheme='http')
+              send_bytes=1, url_scheme='http')
     except ImportError:
         print("  Server: Flask dev server (install waitress for production)")
         print("  Tip: pip install waitress")

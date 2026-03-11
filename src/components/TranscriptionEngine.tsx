@@ -5,7 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Globe, Cpu, Zap, Chrome, Mic, Waves, Server, Power, Loader2, CheckCircle2, XCircle, Copy } from "lucide-react";
+import { Globe, Cpu, Zap, Chrome, Mic, Waves, Server, Power, PowerOff, Loader2, CheckCircle2, XCircle, Copy } from "lucide-react";
 import { useLocalServer } from "@/hooks/useLocalServer";
 import { toast } from "@/hooks/use-toast";
 
@@ -28,7 +28,7 @@ const getLocalModelLabel = (): string => {
 const START_CMD = '.\\scripts\\start-whisper-server.ps1';
 
 export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSourceLanguageChange }: TranscriptionEngineProps) => {
-  const { isConnected, serverStatus, checkConnection, startPolling, stopPolling, getBaseUrl } = useLocalServer();
+  const { isConnected, serverStatus, checkConnection, startPolling, stopPolling, shutdownServer, getBaseUrl } = useLocalServer();
   const [isStarting, setIsStarting] = useState(false);
 
   // When user selects CUDA server, start polling; otherwise stop
@@ -222,7 +222,7 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
                 </>
               )}
             </div>
-            {!isConnected && (
+            {!isConnected ? (
               <Button
                 size="sm"
                 variant="default"
@@ -238,6 +238,20 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
                   <Power className="w-3.5 h-3.5" />
                 )}
                 {isStarting ? 'ממתין לחיבור...' : 'הפעל שרת'}
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 text-xs h-7 text-destructive border-destructive/40 hover:bg-destructive/10"
+                onClick={(e) => {
+                  e.preventDefault();
+                  shutdownServer();
+                  toast({ title: "השרת נכבה", description: "שרת ה-CUDA כובה בהצלחה" });
+                }}
+              >
+                <PowerOff className="w-3.5 h-3.5" />
+                כבה שרת
               </Button>
             )}
           </div>
