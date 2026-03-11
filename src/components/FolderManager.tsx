@@ -429,10 +429,10 @@ const TranscriptItem = ({
   formatDate, getCategoryLabel, viewMode
 }: TranscriptItemProps) => {
   return (
-    <div className={`p-3 rounded-lg border hover:bg-accent/50 transition-colors ${isSelected ? 'ring-2 ring-primary bg-primary/5' : ''}`}>
+    <div dir="rtl" className={`p-3 rounded-lg border hover:bg-accent/50 transition-colors text-right ${isSelected ? 'ring-2 ring-primary bg-primary/5' : ''}`}>
       {/* Top row */}
-      <div className="flex items-center justify-between mb-1 gap-2">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between mb-1 gap-2 flex-row-reverse">
+        <div className="flex items-center gap-2 flex-row-reverse">
           <Checkbox checked={isSelected} onCheckedChange={onToggleSelect} />
           <button onClick={onToggleFavorite} className="hover:scale-110 transition-transform">
             {t.is_favorite
