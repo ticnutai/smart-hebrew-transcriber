@@ -119,6 +119,21 @@ serve(async (req) => {
       });
     }
 
+    // Fetch user's API keys from cloud
+    let userApiKeys: Record<string, string> = {};
+    try {
+      const { data: keysData } = await adminClient
+        .from('user_api_keys')
+        .select('*')
+        .eq('user_identifier', job.user_id)
+        .maybeSingle();
+      if (keysData) {
+        userApiKeys = keysData as Record<string, string>;
+      }
+    } catch (e) {
+      console.log('Could not fetch user API keys, falling back to env:', e);
+    }
+
     await adminClient.from('transcription_jobs')
       .update({ status: 'processing', progress: 30, updated_at: new Date().toISOString() })
       .eq('id', jobId);
