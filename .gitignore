@@ -22,3 +22,15 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Python virtualenvs
+venv-whisper/
+.venv/
+
+# Test audio files
+test_*.wav
+
+# Build/install logs
+build_log*.txt
+install_log.txt
+_status.txt
