@@ -35,14 +35,8 @@ const navItems: NavItem[] = [
 ];
 
 export const useSidebarPinned = () => {
-  const [isPinned, setIsPinned] = useState(() => {
-    try {
-      return localStorage.getItem("sidebar-pinned") === "true";
-    } catch {
-      return false;
-    }
-  });
-  return isPinned;
+  const { preferences } = useCloudPreferences();
+  return preferences.sidebar_pinned;
 };
 
 const AppSidebar = () => {
