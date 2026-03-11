@@ -226,12 +226,13 @@ export const CloudTranscriptHistory = ({
             {filtered.map((entry) => (
               <div
                 key={entry.id}
-                className="p-4 rounded-lg border hover:bg-accent/50 transition-colors"
+                className="p-4 rounded-lg border hover:bg-accent/50 transition-colors text-right"
               >
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-muted-foreground font-medium">{entry.engine}</span>
+                <div className="flex items-center justify-between mb-2 flex-row-reverse">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground">{formatDate(entry.created_at)}</span>
+                    <span className="text-xs text-muted-foreground font-medium">{entry.engine}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
                     <Button
                       variant="ghost"
                       size="sm"
@@ -240,6 +241,7 @@ export const CloudTranscriptHistory = ({
                     >
                       <Trash2 className="w-3 h-3" />
                     </Button>
+                    <span className="text-xs text-muted-foreground">{formatDate(entry.created_at)}</span>
                   </div>
                 </div>
 
@@ -247,14 +249,14 @@ export const CloudTranscriptHistory = ({
                   <p className="text-sm font-medium mb-1 text-right">{entry.title}</p>
                 )}
 
-                <div className="flex items-start gap-2 mb-3">
+                <div className="flex items-start gap-2 mb-3 flex-row-reverse">
                   <FileText className="w-4 h-4 mt-1 flex-shrink-0 text-muted-foreground" />
                   <p className="text-sm line-clamp-2 text-right flex-1 text-muted-foreground">
                     {highlightText(entry.text, searchQuery)}
                   </p>
                 </div>
 
-                <div className="flex gap-2 mt-2">
+                <div className="flex gap-2 mt-2 flex-row-reverse">
                   <Button
                     size="sm"
                     variant="outline"
