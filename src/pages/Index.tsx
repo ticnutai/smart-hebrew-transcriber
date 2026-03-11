@@ -21,11 +21,12 @@ import { useLocalServer } from "@/hooks/useLocalServer";
 import { useBackgroundTask } from "@/hooks/useBackgroundTask";
 import { debugLog } from "@/lib/debugLogger";
 import { useCloudTranscripts } from "@/hooks/useCloudTranscripts";
-import { Settings, FileEdit, ChevronDown, X, Zap, Globe, Chrome, Mic, Waves, Server, Cpu } from "lucide-react";
+import { Settings, FileEdit, ChevronDown, X, Zap, Globe, Chrome, Mic, Waves, Server, Cpu, Film } from "lucide-react";
 import { BatchUploader } from "@/components/BatchUploader";
 import { BackgroundJobsPanel } from "@/components/BackgroundJobsPanel";
 import { useTranscriptionJobs } from "@/hooks/useTranscriptionJobs";
 import { useAuth } from "@/contexts/AuthContext";
+import { isVideoFile, extractAudioFromVideo, VIDEO_NEEDS_EXTRACTION, MAX_VIDEO_SIZE_MB, MAX_AUDIO_SIZE_MB } from "@/lib/videoUtils";
 
 type Engine = 'openai' | 'groq' | 'google' | 'local' | 'local-server' | 'assemblyai' | 'deepgram';
 type SourceLanguage = 'auto' | 'he' | 'yi' | 'en';
@@ -170,40 +171,71 @@ const Index = () => {
 
   const handleFileSelect = async (file: File) => {
     console.log(`[Index] handleFileSelect — file:${file.name} (${(file.size/1024).toFixed(0)}KB), engine:${engine}, serverConnected:${serverConnected}`);
-    // Check file size (25MB limit)
-    if (file.size > 25 * 1024 * 1024) {
-      debugLog.error('Upload', 'קובץ גדול מדי', { size: file.size });
+    
+    const isVideo = isVideoFile(file);
+    const maxMB = isVideo ? MAX_VIDEO_SIZE_MB : MAX_AUDIO_SIZE_MB;
+    
+    // Check file size (dynamic limit based on type)
+    if (file.size > maxMB * 1024 * 1024) {
+      debugLog.error('Upload', 'קובץ גדול מדי', { size: file.size, maxMB });
       toast({
         title: "שגיאה",
-        description: "הקובץ גדול מדי. גודל מקסימלי: 25MB",
+        description: `הקובץ גדול מדי. גודל מקסימלי ל${isVideo ? 'וידאו' : 'אודיו'}: ${maxMB}MB`,
         variant: "destructive",
       });
       return;
     }
 
-    // Preserve audio URL for playback
+    // Preserve media URL for playback
     const url = URL.createObjectURL(file);
     setAudioUrl(url);
 
-    debugLog.info('Transcription', `התחלת תמלול: ${file.name} (${(file.size / 1024 / 1024).toFixed(1)}MB) עם ${engine}`);
+    // If video file and engine requires audio-only → extract audio first
+    let fileToTranscribe = file;
+    if (isVideo && VIDEO_NEEDS_EXTRACTION.has(engine)) {
+      debugLog.info('Video', `מחלץ אודיו מוידאו: ${file.name} (${(file.size / 1024 / 1024).toFixed(1)}MB)`);
+      toast({
+        title: "🎬 מחלץ אודיו מוידאו...",
+        description: `${engine === 'google' ? 'Google Speech-to-Text' : engine} דורש קובץ אודיו — מחלץ אוטומטית`,
+      });
+      try {
+        fileToTranscribe = await extractAudioFromVideo(file, (p) => {
+          setUploadProgress(Math.round(p * 0.3)); // 0-30% for extraction
+        });
+        debugLog.info('Video', `חילוץ אודיו הושלם: ${fileToTranscribe.name} (${(fileToTranscribe.size / 1024 / 1024).toFixed(1)}MB)`);
+      } catch (err) {
+        debugLog.error('Video', 'שגיאה בחילוץ אודיו', err);
+        toast({
+          title: "שגיאה בחילוץ אודיו",
+          description: err instanceof Error ? err.message : "לא ניתן לחלץ אודיו מהווידאו",
+          variant: "destructive",
+        });
+        return;
+      }
+    } else if (isVideo) {
+      debugLog.info('Video', `שולח וידאו ישירות ל-${engine} (תומך וידאו)`);
+      toast({ title: "🎬 וידאו זוהה", description: `${engine} מעבד וידאו ישירות — מחלץ אודיו בצד השרת` });
+    }
+
+    debugLog.info('Transcription', `התחלת תמלול: ${fileToTranscribe.name} (${(fileToTranscribe.size / 1024 / 1024).toFixed(1)}MB) עם ${engine}`);
     console.log(`[Index] bgTask.run starting — bgTask.status=${bgTask.status}, isRunning=${bgTask.isRunning}`);
 
     // Run in background — doesn't block tab, sends notification on complete
     bgTask.run(`${engine} — ${file.name}`, async () => {
       if (engine === 'openai') {
-        await transcribeWithOpenAI(file, url);
+        await transcribeWithOpenAI(fileToTranscribe, url);
       } else if (engine === 'groq') {
-        await transcribeWithGroq(file, url);
+        await transcribeWithGroq(fileToTranscribe, url);
       } else if (engine === 'google') {
-        await transcribeWithGoogle(file, url);
+        await transcribeWithGoogle(fileToTranscribe, url);
       } else if (engine === 'assemblyai') {
-        await transcribeWithAssemblyAI(file, url);
+        await transcribeWithAssemblyAI(fileToTranscribe, url);
       } else if (engine === 'deepgram') {
-        await transcribeWithDeepgram(file, url);
+        await transcribeWithDeepgram(fileToTranscribe, url);
       } else if (engine === 'local-server') {
-        await transcribeWithLocalServer(file, url);
+        await transcribeWithLocalServer(fileToTranscribe, url);
       } else {
-        await transcribeLocally(file, url);
+        await transcribeLocally(fileToTranscribe, url);
       }
     }).catch(() => {
       // Already logged by bgTask
