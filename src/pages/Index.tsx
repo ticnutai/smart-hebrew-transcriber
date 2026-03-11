@@ -858,13 +858,25 @@ const Index = () => {
               תמלול חכם של אודיו ווידאו לעברית עם עריכה מונעת AI
             </p>
           </div>
-          <Button 
-            variant="outline" 
-            size="icon"
-            onClick={() => navigate("/settings")}
-          >
-            <Settings className="h-4 w-4" />
-          </Button>
+          <div className="flex items-center gap-2">
+            <TextStyleControl
+              fontSize={fontSize}
+              fontFamily={fontFamily}
+              textColor={textColor}
+              lineHeight={lineHeight}
+              onFontSizeChange={setFontSize}
+              onFontFamilyChange={setFontFamily}
+              onTextColorChange={setTextColor}
+              onLineHeightChange={setLineHeight}
+            />
+            <Button 
+              variant="outline" 
+              size="icon"
+              onClick={() => navigate("/settings")}
+            >
+              <Settings className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
 
         {/* Navigation Tabs */}
@@ -1125,17 +1137,6 @@ const Index = () => {
             <TranscriptSummary transcript={transcript} />
             
             <ShareTranscript transcript={transcript} />
-            
-            <TextStyleControl
-              fontSize={fontSize}
-              fontFamily={fontFamily}
-              textColor={textColor}
-              lineHeight={lineHeight}
-              onFontSizeChange={setFontSize}
-              onFontFamilyChange={setFontFamily}
-              onTextColorChange={setTextColor}
-              onLineHeightChange={setLineHeight}
-            />
           </>
         )}
 

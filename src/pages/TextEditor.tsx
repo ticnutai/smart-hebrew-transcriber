@@ -170,14 +170,26 @@ const TextEditor = () => {
               ערוך, שפר והשווה את הטקסט שלך עם כלים מתקדמים
             </p>
           </div>
-          <Button 
-            variant="outline" 
-            size="icon"
-            onClick={() => navigate("/")}
-            title="חזרה לדף הראשי"
-          >
-            <Home className="h-4 w-4" />
-          </Button>
+          <div className="flex items-center gap-2">
+            <TextStyleControl
+              fontSize={fontSize}
+              fontFamily={fontFamily}
+              textColor={textColor}
+              lineHeight={lineHeight}
+              onFontSizeChange={setFontSize}
+              onFontFamilyChange={setFontFamily}
+              onTextColorChange={setTextColor}
+              onLineHeightChange={setLineHeight}
+            />
+            <Button 
+              variant="outline" 
+              size="icon"
+              onClick={() => navigate("/")}
+              title="חזרה לדף הראשי"
+            >
+              <Home className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
 
         {/* AI Quick Actions */}
@@ -250,16 +262,6 @@ const TextEditor = () => {
           </TabsContent>
 
           <TabsContent value="edit" className="space-y-4">
-            <TextStyleControl
-              fontSize={fontSize}
-              fontFamily={fontFamily}
-              textColor={textColor}
-              lineHeight={lineHeight}
-              onFontSizeChange={setFontSize}
-              onFontFamilyChange={setFontFamily}
-              onTextColorChange={setTextColor}
-              onLineHeightChange={setLineHeight}
-            />
             <div
               style={{
                 fontSize: `${fontSize}px`,
@@ -288,16 +290,6 @@ const TextEditor = () => {
           </TabsContent>
 
           <TabsContent value="ai" className="space-y-4">
-            <TextStyleControl
-              fontSize={fontSize}
-              fontFamily={fontFamily}
-              textColor={textColor}
-              lineHeight={lineHeight}
-              onFontSizeChange={setFontSize}
-              onFontFamilyChange={setFontFamily}
-              onTextColorChange={setTextColor}
-              onLineHeightChange={setLineHeight}
-            />
             <div
               style={{
                 fontSize: `${fontSize}px`,
@@ -317,16 +309,6 @@ const TextEditor = () => {
           </TabsContent>
 
           <TabsContent value="compare" className="space-y-4">
-            <TextStyleControl
-              fontSize={fontSize}
-              fontFamily={fontFamily}
-              textColor={textColor}
-              lineHeight={lineHeight}
-              onFontSizeChange={setFontSize}
-              onFontFamilyChange={setFontFamily}
-              onTextColorChange={setTextColor}
-              onLineHeightChange={setLineHeight}
-            />
             {versions.length >= 2 ? (
               <AdvancedDiffView 
                 versions={versions}
