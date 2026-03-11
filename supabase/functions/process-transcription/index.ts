@@ -64,8 +64,8 @@ async function transcribeBlob(
       return await response.text();
     });
   } else if (engine === 'openai') {
-    const apiKey = Deno.env.get('OPENAI_API_KEY');
-    if (!apiKey) throw new Error('OPENAI_API_KEY not configured');
+    const apiKey = userApiKeys?.openai_key || Deno.env.get('OPENAI_API_KEY');
+    if (!apiKey) throw new Error('OPENAI_API_KEY not configured. Please add your OpenAI API key in Settings.');
 
     return await withRetry(async () => {
       const fd = new FormData();
