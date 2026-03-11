@@ -53,6 +53,7 @@ const Index = () => {
   // Audio & word timing state for sync player
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [wordTimings, setWordTimings] = useState<Array<{word: string, start: number, end: number}>>([]);
+  const [recoveredPartialInfo, setRecoveredPartialInfo] = useState<{progress: number, wordCount: number} | null>(null);
 
   const { transcribe: localTranscribe, isLoading: isLocalLoading, progress: localProgress } = useLocalTranscription();
   const { transcribeStream: serverTranscribeStream, isLoading: isServerLoading, progress: serverProgress, isConnected: serverConnected, recoverPartial, clearPartial, cancelStream: cancelServerStream } = useLocalServer();
@@ -79,9 +80,10 @@ const Index = () => {
     if (partial && partial.text) {
       setTranscript(partial.text);
       setWordTimings(partial.wordTimings || []);
+      setRecoveredPartialInfo({ progress: partial.progress, wordCount: partial.wordTimings?.length || 0 });
       toast({
-        title: "שוחזר תמלול חלקי",
-        description: `נמצא תמלול שהופסק (${partial.progress}%) — ${partial.wordTimings?.length || 0} מילים`,
+        title: "🔄 שוחזר תמלול חלקי",
+        description: `נמצא תמלול שהופסק (${partial.progress}%) — ${partial.wordTimings?.length || 0} מילים. אפשר להמשיך מאותו מקום`,
       });
       debugLog.info('Recovery', `Restored partial transcript: ${partial.progress}%, ${partial.text.length} chars`);
     }
@@ -176,6 +178,7 @@ const Index = () => {
   const handleFileSelect = async (file: File) => {
     console.log(`[Index] handleFileSelect — file:${file.name} (${(file.size/1024).toFixed(0)}KB), engine:${engine}, serverConnected:${serverConnected}`);
     currentFileRef.current = file;
+    setRecoveredPartialInfo(null); // Clear recovery banner on new transcription
     
     const isVideo = isVideoFile(file);
     const maxMB = isVideo ? MAX_VIDEO_SIZE_MB : MAX_AUDIO_SIZE_MB;
@@ -863,6 +866,38 @@ const Index = () => {
           />
         </div>
 
+        {/* Recovered partial transcript banner */}
+        {recoveredPartialInfo && !isLoading && transcript && (
+          <Card className="p-3 border-amber-500/40 bg-amber-500/5" dir="rtl">
+            <div className="flex items-center justify-between">
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs"
+                onClick={() => {
+                  clearPartial();
+                  setRecoveredPartialInfo(null);
+                  setTranscript('');
+                  setWordTimings([]);
+                  toast({ title: "התמלול החלקי נמחק" });
+                }}
+              >
+                ✕ נקה
+              </Button>
+              <div className="flex items-center gap-2 text-right">
+                <div>
+                  <p className="text-sm font-medium text-amber-700 dark:text-amber-400">
+                    🔄 שוחזר תמלול חלקי ({recoveredPartialInfo.progress}%)
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {recoveredPartialInfo.wordCount} מילים — ניתן לערוך או להעלות את אותו קובץ שוב כדי להמשיך
+                  </p>
+                </div>
+              </div>
+            </div>
+          </Card>
+        )}
+
         {/* Active transcription progress panel */}
         {isLoading && (
           <Card className="p-4 border-primary/40 bg-primary/5 shadow-sm" dir="rtl">
@@ -907,7 +942,7 @@ const Index = () => {
                     </div>
                   ) : (
                     <div
-                      className="absolute top-0 left-0 h-full rounded-full bg-primary transition-[width] duration-300 ease-out overflow-hidden"
+                      className="absolute top-0 right-0 h-full rounded-full bg-primary transition-[width] duration-300 ease-out overflow-hidden"
                       style={{ width: `${Math.max(progress, 3)}%` }}
                     >
                       <div className="absolute top-0 right-0 h-full w-5 bg-white/40 animate-pulse" />
@@ -928,9 +963,28 @@ const Index = () => {
           </Card>
         )}
 
+        {/* Live transcript preview during streaming */}
+        {isLoading && transcript && (
+          <Card className="p-4 border-green-500/30 bg-green-500/5" dir="rtl">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-muted-foreground font-mono">
+                {transcript.split(/\s+/).filter(Boolean).length} מילים
+              </span>
+              <h4 className="text-sm font-semibold text-green-700 dark:text-green-400">📝 תמלול חי — מתעדכן בזמן אמת</h4>
+            </div>
+            <div
+              className="max-h-[200px] overflow-y-auto text-sm leading-relaxed text-right p-3 bg-background/60 rounded-md border"
+              dir="rtl"
+            >
+              {transcript}
+            </div>
+          </Card>
+        )}
+
         {/* Background transcription option for authenticated users */}
         {isAuthenticated && (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-row-reverse items-center gap-2">
+            <span className="text-xs text-muted-foreground">הקובץ יעלה לשרת ויתומלל גם בלי שהעמוד פתוח</span>
             <Button
               variant="outline"
               size="sm"
@@ -953,7 +1007,6 @@ const Index = () => {
             >
               🔄 תמלול ברקע (ימשיך גם אם תעזוב)
             </Button>
-            <span className="text-xs text-muted-foreground">הקובץ יעלה לשרת ויתומלל גם בלי שהעמוד פתוח</span>
           </div>
         )}
 
