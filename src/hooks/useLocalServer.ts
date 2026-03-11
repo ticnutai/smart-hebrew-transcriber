@@ -57,27 +57,39 @@ export const useLocalServer = () => {
       const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
       if (res.ok) {
         const data = await res.json();
-        console.log('[useLocalServer] ✅ server connected, status:', data.status, '| device:', data.device);
         setServerStatus(data);
         setIsConnected(true);
         return true;
       }
     } catch {
-      // Server not running — silent, no spam
+      // Server not running — silent
     }
     setIsConnected(false);
     setServerStatus(null);
     return false;
   }, []);
 
-  // Poll every 10s
-  useEffect(() => {
+  /** Start polling — call this when the CUDA engine is selected */
+  const startPolling = useCallback((intervalMs = 10000) => {
+    if (pollRef.current) clearInterval(pollRef.current);
     checkConnection();
-    pollRef.current = setInterval(checkConnection, 10000);
+    pollRef.current = setInterval(checkConnection, intervalMs);
+  }, [checkConnection]);
+
+  /** Stop polling — call this when the CUDA engine is deselected */
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = undefined;
+    }
+  }, []);
+
+  // Cleanup on unmount only
+  useEffect(() => {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [checkConnection]);
+  }, []);
 
   // ─── Legacy single-shot transcribe (still available for fallback) ───
   const transcribe = async (
@@ -349,6 +361,8 @@ export const useLocalServer = () => {
     loadModel,
     downloadModel,
     checkConnection,
+    startPolling,
+    stopPolling,
     getBaseUrl,
   };
 };

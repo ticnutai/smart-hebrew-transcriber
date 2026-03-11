@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Card } from "@/components/ui/card";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
@@ -28,29 +28,21 @@ const getLocalModelLabel = (): string => {
 const START_CMD = '.\\scripts\\start-whisper-server.ps1';
 
 export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSourceLanguageChange }: TranscriptionEngineProps) => {
-  const { isConnected, serverStatus, checkConnection, getBaseUrl } = useLocalServer();
+  const { isConnected, serverStatus, checkConnection, startPolling, stopPolling, getBaseUrl } = useLocalServer();
   const [isStarting, setIsStarting] = useState(false);
-  const fastPollRef = useRef<ReturnType<typeof setInterval>>();
 
-  // When user selects CUDA server, start fast-polling for connection
+  // When user selects CUDA server, start polling; otherwise stop
   useEffect(() => {
-    if (selected === 'local-server' && !isConnected) {
-      // Immediately check
-      checkConnection();
-      // Poll every 2s until connected (fast poll)
-      fastPollRef.current = setInterval(async () => {
-        const ok = await checkConnection();
-        if (ok) {
-          clearInterval(fastPollRef.current);
-          setIsStarting(false);
-        }
-      }, 2000);
-      return () => clearInterval(fastPollRef.current);
+    if (selected === 'local-server') {
+      // Fast poll (2s) while waiting, normal (10s) once connected
+      startPolling(isConnected ? 10000 : 2000);
+      if (isConnected) setIsStarting(false);
+      return () => stopPolling();
     } else {
-      if (fastPollRef.current) clearInterval(fastPollRef.current);
+      stopPolling();
       setIsStarting(false);
     }
-  }, [selected, isConnected, checkConnection]);
+  }, [selected, isConnected, startPolling, stopPolling]);
 
   const handleStartServer = useCallback(async () => {
     setIsStarting(true);
