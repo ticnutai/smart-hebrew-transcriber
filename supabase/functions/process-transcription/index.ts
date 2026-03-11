@@ -156,7 +156,7 @@ serve(async (req) => {
 
     if (totalChunks <= 1 || fileData.size <= CHUNK_SIZE) {
       // Single chunk - simple path
-      const text = await transcribeBlob(fileData, engine, job.language || 'he', job.file_name || 'audio.webm');
+      const text = await transcribeBlob(fileData, engine, job.language || 'he', job.file_name || 'audio.webm', userApiKeys);
       partialResult = text;
     } else {
       // Multi-chunk processing with resume
