@@ -80,7 +80,12 @@ serve(async (req) => {
     const mimeMap: Record<string, string> = {
       mp3: 'audio/mpeg', wav: 'audio/wav', webm: 'audio/webm',
       m4a: 'audio/mp4', ogg: 'audio/ogg', flac: 'audio/flac',
-      mp4: 'video/mp4', mpeg: 'audio/mpeg',
+      mp4: 'video/mp4', mpeg: 'audio/mpeg', opus: 'audio/opus',
+      aac: 'audio/aac', wma: 'audio/x-ms-wma', amr: 'audio/amr',
+      aiff: 'audio/aiff', aif: 'audio/aiff', caf: 'audio/x-caf',
+      '3gp': 'audio/3gpp', '3gpp': 'audio/3gpp', spx: 'audio/ogg',
+      mkv: 'video/x-matroska', avi: 'video/x-msvideo', mov: 'video/quicktime',
+      wmv: 'video/x-ms-wmv', gsm: 'audio/gsm',
     };
     const mimeType = mimeMap[ext] || 'audio/mpeg';
     const typedBlob = new Blob([await fileBlob!.arrayBuffer()], { type: mimeType });

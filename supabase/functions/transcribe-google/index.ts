@@ -26,10 +26,24 @@ serve(async (req) => {
     console.log('Processing audio file with Google:', fileName);
 
     // Google Speech-to-Text expects base64 encoded audio in the request body
+    // Detect encoding from fileName extension
+    const ext = (fileName || '').split('.').pop()?.toLowerCase() || 'webm';
+    const encodingMap: Record<string, { encoding: string; sampleRateHertz: number }> = {
+      webm: { encoding: 'WEBM_OPUS', sampleRateHertz: 48000 },
+      ogg: { encoding: 'OGG_OPUS', sampleRateHertz: 48000 },
+      opus: { encoding: 'OGG_OPUS', sampleRateHertz: 48000 },
+      flac: { encoding: 'FLAC', sampleRateHertz: 16000 },
+      wav: { encoding: 'LINEAR16', sampleRateHertz: 16000 },
+      mp3: { encoding: 'MP3', sampleRateHertz: 16000 },
+      amr: { encoding: 'AMR', sampleRateHertz: 8000 },
+      '3gp': { encoding: 'AMR', sampleRateHertz: 8000 },
+    };
+    const audioConfig = encodingMap[ext] || { encoding: 'WEBM_OPUS', sampleRateHertz: 48000 };
+
     const requestBody = {
       config: {
-        encoding: 'WEBM_OPUS',
-        sampleRateHertz: 48000,
+        encoding: audioConfig.encoding,
+        sampleRateHertz: audioConfig.sampleRateHertz,
         languageCode: 'he-IL',
         enableAutomaticPunctuation: true,
       },

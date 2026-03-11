@@ -16,7 +16,7 @@ serve(async (req) => {
 
     let OPENAI_API_KEY: string | undefined;
     let fileBlob: Blob | undefined;
-    let fileName = 'audio.webm';
+    let fileName = 'audio.mp3';
 
     if (contentType.includes('multipart/form-data')) {
       // Multipart from browser (preferred - supports real upload progress client-side)

@@ -18,7 +18,7 @@ interface BatchUploaderProps {
 function isAudioOrVideo(file: File): boolean {
   if (file.type.startsWith("audio/") || file.type.startsWith("video/")) return true;
   const ext = file.name.toLowerCase().split(".").pop() || "";
-  return ["mp3", "wav", "m4a", "ogg", "flac", "aac", "wma", "opus", "mp4", "webm", "avi", "mov", "mkv", "wmv"].includes(ext);
+  return ["mp3","wav","m4a","ogg","flac","aac","wma","opus","mp4","webm","avi","mov","mkv","wmv","amr","3gp","3gpp","aiff","aif","caf","spx","gsm"].includes(ext);
 }
 
 export function BatchUploader({ onSubmitBatch, onSaveTranscript, onRetryJob, jobs, isDisabled, isAuthenticated }: BatchUploaderProps) {
@@ -127,7 +127,7 @@ export function BatchUploader({ onSubmitBatch, onSaveTranscript, onRetryJob, job
             type="file"
             className="hidden"
             multiple
-            accept="audio/*,video/*,.mp3,.wav,.m4a,.ogg,.flac,.aac,.mp4,.webm,.avi,.mov"
+            accept="audio/*,video/*,.mp3,.wav,.m4a,.ogg,.flac,.aac,.opus,.wma,.amr,.mp4,.webm,.avi,.mov,.mkv,.wmv,.3gp,.aiff,.aif,.caf,.spx,.gsm"
             onChange={(e) => addFiles(e.target.files)}
           />
           <Button variant="outline" onClick={() => folderInputRef.current?.click()} disabled={isSubmitting || isDisabled}>

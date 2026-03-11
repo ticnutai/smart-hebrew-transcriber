@@ -36,7 +36,7 @@ export const FileUploader = ({ onFileSelect, isLoading, progress }: FileUploader
             {isLoading ? "מתמלל..." : "העלה קובץ אודיו או וידאו"}
           </h3>
           <p className="text-sm text-muted-foreground">
-            נתמך: MP3, WAV, M4A, MP4, WEBM ועוד
+            נתמך: MP3, WAV, M4A, FLAC, OGG, OPUS, AAC, WMA, AMR, MP4, WEBM, AVI, MOV, MKV
           </p>
           <p className="text-xs text-muted-foreground mt-1">
             גודל מקסימלי: 25MB
@@ -53,7 +53,7 @@ export const FileUploader = ({ onFileSelect, isLoading, progress }: FileUploader
         <input
           ref={fileInputRef}
           type="file"
-          accept="audio/*,video/*"
+          accept="audio/*,video/*,.mp3,.wav,.m4a,.flac,.ogg,.opus,.aac,.wma,.amr,.mp4,.webm,.avi,.mov,.mkv,.wmv,.3gp,.3gpp,.aiff,.aif,.caf,.spx,.gsm"
           onChange={handleFileChange}
           className="hidden"
           disabled={isLoading}

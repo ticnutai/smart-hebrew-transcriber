@@ -838,7 +838,7 @@ const Index = () => {
               onClick={() => {
                 const input = document.createElement('input');
                 input.type = 'file';
-                input.accept = 'audio/*,video/*,.mp3,.wav,.webm,.m4a,.ogg,.mp4';
+                input.accept = 'audio/*,video/*,.mp3,.wav,.m4a,.flac,.ogg,.opus,.aac,.wma,.amr,.mp4,.webm,.avi,.mov,.mkv,.wmv,.3gp,.aiff,.aif,.caf,.spx,.gsm';
                 input.onchange = async (e) => {
                   const file = (e.target as HTMLInputElement).files?.[0];
                   if (!file) return;

@@ -149,7 +149,7 @@ serve(async (req) => {
       for (let i = startChunk; i < actualChunks; i++) {
         const start = i * CHUNK_SIZE;
         const end = Math.min(start + CHUNK_SIZE, fileData.size);
-        const chunkBlob = fileData.slice(start, end, fileData.type || 'audio/webm');
+        const chunkBlob = fileData.slice(start, end, fileData.type || 'application/octet-stream');
 
         console.log(`Processing chunk ${i + 1}/${actualChunks}`);
         
