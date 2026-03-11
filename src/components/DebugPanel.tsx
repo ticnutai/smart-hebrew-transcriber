@@ -56,7 +56,7 @@ export const DebugPanel = () => {
   };
 
   const formatTime = (ts: number) =>
-    new Date(ts).toLocaleTimeString('he-IL', { hour12: false, fractionalSecondDigits: 1 });
+    new Date(ts).toLocaleTimeString('he-IL', { hour12: false } as Intl.DateTimeFormatOptions);
 
   return (
     <>

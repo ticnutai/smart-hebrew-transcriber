@@ -78,7 +78,7 @@ class DebugLogger {
       .slice()
       .reverse()
       .map((e) => {
-        const time = new Date(e.timestamp).toLocaleTimeString('he-IL', { hour12: false, fractionalSecondDigits: 3 });
+        const time = new Date(e.timestamp).toLocaleTimeString('he-IL', { hour12: false } as Intl.DateTimeFormatOptions);
         const det = e.details ? `\n    ${e.details.replace(/\n/g, '\n    ')}` : '';
         return `[${time}] [${e.level.toUpperCase()}] [${e.source}] ${e.message}${det}`;
       })

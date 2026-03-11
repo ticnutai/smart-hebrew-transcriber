@@ -62,7 +62,6 @@ serve(async (req) => {
       if (!systemPrompt) {
         throw new Error(`Invalid action: ${action}`);
       }
-      }
     }
 
     console.log(`Processing ${action} action for text of length:`, text.length);

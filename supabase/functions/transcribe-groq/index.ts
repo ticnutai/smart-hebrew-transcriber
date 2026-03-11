@@ -13,13 +13,15 @@ function sanitizeFileName(name: string): string {
 }
 
 // Retry wrapper
-async function withRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 2000): Promise<T> {
+async function withRetry<T>(fn: () => Promise<T>, retries = 3, delayMs = 3000): Promise<T> {
   let lastError: Error | undefined;
   for (let i = 0; i <= retries; i++) {
     try {
       return await fn();
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
+      // Don't retry non-retryable errors (rate limit, auth)
+      if ((lastError as any).noRetry) throw lastError;
       if (i < retries) {
         console.log(`Retry ${i + 1}/${retries} after error: ${lastError.message}`);
         await new Promise(r => setTimeout(r, delayMs * (i + 1)));
@@ -92,10 +94,15 @@ serve(async (req) => {
         console.error('Groq API error:', response.status, errorText);
         
         if (response.status === 429) {
-          throw new Error('RATE_LIMIT');
+          // Don't retry rate limits - surface immediately
+          const err = new Error('RATE_LIMIT');
+          (err as any).noRetry = true;
+          throw err;
         }
         if (response.status === 401 || response.status === 403) {
-          throw new Error('AUTH_ERROR');
+          const err = new Error('AUTH_ERROR');
+          (err as any).noRetry = true;
+          throw err;
         }
         // 500 errors are retryable
         if (response.status >= 500) {
@@ -105,7 +112,7 @@ serve(async (req) => {
       }
 
       return await response.json();
-    });
+    }, 3, 3000);
 
     console.log('Groq transcription completed successfully');
 

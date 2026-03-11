@@ -27,6 +27,17 @@ const sourceLabels: Record<TextVersion['source'], string> = {
   'ai-readable': 'AI - זורם',
   'ai-custom': 'AI - מותאם',
   'ai-fix': 'AI - תיקון',
+  'ai-grammar': 'AI - דקדוק',
+  'ai-punctuation': 'AI - פיסוק',
+  'ai-paragraphs': 'AI - פסקאות',
+  'ai-bullets': 'AI - תבליטים',
+  'ai-headings': 'AI - כותרות',
+  'ai-expand': 'AI - הרחבה',
+  'ai-shorten': 'AI - קיצור',
+  'ai-summarize': 'AI - סיכום',
+  'ai-translate': 'AI - תרגום',
+  'ai-speakers': 'AI - דוברים',
+  'ai-tone': 'AI - טון',
 };
 
 export const AdvancedDiffView = ({
