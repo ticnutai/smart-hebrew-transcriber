@@ -21,7 +21,7 @@ import { useLocalServer } from "@/hooks/useLocalServer";
 import { useBackgroundTask } from "@/hooks/useBackgroundTask";
 import { debugLog } from "@/lib/debugLogger";
 import { useCloudTranscripts } from "@/hooks/useCloudTranscripts";
-import { Settings, FileEdit, ChevronDown, X, Zap, Globe, Chrome, Mic, Waves, Server, Cpu, Film } from "lucide-react";
+import { Settings, FileEdit, ChevronDown, X, Zap, Globe, Chrome, Mic, Waves, Server, Cpu, Film, Pause, Play } from "lucide-react";
 import { BatchUploader } from "@/components/BatchUploader";
 import { BackgroundJobsPanel } from "@/components/BackgroundJobsPanel";
 import { useTranscriptionJobs } from "@/hooks/useTranscriptionJobs";
@@ -53,7 +53,11 @@ const Index = () => {
   // Audio & word timing state for sync player
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [wordTimings, setWordTimings] = useState<Array<{word: string, start: number, end: number}>>([]);
-  const [recoveredPartialInfo, setRecoveredPartialInfo] = useState<{progress: number, wordCount: number} | null>(null);
+  const [recoveredPartialInfo, setRecoveredPartialInfo] = useState<{progress: number, wordCount: number, lastSegEnd?: number} | null>(null);
+
+  // Save reference to last uploaded file for resume functionality
+  const lastFileRef = useRef<File | null>(null);
+  const lastAudioUrlRef = useRef<string | null>(null);
 
   const { transcribe: localTranscribe, isLoading: isLocalLoading, progress: localProgress } = useLocalTranscription();
   const { transcribeStream: serverTranscribeStream, isLoading: isServerLoading, progress: serverProgress, isConnected: serverConnected, recoverPartial, clearPartial, cancelStream: cancelServerStream } = useLocalServer();
@@ -80,7 +84,7 @@ const Index = () => {
     if (partial && partial.text) {
       setTranscript(partial.text);
       setWordTimings(partial.wordTimings || []);
-      setRecoveredPartialInfo({ progress: partial.progress, wordCount: partial.wordTimings?.length || 0 });
+      setRecoveredPartialInfo({ progress: partial.progress, wordCount: partial.wordTimings?.length || 0, lastSegEnd: partial.lastSegEnd });
       toast({
         title: "🔄 שוחזר תמלול חלקי",
         description: `נמצא תמלול שהופסק (${partial.progress}%) — ${partial.wordTimings?.length || 0} מילים. אפשר להמשיך מאותו מקום`,
@@ -543,7 +547,7 @@ const Index = () => {
     }
   };
 
-  const transcribeWithLocalServer = async (file: File, fileAudioUrl?: string) => {
+  const transcribeWithLocalServer = async (file: File, fileAudioUrl?: string, resumeFrom?: { startFrom: number; existingText: string; existingWords: Array<{word: string, start: number, end: number}> }) => {
     console.log(`[Index] transcribeWithLocalServer — serverConnected:${serverConnected}, engine:${engine}`);
     if (!serverConnected) {
       console.warn('[Index] ❌ serverConnected is FALSE — aborting transcription');
@@ -567,7 +571,7 @@ const Index = () => {
         setWordTimings(partial.wordTimings);
         console.log(`[Index] 📊 partial callback — progress:${partial.progress}%, words:${partial.wordTimings.length}`);
         debugLog.info('CUDA Stream', `${partial.progress}% — ${partial.wordTimings.length} מילים`);
-      });
+      }, resumeFrom);
       console.log(`[Index] ✅ serverTranscribeStream finished — text length:${result.text?.length}, processing_time:${result.processing_time}s`);
 
       const timings = result.wordTimings || [];
@@ -736,9 +740,41 @@ const Index = () => {
   const handleCancelTranscription = () => {
     if (engine === 'local-server') {
       cancelServerStream();
+      // Partial is already saved to localStorage by useLocalServer on each segment
+      const partial = recoverPartial();
+      if (partial && partial.text) {
+        setRecoveredPartialInfo({ progress: partial.progress, wordCount: partial.wordTimings?.length || 0, lastSegEnd: partial.lastSegEnd });
+        toast({ title: "⏸ תמלול הופסק", description: `נשמר תמלול חלקי (${partial.progress}%) — ${partial.wordTimings?.length || 0} מילים. אפשר להמשיך מאותו מקום` });
+      } else {
+        toast({ title: "תמלול הופסק" });
+      }
     }
     bgTask.reset();
     setIsUploading(false);
+  };
+
+  const handleResumeTranscription = async () => {
+    const partial = recoverPartial();
+    if (!partial || !partial.lastSegEnd) {
+      toast({ title: "אין מה להמשיך", description: "לא נמצא תמלול חלקי עם נקודת המשך", variant: "destructive" });
+      return;
+    }
+    const file = currentFileRef.current;
+    if (!file) {
+      toast({ title: "נדרש קובץ", description: "העלה שוב את אותו קובץ שאומת כדי להמשיך", variant: "destructive" });
+      return;
+    }
+    setRecoveredPartialInfo(null);
+    try {
+      await transcribeWithLocalServer(file, undefined, {
+        startFrom: partial.lastSegEnd,
+        existingText: partial.text,
+        existingWords: partial.wordTimings,
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message === 'CANCELLED') return;
+      console.error('[Index] resume failed:', error);
+    }
   };
 
   // Batch transcription wrapper - transcribes a single file and returns text
@@ -870,27 +906,40 @@ const Index = () => {
         {recoveredPartialInfo && !isLoading && transcript && (
           <Card className="p-3 border-amber-500/40 bg-amber-500/5" dir="rtl">
             <div className="flex items-center justify-between">
-              <Button
-                variant="outline"
-                size="sm"
-                className="text-xs"
-                onClick={() => {
-                  clearPartial();
-                  setRecoveredPartialInfo(null);
-                  setTranscript('');
-                  setWordTimings([]);
-                  toast({ title: "התמלול החלקי נמחק" });
-                }}
-              >
-                ✕ נקה
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs"
+                  onClick={() => {
+                    clearPartial();
+                    setRecoveredPartialInfo(null);
+                    setTranscript('');
+                    setWordTimings([]);
+                    toast({ title: "התמלול החלקי נמחק" });
+                  }}
+                >
+                  ✕ נקה
+                </Button>
+                {recoveredPartialInfo.lastSegEnd && currentFileRef.current && (
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="text-xs gap-1"
+                    onClick={handleResumeTranscription}
+                  >
+                    <Play className="h-3 w-3" />
+                    המשך תמלול
+                  </Button>
+                )}
+              </div>
               <div className="flex items-center gap-2 text-right">
                 <div>
                   <p className="text-sm font-medium text-amber-700 dark:text-amber-400">
-                    🔄 שוחזר תמלול חלקי ({recoveredPartialInfo.progress}%)
+                    ⏸ תמלול חלקי ({recoveredPartialInfo.progress}%)
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {recoveredPartialInfo.wordCount} מילים — ניתן לערוך או להעלות את אותו קובץ שוב כדי להמשיך
+                    {recoveredPartialInfo.wordCount} מילים{recoveredPartialInfo.lastSegEnd ? ` — עצר ב-${Math.round(recoveredPartialInfo.lastSegEnd)}s` : ''}
                   </p>
                 </div>
               </div>
@@ -955,9 +1004,9 @@ const Index = () => {
                 size="icon"
                 className="h-9 w-9 shrink-0 text-destructive border-destructive/40 hover:bg-destructive/10"
                 onClick={handleCancelTranscription}
-                title="עצור תמלול"
+                title="השהה תמלול"
               >
-                <X className="h-4 w-4" />
+                <Pause className="h-4 w-4" />
               </Button>
             </div>
           </Card>

@@ -6,7 +6,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { History, Trash2, FileText, Search, Tag, X, Edit, Cloud, HardDrive, Loader2, Calendar, Filter } from "lucide-react";
+import { History, Trash2, FileText, Search, Tag, X, Edit, Cloud, HardDrive, Loader2, Calendar, Filter, FolderOpen, FolderPlus, Folder } from "lucide-react";
 import type { CloudTranscript } from "@/hooks/useCloudTranscripts";
 
 interface CloudTranscriptHistoryProps {
@@ -16,7 +16,7 @@ interface CloudTranscriptHistoryProps {
   onSelect: (text: string) => void;
   onClearAll: () => void;
   onDelete: (id: string) => void;
-  onUpdate: (id: string, updates: Partial<Pick<CloudTranscript, 'tags' | 'notes' | 'title'>>) => void;
+  onUpdate: (id: string, updates: Partial<Pick<CloudTranscript, 'tags' | 'notes' | 'title' | 'folder'>>) => void;
 }
 
 export const CloudTranscriptHistory = ({
@@ -34,11 +34,21 @@ export const CloudTranscriptHistory = ({
   const [editingTagId, setEditingTagId] = useState<string | null>(null);
   const [engineFilter, setEngineFilter] = useState<string>("all");
   const [dateFilter, setDateFilter] = useState<string>("all");
+  const [folderFilter, setFolderFilter] = useState<string>("all");
   const [showFilters, setShowFilters] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [showNewFolder, setShowNewFolder] = useState(false);
+  const [assigningFolderId, setAssigningFolderId] = useState<string | null>(null);
 
   // Get unique engines for filter
   const engines = useMemo(() => 
     [...new Set(transcripts.map(t => t.engine))],
+    [transcripts]
+  );
+
+  // Get unique folders
+  const folders = useMemo(() =>
+    [...new Set(transcripts.map(t => t.folder).filter(f => f && f.trim() !== ''))].sort(),
     [transcripts]
   );
 
@@ -65,9 +75,11 @@ export const CloudTranscriptHistory = ({
         t.tags?.some(tag => tag.toLowerCase().includes(q));
       const matchesEngine = engineFilter === "all" || t.engine === engineFilter;
       const matchesDate = !dateThreshold || new Date(t.created_at) >= dateThreshold;
-      return matchesSearch && matchesEngine && matchesDate;
+      const matchesFolder = folderFilter === "all" || 
+        (folderFilter === "__none__" ? (!t.folder || t.folder.trim() === '') : t.folder === folderFilter);
+      return matchesSearch && matchesEngine && matchesDate && matchesFolder;
     });
-  }, [transcripts, searchQuery, engineFilter, dateFilter]);
+  }, [transcripts, searchQuery, engineFilter, dateFilter, folderFilter]);
 
   if (transcripts.length === 0 && !isLoading) return null;
 
@@ -125,7 +137,24 @@ export const CloudTranscriptHistory = ({
     onUpdate(id, { tags: (transcript.tags || []).filter(t => t !== tagToRemove) });
   };
 
-  const activeFilters = (engineFilter !== "all" ? 1 : 0) + (dateFilter !== "all" ? 1 : 0);
+  const activeFilters = (engineFilter !== "all" ? 1 : 0) + (dateFilter !== "all" ? 1 : 0) + (folderFilter !== "all" ? 1 : 0);
+
+  const handleCreateFolder = () => {
+    if (!newFolderName.trim()) return;
+    // Folder is created implicitly by assigning it to a transcript
+    setShowNewFolder(false);
+    // If we have a transcript pending assignment, assign it
+    if (assigningFolderId) {
+      onUpdate(assigningFolderId, { folder: newFolderName.trim() });
+      setAssigningFolderId(null);
+    }
+    setNewFolderName("");
+  };
+
+  const handleAssignFolder = (id: string, folder: string) => {
+    onUpdate(id, { folder });
+    setAssigningFolderId(null);
+  };
 
   return (
     <Card className="p-6" dir="rtl">
@@ -207,7 +236,7 @@ export const CloudTranscriptHistory = ({
           </Select>
 
           {activeFilters > 0 && (
-            <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => { setEngineFilter("all"); setDateFilter("all"); }}>
+            <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => { setEngineFilter("all"); setDateFilter("all"); setFolderFilter("all"); }}>
               <X className="w-3 h-3 ml-1" />
               נקה סינון
             </Button>
@@ -221,7 +250,48 @@ export const CloudTranscriptHistory = ({
           <span className="mr-2 text-muted-foreground">טוען תמלולים...</span>
         </div>
       ) : (
-        <ScrollArea className="h-[400px]">
+        <div className="flex gap-3">
+          {/* Folder sidebar */}
+          {folders.length > 0 && (
+            <div className="w-36 shrink-0 space-y-1">
+              <p className="text-xs font-medium text-muted-foreground mb-2">תיקיות</p>
+              <Button
+                variant={folderFilter === "all" ? "default" : "ghost"}
+                size="sm"
+                className="w-full justify-start text-xs h-7 gap-1"
+                onClick={() => setFolderFilter("all")}
+              >
+                <FolderOpen className="w-3 h-3" />
+                הכל ({transcripts.length})
+              </Button>
+              <Button
+                variant={folderFilter === "__none__" ? "default" : "ghost"}
+                size="sm"
+                className="w-full justify-start text-xs h-7 gap-1"
+                onClick={() => setFolderFilter("__none__")}
+              >
+                <FileText className="w-3 h-3" />
+                ללא תיקיה ({transcripts.filter(t => !t.folder || t.folder.trim() === '').length})
+              </Button>
+              {folders.map(f => (
+                <Button
+                  key={f}
+                  variant={folderFilter === f ? "default" : "ghost"}
+                  size="sm"
+                  className="w-full justify-start text-xs h-7 gap-1 truncate"
+                  onClick={() => setFolderFilter(f)}
+                  title={f}
+                >
+                  <Folder className="w-3 h-3 shrink-0" />
+                  <span className="truncate">{f}</span>
+                  <span className="mr-auto text-[10px] opacity-60">{transcripts.filter(t => t.folder === f).length}</span>
+                </Button>
+              ))}
+            </div>
+          )}
+
+          {/* Transcript list */}
+          <ScrollArea className="h-[400px] flex-1">
           <div className="space-y-3">
             {filtered.map((entry) => (
               <div
@@ -256,26 +326,122 @@ export const CloudTranscriptHistory = ({
                   </p>
                 </div>
 
-                <div className="flex gap-2 mt-2 flex-row-reverse">
+                <div className="flex gap-1 mt-2 flex-row-reverse">
                   <Button
                     size="sm"
                     variant="outline"
-                    className="flex-1 text-xs"
+                    className="h-7 w-7 p-0"
                     onClick={() => navigate('/text-editor', { state: { text: entry.text } })}
+                    title="ערוך"
                   >
-                    <Edit className="w-3 h-3 ml-1" />
-                    ערוך
+                    <Edit className="w-3.5 h-3.5" />
                   </Button>
                   <Button
                     size="sm"
                     variant="ghost"
-                    className="flex-1 text-xs"
+                    className="h-7 w-7 p-0"
                     onClick={() => onSelect(entry.text)}
+                    title="טען"
                   >
-                    <FileText className="w-3 h-3 ml-1" />
-                    טען
+                    <FileText className="w-3.5 h-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0"
+                    onClick={() => {
+                      setEditingTagId(editingTagId === entry.id ? null : entry.id);
+                      setNewTag("");
+                    }}
+                    title="הוסף תגית"
+                  >
+                    <Tag className="w-3.5 h-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0"
+                    onClick={() => {
+                      setAssigningFolderId(assigningFolderId === entry.id ? null : entry.id);
+                      setShowNewFolder(false);
+                    }}
+                    title="שייך לתיקיה"
+                  >
+                    <FolderPlus className="w-3.5 h-3.5" />
                   </Button>
                 </div>
+
+                {/* Folder badge */}
+                {entry.folder && entry.folder.trim() !== '' && (
+                  <div className="mt-1">
+                    <Badge variant="outline" className="text-[10px] gap-1">
+                      <Folder className="w-2.5 h-2.5" />
+                      {entry.folder}
+                      <X
+                        className="w-2.5 h-2.5 cursor-pointer hover:text-destructive"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onUpdate(entry.id, { folder: '' });
+                        }}
+                      />
+                    </Badge>
+                  </div>
+                )}
+
+                {/* Folder assignment dropdown */}
+                {assigningFolderId === entry.id && (
+                  <div className="mt-2 p-2 rounded border bg-background space-y-1">
+                    {folders.map(f => (
+                      <Button
+                        key={f}
+                        variant={entry.folder === f ? "default" : "ghost"}
+                        size="sm"
+                        className="w-full justify-start text-xs h-7 gap-1"
+                        onClick={() => handleAssignFolder(entry.id, f)}
+                      >
+                        <Folder className="w-3 h-3" />
+                        {f}
+                      </Button>
+                    ))}
+                    {entry.folder && entry.folder.trim() !== '' && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-full justify-start text-xs h-7 gap-1 text-destructive"
+                        onClick={() => handleAssignFolder(entry.id, '')}
+                      >
+                        <X className="w-3 h-3" />
+                        הסר מתיקיה
+                      </Button>
+                    )}
+                    {showNewFolder ? (
+                      <div className="flex gap-1 mt-1">
+                        <Input
+                          placeholder="שם תיקיה..."
+                          value={newFolderName}
+                          onChange={(e) => setNewFolderName(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') handleCreateFolder(); }}
+                          className="text-xs h-7"
+                          dir="rtl"
+                          autoFocus
+                        />
+                        <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={handleCreateFolder}>
+                          צור
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-full justify-start text-xs h-7 gap-1"
+                        onClick={() => setShowNewFolder(true)}
+                      >
+                        <FolderPlus className="w-3 h-3" />
+                        תיקיה חדשה...
+                      </Button>
+                    )}
+                  </div>
+                )}
 
                 {entry.tags && entry.tags.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-2">
@@ -294,7 +460,7 @@ export const CloudTranscriptHistory = ({
                   </div>
                 )}
 
-                {editingTagId === entry.id ? (
+                {editingTagId === entry.id && (
                   <div className="flex gap-2 mt-2">
                     <Input
                       placeholder="הוסף תגית..."
@@ -316,24 +482,12 @@ export const CloudTranscriptHistory = ({
                       הוסף
                     </Button>
                   </div>
-                ) : (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 w-full text-xs mt-2"
-                    onClick={() => {
-                      setEditingTagId(entry.id);
-                      setNewTag("");
-                    }}
-                  >
-                    <Tag className="w-3 h-3 ml-1" />
-                    הוסף תגית
-                  </Button>
                 )}
               </div>
             ))}
           </div>
         </ScrollArea>
+        </div>
       )}
     </Card>
   );

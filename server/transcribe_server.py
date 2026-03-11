@@ -349,13 +349,16 @@ def transcribe():
 
 @app.route("/transcribe-stream", methods=["POST"])
 def transcribe_stream():
-    """Transcribe audio with Server-Sent Events — sends each segment as it's ready."""
+    """Transcribe audio with Server-Sent Events — sends each segment as it's ready.
+    Supports `start_from` (seconds) to resume from a specific time offset.
+    """
     if "file" not in request.files:
         return jsonify({"error": "No file provided"}), 400
 
     audio_file = request.files["file"]
     model_id = request.form.get("model", _current_model_id or DEFAULT_MODEL)
     language = request.form.get("language", "he")
+    start_from = float(request.form.get("start_from", "0"))
     resolved = MODEL_REGISTRY.get(model_id, model_id)
 
     suffix = Path(audio_file.filename or "audio.webm").suffix or ".webm"
@@ -363,15 +366,41 @@ def transcribe_stream():
         audio_file.save(tmp)
         tmp_path = tmp.name
 
+    # If resuming, trim audio to start_from using ffmpeg
+    trimmed_path = None
+    if start_from > 0:
+        try:
+            import subprocess
+            trimmed_path = tmp_path + "_trimmed" + suffix
+            result = subprocess.run(
+                ["ffmpeg", "-y", "-ss", str(start_from), "-i", tmp_path, "-c", "copy", trimmed_path],
+                capture_output=True, timeout=30,
+            )
+            if result.returncode == 0 and os.path.exists(trimmed_path):
+                print(f"  [stream] Trimmed audio from {start_from}s → {trimmed_path}")
+            else:
+                # Fallback: try with re-encoding if copy fails
+                result = subprocess.run(
+                    ["ffmpeg", "-y", "-ss", str(start_from), "-i", tmp_path, trimmed_path],
+                    capture_output=True, timeout=60,
+                )
+                if result.returncode != 0:
+                    trimmed_path = None
+                    print(f"  [stream] ffmpeg trim failed, transcribing full file")
+        except Exception as e:
+            trimmed_path = None
+            print(f"  [stream] trim failed: {e}, transcribing full file")
+
     def generate():
         try:
             model = load_model(resolved)
 
-            print(f"\n  [stream] Transcribing: {audio_file.filename} (model={resolved}, lang={language})")
+            transcribe_path = trimmed_path if trimmed_path else tmp_path
+            print(f"\n  [stream] Transcribing: {audio_file.filename} (model={resolved}, lang={language}, start_from={start_from}s)")
             start = time.time()
 
             segments_gen, info = model.transcribe(
-                tmp_path,
+                transcribe_path,
                 language=language if language != "auto" else None,
                 word_timestamps=True,
                 vad_filter=True,
@@ -379,9 +408,10 @@ def transcribe_stream():
             )
 
             duration = info.duration or 1.0
+            total_duration = duration + start_from  # Full original audio duration
 
             # First event: metadata with audio duration
-            yield f"data: {json.dumps({'type': 'info', 'duration': round(duration, 2), 'model': resolved, 'language': info.language})}\n\n"
+            yield f"data: {json.dumps({'type': 'info', 'duration': round(total_duration, 2), 'model': resolved, 'language': info.language, 'start_from': start_from})}\n\n"
 
             all_text_parts = []
             all_word_timings = []
@@ -396,19 +426,22 @@ def transcribe_stream():
                 seg_words = []
                 if segment.words:
                     for w in segment.words:
-                        wt = {"word": w.word.strip(), "start": round(w.start, 3), "end": round(w.end, 3)}
+                        # Offset timestamps by start_from so they match original audio
+                        wt = {"word": w.word.strip(), "start": round(w.start + start_from, 3), "end": round(w.end + start_from, 3)}
                         seg_words.append(wt)
                         all_word_timings.append(wt)
 
-                progress = min(99, round((segment.end / duration) * 100))
+                # Progress is relative to the full audio
+                seg_end_in_original = segment.end + start_from
+                progress = min(99, round((seg_end_in_original / total_duration) * 100))
 
-                yield f"data: {json.dumps({'type': 'segment', 'text': seg_text, 'words': seg_words, 'progress': progress, 'segEnd': round(segment.end, 2)})}\n\n"
+                yield f"data: {json.dumps({'type': 'segment', 'text': seg_text, 'words': seg_words, 'progress': progress, 'segEnd': round(seg_end_in_original, 2)})}\n\n"
 
             elapsed = time.time() - start
             full_text = " ".join(all_text_parts)
-            print(f"  [stream] Done in {elapsed:.1f}s — {len(all_word_timings)} words, {duration:.1f}s audio")
+            print(f"  [stream] Done in {elapsed:.1f}s — {len(all_word_timings)} words, {duration:.1f}s audio (offset {start_from}s)")
 
-            yield f"data: {json.dumps({'type': 'done', 'text': full_text, 'wordTimings': all_word_timings, 'duration': round(duration, 2), 'processing_time': round(elapsed, 2), 'model': resolved})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'text': full_text, 'wordTimings': all_word_timings, 'duration': round(total_duration, 2), 'processing_time': round(elapsed, 2), 'model': resolved, 'start_from': start_from})}\n\n"
 
         except Exception as e:
             print(f"  [stream] Error: {e}")
@@ -419,6 +452,11 @@ def transcribe_stream():
                 os.unlink(tmp_path)
             except OSError:
                 pass
+            if trimmed_path:
+                try:
+                    os.unlink(trimmed_path)
+                except OSError:
+                    pass
 
     return Response(generate(), mimetype="text/event-stream", headers={
         "Cache-Control": "no-cache",

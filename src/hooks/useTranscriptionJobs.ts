@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
@@ -28,6 +28,7 @@ export const useTranscriptionJobs = () => {
   const { user } = useAuth();
   const [jobs, setJobs] = useState<TranscriptionJob[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const deletedIdsRef = useRef<Set<string>>(new Set());
 
   const loadJobs = useCallback(async () => {
     if (!user) return;
@@ -63,9 +64,14 @@ export const useTranscriptionJobs = () => {
         filter: `user_id=eq.${user.id}`,
       }, (payload) => {
         if (payload.eventType === 'INSERT') {
-          setJobs(prev => [payload.new as TranscriptionJob, ...prev]);
+          const newJob = payload.new as TranscriptionJob;
+          if (!deletedIdsRef.current.has(newJob.id)) {
+            setJobs(prev => [newJob, ...prev]);
+          }
         } else if (payload.eventType === 'UPDATE') {
           const updated = payload.new as TranscriptionJob;
+          // Skip updates for jobs the user already deleted locally
+          if (deletedIdsRef.current.has(updated.id)) return;
           setJobs(prev => prev.map(j => j.id === updated.id ? updated : j));
           if (updated.status === 'completed') {
             toast({ title: "תמלול הושלם! ✅", description: `הקובץ "${updated.file_name}" תומלל בהצלחה` });
@@ -214,16 +220,36 @@ export const useTranscriptionJobs = () => {
   }, [jobs]);
 
   const deleteJob = useCallback(async (jobId: string) => {
+    // Mark as deleted to prevent realtime re-adding
+    deletedIdsRef.current.add(jobId);
+
+    // Optimistic: remove from UI immediately
+    let removedJob: TranscriptionJob | undefined;
+    setJobs(prev => {
+      removedJob = prev.find(j => j.id === jobId);
+      return prev.filter(j => j.id !== jobId);
+    });
+
     try {
-      const job = jobs.find(j => j.id === jobId);
-      if (job?.file_path) {
-        await supabase.storage.from('audio-files').remove([job.file_path]);
+      // Delete DB record first (most important)
+      const { error } = await supabase.from('transcription_jobs').delete().eq('id', jobId);
+      if (error) throw error;
+
+      // Then try to delete storage file (non-blocking)
+      if (removedJob?.file_path) {
+        supabase.storage.from('audio-files').remove([removedJob.file_path]).catch(() => {});
       }
-      await supabase.from('transcription_jobs').delete().eq('id', jobId);
+      toast({ title: "נמחק ✓", description: removedJob?.file_name || 'העבודה נמחקה' });
     } catch (err) {
       console.error('Error deleting job:', err);
+      // Rollback: restore the job in UI
+      deletedIdsRef.current.delete(jobId);
+      if (removedJob) {
+        setJobs(prev => [removedJob!, ...prev]);
+      }
+      toast({ title: "שגיאה במחיקה", description: err instanceof Error ? err.message : 'לא ניתן למחוק', variant: "destructive" });
     }
-  }, [jobs]);
+  }, []);
 
   const activeJobs = jobs.filter(j => ['pending', 'uploading', 'processing'].includes(j.status));
   const completedJobs = jobs.filter(j => j.status === 'completed');

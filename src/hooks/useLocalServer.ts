@@ -20,6 +20,7 @@ export interface PartialTranscript {
   wordTimings: WordTiming[];
   progress: number;         // 0-100 real percentage
   audioDuration?: number;
+  lastSegEnd?: number;       // last segment end time in seconds (for resume)
 }
 
 interface ServerStatus {
@@ -132,20 +133,30 @@ export const useLocalServer = () => {
     model?: string,
     language: string = 'he',
     onPartial?: (partial: PartialTranscript) => void,
+    resumeFrom?: { startFrom: number; existingText: string; existingWords: WordTiming[] },
   ): Promise<ServerTranscriptionResult> => {
-    console.log(`[useLocalServer] 🎙️ transcribeStream START — file:${file.name} (${(file.size/1024).toFixed(0)}KB), model:${model ?? 'default'}, lang:${language}`);
+    console.log(`[useLocalServer] 🎙️ transcribeStream START — file:${file.name} (${(file.size/1024).toFixed(0)}KB), model:${model ?? 'default'}, lang:${language}${resumeFrom ? `, resumeFrom=${resumeFrom.startFrom}s` : ''}`);
     setIsLoading(true);
     console.log('[useLocalServer] setIsLoading(true)');
-    setProgress(0);
+    setProgress(resumeFrom ? Math.round((resumeFrom.startFrom / 1) * 0) : 0);
     setPartialTranscript(null);
 
-    // Clear any previous partial save
-    localStorage.removeItem(PARTIAL_STORAGE_KEY);
+    // Only clear partial if not resuming
+    if (!resumeFrom) {
+      localStorage.removeItem(PARTIAL_STORAGE_KEY);
+    }
 
     const form = new FormData();
     form.append('file', file, file.name);
     if (model) form.append('model', model);
     form.append('language', language);
+    if (resumeFrom) {
+      form.append('start_from', String(resumeFrom.startFrom));
+    }
+
+    // Prepend existing text/words when resuming
+    const prefixText = resumeFrom?.existingText ? [resumeFrom.existingText] : [];
+    const prefixWords = resumeFrom?.existingWords ? [...resumeFrom.existingWords] : [];
 
     try {
       abortRef.current = new AbortController();
@@ -170,9 +181,10 @@ export const useLocalServer = () => {
 
       const decoder = new TextDecoder();
       let buffer = '';
-      const accText: string[] = [];
-      const accWords: WordTiming[] = [];
+      const accText: string[] = [...prefixText];
+      const accWords: WordTiming[] = [...prefixWords];
       let audioDuration = 0;
+      let lastSegEnd = resumeFrom?.startFrom || 0;
       let finalResult: ServerTranscriptionResult | null = null;
 
       while (true) {
@@ -200,6 +212,7 @@ export const useLocalServer = () => {
           } else if (evt.type === 'segment') {
             accText.push(evt.text);
             if (evt.words) accWords.push(...evt.words);
+            if (evt.segEnd) lastSegEnd = evt.segEnd;
 
             const realProgress = evt.progress ?? 0;
             console.log(`[useLocalServer] setProgress(${realProgress}) — accumulated ${accText.length} segments`);
@@ -210,6 +223,7 @@ export const useLocalServer = () => {
               wordTimings: [...accWords],
               progress: realProgress,
               audioDuration,
+              lastSegEnd,
             };
             setPartialTranscript(partial);
             onPartial?.(partial);
@@ -219,9 +233,16 @@ export const useLocalServer = () => {
           } else if (evt.type === 'done') {
             console.log('[useLocalServer] ✅ done event received, setProgress(100)');
             setProgress(100);
+            // When resuming, merge with prefix text
+            const fullText = resumeFrom?.existingText
+              ? resumeFrom.existingText + ' ' + evt.text
+              : evt.text;
+            const fullTimings = resumeFrom?.existingWords
+              ? [...resumeFrom.existingWords, ...(evt.wordTimings || [])]
+              : (evt.wordTimings || []);
             finalResult = {
-              text: evt.text,
-              wordTimings: evt.wordTimings || [],
+              text: fullText,
+              wordTimings: fullTimings,
               duration: evt.duration,
               language: evt.language,
               model: evt.model,
