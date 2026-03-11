@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { pipeline, env } from '@huggingface/transformers';
 import { toast } from '@/hooks/use-toast';
 
@@ -6,7 +6,7 @@ import { toast } from '@/hooks/use-toast';
 env.allowLocalModels = false;
 env.useBrowserCache = true;
 
-// Check if WebGPU is available (not supported on most mobile browsers)
+// Check if WebGPU is available
 const isWebGPUAvailable = async (): Promise<boolean> => {
   try {
     const nav = navigator as any;
@@ -18,86 +18,168 @@ const isWebGPUAvailable = async (): Promise<boolean> => {
   }
 };
 
-// Get preferred model from localStorage or default to tiny
+// Get preferred model from localStorage
 const getPreferredModel = () => {
+  // First check for explicitly selected model
+  const preferred = localStorage.getItem('preferred_local_model');
+  if (preferred) return preferred;
+  
+  // Fallback to first downloaded model
   const downloaded = localStorage.getItem('downloaded_models');
   if (downloaded) {
     const models = JSON.parse(downloaded);
-    if (models.length > 0) {
-      return models[0];
-    }
+    if (models.length > 0) return models[0];
   }
   return "onnx-community/whisper-tiny";
 };
 
+// Module-level cache for loaded pipelines
+const pipelineCache = new Map<string, any>();
+
+export interface WordTimingResult {
+  word: string;
+  start: number;
+  end: number;
+}
+
+export interface TranscriptionResult {
+  text: string;
+  wordTimings: WordTimingResult[];
+}
+
 export const useLocalTranscription = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [currentModel, setCurrentModel] = useState<string | null>(null);
 
-  const transcribe = async (file: File): Promise<string> => {
+  const transcribe = async (file: File): Promise<TranscriptionResult> => {
     setIsLoading(true);
     setProgress(0);
 
     try {
       const modelId = getPreferredModel();
+      setCurrentModel(modelId);
       const useGPU = await isWebGPUAvailable();
+      const deviceLabel = useGPU ? 'WebGPU 🚀' : 'WASM';
       
-      toast({
-        title: "מוריד מודל...",
-        description: useGPU 
-          ? `הורדת מודל ${modelId.split('/')[1]} (WebGPU). בפעם הבאה יהיה מהיר יותר!`
-          : `הורדת מודל ${modelId.split('/')[1]} (WASM - מצב תואם נייד). בפעם הבאה יהיה מהיר יותר!`,
-      });
+      let transcriber = pipelineCache.get(modelId);
+      
+      if (!transcriber) {
+        toast({
+          title: "טוען מודל...",
+          description: `${modelId.split('/').pop()} (${deviceLabel}). בפעם הבאה יהיה מהיר יותר!`,
+        });
 
-      setProgress(20);
+        setProgress(10);
 
-      // Create ASR pipeline - use WebGPU if available, fallback to WASM for mobile
-      const transcriber = await pipeline(
-        'automatic-speech-recognition',
-        modelId,
-        { 
-          device: useGPU ? 'webgpu' : 'wasm',
-          dtype: useGPU ? 'fp32' : 'q8',
-          progress_callback: (progress: any) => {
-            if (progress.status === 'progress') {
-              const percent = Math.round((progress.loaded / progress.total) * 100);
-              setProgress(Math.min(percent, 80));
+        transcriber = await pipeline(
+          'automatic-speech-recognition',
+          modelId,
+          { 
+            device: useGPU ? 'webgpu' : 'wasm',
+            dtype: useGPU ? 'fp32' : 'q8',
+            progress_callback: (p: any) => {
+              if (p.status === 'progress' && p.total > 0) {
+                const percent = Math.round((p.loaded / p.total) * 100);
+                setProgress(Math.min(percent * 0.7, 70));
+              }
             }
           }
-        }
-      );
+        );
 
-      setProgress(85);
+        // Cache the loaded pipeline for reuse
+        pipelineCache.set(modelId, transcriber);
+      } else {
+        toast({
+          title: "מתמלל...",
+          description: `מודל ${modelId.split('/').pop()} מוכן (${deviceLabel})`,
+        });
+      }
+
+      setProgress(75);
 
       toast({
         title: "מתמלל...",
-        description: useGPU ? "מעבד עם WebGPU" : "מעבד עם WASM (תואם נייד)",
+        description: `מעבד עם ${deviceLabel}`,
       });
 
-      // Convert file to URL for processing
       const audioUrl = URL.createObjectURL(file);
-      
-      // Transcribe with Hebrew language
-      const result = await transcriber(audioUrl, {
-        language: 'hebrew',
-        task: 'transcribe',
-      });
 
-      // Clean up URL
+      // Try word-level timestamps first; fall back to chunk-level if the model
+      // wasn't exported with output_attentions=True (cross-attention required).
+      let result: any;
+      let usedWordTimestamps = true;
+      try {
+        result = await transcriber(audioUrl, {
+          language: 'hebrew',
+          task: 'transcribe',
+          return_timestamps: 'word',
+        });
+      } catch (tsError: any) {
+        if (tsError?.message?.includes('cross attentions') || tsError?.message?.includes('output_attentions')) {
+          usedWordTimestamps = false;
+          result = await transcriber(audioUrl, {
+            language: 'hebrew',
+            task: 'transcribe',
+            return_timestamps: true,
+          });
+        } else {
+          throw tsError;
+        }
+      }
+
       URL.revokeObjectURL(audioUrl);
-
       setProgress(100);
 
-      // Handle result - can be array or single object
       const text = Array.isArray(result) ? result[0]?.text : result?.text;
       
       if (!text) {
         throw new Error('לא התקבל תמלול מהמודל');
       }
 
-      return text;
+      // Extract timestamps from chunks (word-level or segment-level)
+      const wordTimings: WordTimingResult[] = [];
+      const chunks = Array.isArray(result) ? result[0]?.chunks : result?.chunks;
+      if (chunks && Array.isArray(chunks)) {
+        for (const chunk of chunks) {
+          if (chunk.text && chunk.timestamp) {
+            const [start, end] = chunk.timestamp;
+            const words = chunk.text.trim().split(/\s+/);
+            if (words.length === 1) {
+              wordTimings.push({
+                word: words[0],
+                start: start ?? 0,
+                end: end ?? start ?? 0,
+              });
+            } else {
+              // Multiple words in chunk - distribute time evenly
+              const chunkDuration = (end ?? start ?? 0) - (start ?? 0);
+              const wordDuration = words.length > 0 ? chunkDuration / words.length : 0;
+              words.forEach((w: string, j: number) => {
+                if (w.trim()) {
+                  wordTimings.push({
+                    word: w.trim(),
+                    start: (start ?? 0) + j * wordDuration,
+                    end: (start ?? 0) + (j + 1) * wordDuration,
+                  });
+                }
+              });
+            }
+          }
+        }
+      }
+
+      if (!usedWordTimestamps) {
+        console.warn('[Local] Model does not support word timestamps — using chunk-level timing');
+      }
+
+      return { text, wordTimings };
     } catch (error) {
       console.error('Error in local transcription:', error);
+      
+      // Clear cached pipeline if error
+      const modelId = getPreferredModel();
+      pipelineCache.delete(modelId);
       
       if (error instanceof Error && (error.message.includes('WebGPU') || error.message.includes('wasm'))) {
         throw new Error('שגיאה בטעינת המנוע המקומי. נסה דפדפן עדכני יותר או השתמש במנוע אונליין.');
@@ -110,5 +192,5 @@ export const useLocalTranscription = () => {
     }
   };
 
-  return { transcribe, isLoading, progress };
+  return { transcribe, isLoading, progress, currentModel };
 };

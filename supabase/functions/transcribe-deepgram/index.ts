@@ -52,14 +52,22 @@ serve(async (req) => {
     }
 
     const result = await response.json();
-    const text = result.results?.channels?.[0]?.alternatives?.[0]?.transcript || '';
+    const alt = result.results?.channels?.[0]?.alternatives?.[0];
+    const text = alt?.transcript || '';
 
     if (!text) {
       throw new Error('No transcription received from Deepgram');
     }
 
+    // Extract word-level timestamps from Deepgram response
+    const wordTimings = (alt?.words || []).map((w: any) => ({
+      word: w.punctuated_word || w.word,
+      start: w.start,
+      end: w.end,
+    }));
+
     return new Response(
-      JSON.stringify({ text }),
+      JSON.stringify({ text, wordTimings }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 

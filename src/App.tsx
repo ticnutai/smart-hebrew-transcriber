@@ -10,6 +10,7 @@ import Settings from "./pages/Settings";
 import TextEditor from "./pages/TextEditor";
 import NotFound from "./pages/NotFound";
 import UserFloatingBadge from "./components/UserFloatingBadge";
+import { DebugPanel } from "./components/DebugPanel";
 
 const queryClient = new QueryClient();
 
@@ -21,6 +22,7 @@ const App = () => (
         <Sonner />
         <BrowserRouter>
           <UserFloatingBadge />
+          <DebugPanel />
           <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/login" element={<Login />} />

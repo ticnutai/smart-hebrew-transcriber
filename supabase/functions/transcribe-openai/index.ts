@@ -51,7 +51,8 @@ serve(async (req) => {
     fd.append('file', fileBlob!, fileName);
     fd.append('model', 'whisper-1');
     fd.append('language', 'he');
-    fd.append('response_format', 'text');
+    fd.append('response_format', 'verbose_json');
+    fd.append('timestamp_granularities[]', 'word');
 
     const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST',
@@ -80,10 +81,16 @@ serve(async (req) => {
       });
     }
 
-    const transcription = await response.text();
+    const result = await response.json();
     console.log('Transcription completed successfully');
 
-    return new Response(JSON.stringify({ text: transcription }), {
+    const wordTimings = (result.words || []).map((w: any) => ({
+      word: w.word,
+      start: w.start,
+      end: w.end,
+    }));
+
+    return new Response(JSON.stringify({ text: result.text, wordTimings }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (error) {

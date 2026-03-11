@@ -47,9 +47,10 @@ serve(async (req) => {
 
     const fd = new FormData();
     fd.append('file', fileBlob!, fileName);
-    fd.append('model', 'whisper-large-v3');
+    fd.append('model', 'whisper-large-v3-turbo');
     fd.append('language', 'he');
-    fd.append('response_format', 'text');
+    fd.append('response_format', 'verbose_json');
+    fd.append('timestamp_granularities[]', 'word');
 
     const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
       method: 'POST',
@@ -78,10 +79,17 @@ serve(async (req) => {
       });
     }
 
-    const transcription = await response.text();
+    const result = await response.json();
     console.log('Groq transcription completed successfully');
 
-    return new Response(JSON.stringify({ text: transcription }), {
+    // Extract word-level timestamps
+    const wordTimings = (result.words || []).map((w: any) => ({
+      word: w.word,
+      start: w.start,
+      end: w.end,
+    }));
+
+    return new Response(JSON.stringify({ text: result.text, wordTimings }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (error) {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { TranscriptionEngine } from "@/components/TranscriptionEngine";
 import { FileUploader } from "@/components/FileUploader";
@@ -10,14 +10,18 @@ import { ShareTranscript } from "@/components/ShareTranscript";
 import { TextStyleControl } from "@/components/TextStyleControl";
 import { LocalModelManager } from "@/components/LocalModelManager";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useLocalTranscription } from "@/hooks/useLocalTranscription";
-import { Settings, FileEdit, ChevronDown } from "lucide-react";
+import { useLocalServer } from "@/hooks/useLocalServer";
+import { useBackgroundTask } from "@/hooks/useBackgroundTask";
+import { debugLog } from "@/lib/debugLogger";
+import { Settings, FileEdit, ChevronDown, X } from "lucide-react";
 
-type Engine = 'openai' | 'groq' | 'google' | 'local' | 'assemblyai' | 'deepgram';
+type Engine = 'openai' | 'groq' | 'google' | 'local' | 'local-server' | 'assemblyai' | 'deepgram';
 type SourceLanguage = 'auto' | 'he' | 'yi' | 'en';
 
 const Index = () => {
@@ -35,7 +39,13 @@ const Index = () => {
   const [textColor, setTextColor] = useState('hsl(var(--foreground))');
   const [lineHeight, setLineHeight] = useState(1.6);
 
+  // Audio & word timing state for sync player
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [wordTimings, setWordTimings] = useState<Array<{word: string, start: number, end: number}>>([]);
+
   const { transcribe: localTranscribe, isLoading: isLocalLoading, progress: localProgress } = useLocalTranscription();
+  const { transcribeStream: serverTranscribeStream, isLoading: isServerLoading, progress: serverProgress, isConnected: serverConnected, recoverPartial, clearPartial, cancelStream: cancelServerStream } = useLocalServer();
+  const bgTask = useBackgroundTask();
 
   // Load history and settings from localStorage
   useEffect(() => {
@@ -59,6 +69,18 @@ const Index = () => {
     if (savedTextColor) setTextColor(savedTextColor);
     if (savedLineHeight) setLineHeight(Number(savedLineHeight));
     if (savedSourceLang) setSourceLanguage(savedSourceLang as SourceLanguage);
+
+    // Recover partial transcription from a previous interrupted session
+    const partial = recoverPartial();
+    if (partial && partial.text) {
+      setTranscript(partial.text);
+      setWordTimings(partial.wordTimings || []);
+      toast({
+        title: "שוחזר תמלול חלקי",
+        description: `נמצא תמלול שהופסק (${partial.progress}%) — ${partial.wordTimings?.length || 0} מילים`,
+      });
+      debugLog.info('Recovery', `Restored partial transcript: ${partial.progress}%, ${partial.text.length} chars`);
+    }
   }, []);
 
   // Save formatting settings
@@ -124,8 +146,10 @@ const Index = () => {
   };
 
   const handleFileSelect = async (file: File) => {
+    console.log(`[Index] handleFileSelect — file:${file.name} (${(file.size/1024).toFixed(0)}KB), engine:${engine}, serverConnected:${serverConnected}`);
     // Check file size (25MB limit)
     if (file.size > 25 * 1024 * 1024) {
+      debugLog.error('Upload', 'קובץ גדול מדי', { size: file.size });
       toast({
         title: "שגיאה",
         description: "הקובץ גדול מדי. גודל מקסימלי: 25MB",
@@ -134,32 +158,44 @@ const Index = () => {
       return;
     }
 
-    if (engine === 'openai') {
-      await transcribeWithOpenAI(file);
-    } else if (engine === 'groq') {
-      await transcribeWithGroq(file);
-    } else if (engine === 'google') {
-      await transcribeWithGoogle(file);
-    } else if (engine === 'assemblyai') {
-      await transcribeWithAssemblyAI(file);
-    } else if (engine === 'deepgram') {
-      await transcribeWithDeepgram(file);
-    } else {
-      await transcribeLocally(file);
-    }
+    // Preserve audio URL for playback
+    const url = URL.createObjectURL(file);
+    setAudioUrl(url);
+
+    debugLog.info('Transcription', `התחלת תמלול: ${file.name} (${(file.size / 1024 / 1024).toFixed(1)}MB) עם ${engine}`);
+    console.log(`[Index] bgTask.run starting — bgTask.status=${bgTask.status}, isRunning=${bgTask.isRunning}`);
+
+    // Run in background — doesn't block tab, sends notification on complete
+    bgTask.run(`${engine} — ${file.name}`, async () => {
+      if (engine === 'openai') {
+        await transcribeWithOpenAI(file, url);
+      } else if (engine === 'groq') {
+        await transcribeWithGroq(file, url);
+      } else if (engine === 'google') {
+        await transcribeWithGoogle(file, url);
+      } else if (engine === 'assemblyai') {
+        await transcribeWithAssemblyAI(file, url);
+      } else if (engine === 'deepgram') {
+        await transcribeWithDeepgram(file, url);
+      } else if (engine === 'local-server') {
+        await transcribeWithLocalServer(file, url);
+      } else {
+        await transcribeLocally(file, url);
+      }
+    }).catch(() => {
+      // Already logged by bgTask
+    });
   };
 
-  const transcribeWithOpenAI = async (file: File) => {
+  const transcribeWithOpenAI = async (file: File, fileAudioUrl?: string) => {
     setIsUploading(true);
     
     try {
-      console.log("[OpenAI] Starting transcription for:", file.name, "Size:", file.size);
+      debugLog.info('OpenAI', `Starting transcription: ${file.name} (${file.size} bytes)`);
       
       const openaiKey = localStorage.getItem("openai_api_key");
-      console.log("[OpenAI] API Key found:", !!openaiKey);
-      
       if (!openaiKey) {
-        console.error("[OpenAI] No API key found in localStorage");
+        debugLog.error('OpenAI', 'No API key found in localStorage');
         toast({
           title: "נדרש מפתח API",
           description: "יש להגדיר מפתח OpenAI בהגדרות",
@@ -180,15 +216,17 @@ const Index = () => {
       form.append('language', sourceLanguage);
       form.append('targetLanguage', 'he'); // Always Hebrew output
 
-      console.log("[OpenAI] Uploading via XHR to edge function...");
+      debugLog.info('OpenAI', 'Uploading via XHR to edge function...');
       const { data, error } = await xhrInvoke('transcribe-openai', form, (p) => setUploadProgress(p));
 
-      console.log("[OpenAI] Response:", { hasData: !!data, hasError: !!error });
+      debugLog.info('OpenAI', 'Response received', { hasData: !!data, hasError: !!error });
 
       if (error) throw error;
 
       if (data?.text) {
+        const timings = data.wordTimings || [];
         setTranscript(data.text);
+        setWordTimings(timings);
         saveToHistory(data.text, 'OpenAI Whisper');
         toast({
           title: "הצלחה!",
@@ -196,39 +234,33 @@ const Index = () => {
         });
         // Auto-navigate to text editor
         setTimeout(() => {
-          navigate('/text-editor', { state: { text: data.text } });
+          navigate('/text-editor', { state: { text: data.text, audioUrl: fileAudioUrl, wordTimings: timings } });
         }, 1000);
       } else {
         throw new Error('No transcription received');
       }
     } catch (error) {
-      console.error('Error transcribing with OpenAI:', error);
+      debugLog.error('OpenAI', 'Transcription failed', error instanceof Error ? error.message : error);
       toast({
         title: "שגיאה",
         description: error instanceof Error ? error.message : "שגיאה בתמלול הקובץ",
         variant: "destructive",
       });
+      throw error;
     } finally {
       setIsUploading(false);
     }
   };
 
-  const transcribeWithGroq = async (file: File) => {
-    console.log("[Groq] Starting transcription for:", file.name, "Size:", file.size);
+  const transcribeWithGroq = async (file: File, fileAudioUrl?: string) => {
+    debugLog.info('Groq', `Starting transcription: ${file.name} (${file.size} bytes)`);
     setIsUploading(true);
 
     try {
       const groqKey = localStorage.getItem("groq_api_key");
-      console.log("[Groq] Checking API key in localStorage...");
-      console.log("[Groq] All localStorage keys:", Object.keys(localStorage));
-      console.log("[Groq] API Key found:", !!groqKey);
-      
-      if (groqKey) {
-        console.log("[Groq] Key starts with:", groqKey.substring(0, 10));
-      }
       
       if (!groqKey) {
-        console.error("[Groq] No API key found in localStorage!");
+        debugLog.error('Groq', 'No API key found in localStorage');
         toast({
           title: "נדרש מפתח API",
           description: "יש להגדיר מפתח Groq בהגדרות (לחץ על כפתור ההגדרות בראש העמוד)",
@@ -249,25 +281,21 @@ const Index = () => {
       form.append('language', sourceLanguage);
       form.append('targetLanguage', 'he'); // Always Hebrew output
 
-      console.log("[Groq] Uploading via XHR...");
+      debugLog.info('Groq', 'Uploading via XHR...');
       const { data, error } = await xhrInvoke('transcribe-groq', form, (p) => setUploadProgress(p));
 
-      console.log("[Groq] Response received:", { hasData: !!data, hasError: !!error });
-      if (error) {
-        console.error("[Groq] Error details:", error);
-      }
-      if (data) {
-        console.log("[Groq] Data keys:", Object.keys(data));
-      }
+      debugLog.info('Groq', 'Response received', { hasData: !!data, hasError: !!error });
 
       if (error) {
-        console.error("[Groq] Supabase function error:", error);
+        debugLog.error('Groq', 'Edge function error', error);
         throw error;
       }
 
       if (data?.text) {
-        console.log("[Groq] Transcription received, length:", data.text.length);
+        debugLog.info('Groq', `Transcription received, length: ${data.text.length}`);
+        const timings = data.wordTimings || [];
         setTranscript(data.text);
+        setWordTimings(timings);
         saveToHistory(data.text, 'Groq Whisper');
         toast({ 
           title: "הצלחה!", 
@@ -275,34 +303,34 @@ const Index = () => {
         });
         // Auto-navigate to text editor
         setTimeout(() => {
-          navigate('/text-editor', { state: { text: data.text } });
+          navigate('/text-editor', { state: { text: data.text, audioUrl: fileAudioUrl, wordTimings: timings } });
         }, 1000);
       } else {
-        console.error("[Groq] No text in response data:", data);
+        debugLog.error('Groq', 'No text in response data', data);
         throw new Error('No transcription received from Groq');
       }
     } catch (error) {
-      console.error('[Groq] Full error:', error);
+      debugLog.error('Groq', 'Transcription failed', error instanceof Error ? error.message : error);
       toast({
         title: "שגיאה בתמלול Groq",
         description: error instanceof Error ? error.message : "שגיאה לא ידועה",
         variant: "destructive",
       });
+      throw error;
     } finally {
       setIsUploading(false);
     }
   };
 
-  const transcribeWithGoogle = async (file: File) => {
-    console.log("[Google] Starting transcription for:", file.name);
+  const transcribeWithGoogle = async (file: File, fileAudioUrl?: string) => {
+    debugLog.info('Google', `Starting transcription: ${file.name}`);
     setIsUploading(true);
 
     try {
       const googleKey = localStorage.getItem("google_api_key");
-      console.log("[Google] API Key found:", !!googleKey);
 
       if (!googleKey) {
-        console.error("[Google] No API key found!");
+        debugLog.error('Google', 'No API key found in localStorage');
         toast({
           title: "נדרש מפתח API",
           description: "יש להגדיר מפתח Google בהגדרות",
@@ -313,7 +341,7 @@ const Index = () => {
         return;
       }
 
-      console.log("[Google] Converting file...");
+      debugLog.info('Google', 'Converting file to base64...');
       toast({
         title: "מעלה קובץ...",
         description: "מעבד עם Google Speech-to-Text",
@@ -324,7 +352,6 @@ const Index = () => {
         reader.onload = () => {
           const base64 = reader.result?.toString().split(',')[1];
           if (base64) {
-            console.log("[Google] Base64 success");
             resolve(base64);
           } else reject(new Error('Failed to convert file'));
         };
@@ -334,7 +361,7 @@ const Index = () => {
 
       const base64Audio = await base64Promise;
 
-      console.log("[Google] Calling edge function...");
+      debugLog.info('Google', 'Calling edge function...');
       const { data, error } = await supabase.functions.invoke('transcribe-google', {
         body: {
           audio: base64Audio,
@@ -345,16 +372,18 @@ const Index = () => {
         }
       });
 
-      console.log("[Google] Response:", { hasData: !!data, hasError: !!error });
+      debugLog.info('Google', 'Response received', { hasData: !!data, hasError: !!error });
 
       if (error) {
-        console.error("[Google] Error:", error);
+        debugLog.error('Google', 'Edge function error', error);
         throw error;
       }
 
       if (data?.text) {
-        console.log("[Google] Success, text length:", data.text.length);
+        debugLog.info('Google', `Success, text length: ${data.text.length}`);
+        const timings = data.wordTimings || [];
         setTranscript(data.text);
+        setWordTimings(timings);
         saveToHistory(data.text, 'Google Speech-to-Text');
         toast({
           title: "הצלחה!",
@@ -362,47 +391,105 @@ const Index = () => {
         });
         // Auto-navigate to text editor
         setTimeout(() => {
-          navigate('/text-editor', { state: { text: data.text } });
+          navigate('/text-editor', { state: { text: data.text, audioUrl: fileAudioUrl, wordTimings: timings } });
         }, 1000);
       } else {
         throw new Error('No transcription received from Google');
       }
     } catch (error) {
-      console.error('[Google] Full error:', error);
+      debugLog.error('Google', 'Transcription failed', error instanceof Error ? error.message : error);
       toast({
         title: "שגיאה בתמלול Google",
         description: error instanceof Error ? error.message : "שגיאה לא ידועה",
         variant: "destructive",
       });
+      throw error;
     } finally {
       setIsUploading(false);
     }
   };
 
-  const transcribeLocally = async (file: File) => {
+  const transcribeLocally = async (file: File, fileAudioUrl?: string) => {
     try {
-      const text = await localTranscribe(file);
-      setTranscript(text);
-      saveToHistory(text, 'Local (Browser)');
+      const result = await localTranscribe(file);
+      setTranscript(result.text);
+      setWordTimings(result.wordTimings);
+      saveToHistory(result.text, 'Local (Browser)');
       toast({
         title: "הצלחה!",
         description: "התמלול המקומי הושלם בהצלחה - עובר לעריכת טקסט",
       });
       // Auto-navigate to text editor
       setTimeout(() => {
-        navigate('/text-editor', { state: { text } });
+        navigate('/text-editor', { state: { text: result.text, audioUrl: fileAudioUrl, wordTimings: result.wordTimings } });
       }, 1000);
     } catch (error) {
-      console.error('Error transcribing locally:', error);
+      debugLog.error('Local', 'Browser transcription failed', error instanceof Error ? error.message : error);
       toast({
         title: "שגיאה",
         description: error instanceof Error ? error.message : "שגיאה בתמלול מקומי",
         variant: "destructive",
       });
+      throw error;
     }
   };
 
-  const transcribeWithAssemblyAI = async (file: File) => {
+  const transcribeWithLocalServer = async (file: File, fileAudioUrl?: string) => {
+    console.log(`[Index] transcribeWithLocalServer — serverConnected:${serverConnected}, engine:${engine}`);
+    if (!serverConnected) {
+      console.warn('[Index] ❌ serverConnected is FALSE — aborting transcription');
+      toast({
+        title: "שרת לא מחובר",
+        description: "הפעל את השרת המקומי: python server/transcribe_server.py",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const preferredModel = localStorage.getItem('preferred_local_model') || undefined;
+      const lang = sourceLanguage === 'auto' ? 'auto' : sourceLanguage;
+      console.log(`[Index] 🚀 calling serverTranscribeStream — model:${preferredModel ?? 'default'}, lang:${lang}, file:${file.name}`);
+      toast({ title: "מתמלל עם GPU...", description: "מעבד את הקובץ בשרת המקומי עם CUDA — תראה תוצאות בזמן אמת" });
+
+      const result = await serverTranscribeStream(file, preferredModel, lang, (partial) => {
+        // Update live as segments arrive
+        setTranscript(partial.text);
+        setWordTimings(partial.wordTimings);
+        console.log(`[Index] 📊 partial callback — progress:${partial.progress}%, words:${partial.wordTimings.length}`);
+        debugLog.info('CUDA Stream', `${partial.progress}% — ${partial.wordTimings.length} מילים`);
+      });
+      console.log(`[Index] ✅ serverTranscribeStream finished — text length:${result.text?.length}, processing_time:${result.processing_time}s`);
+
+      const timings = result.wordTimings || [];
+      setTranscript(result.text);
+      setWordTimings(timings);
+      saveToHistory(result.text, `Local CUDA (${result.model || 'server'})`);
+      clearPartial();
+      toast({
+        title: "הצלחה!",
+        description: `תמלול GPU הושלם ב-${result.processing_time || '?'}s — עובר לעריכת טקסט`,
+      });
+      setTimeout(() => {
+        navigate('/text-editor', { state: { text: result.text, audioUrl: fileAudioUrl, wordTimings: timings } });
+      }, 1000);
+    } catch (error) {
+      if (error instanceof Error && error.message === 'CANCELLED') {
+        toast({ title: "תמלול הופסק", description: "התמלול בוטל על ידי המשתמש" });
+        return;
+      }
+      debugLog.error('CUDA Server', 'Transcription failed', error instanceof Error ? error.message : error);
+      // Even on failure, keep what was partially transcribed (already saved to localStorage by hook)
+      toast({
+        title: "שגיאה בתמלול שרת מקומי",
+        description: `${error instanceof Error ? error.message : 'שגיאה לא ידועה'} — מה שהצליח נשמר`,
+        variant: "destructive",
+      });
+      throw error;
+    }
+  };
+
+  const transcribeWithAssemblyAI = async (file: File, fileAudioUrl?: string) => {
     setIsUploading(true);
     
     try {
@@ -432,31 +519,34 @@ const Index = () => {
       if (error) throw error;
 
       if (data?.text) {
+        const timings = data.wordTimings || [];
         setTranscript(data.text);
+        setWordTimings(timings);
         saveToHistory(data.text, 'AssemblyAI');
         toast({
           title: "הצלחה!",
           description: "התמלול הושלם בהצלחה - עובר לעריכת טקסט",
         });
         setTimeout(() => {
-          navigate('/text-editor', { state: { text: data.text } });
+          navigate('/text-editor', { state: { text: data.text, audioUrl: fileAudioUrl, wordTimings: timings } });
         }, 1000);
       } else {
         throw new Error('No transcription received');
       }
     } catch (error) {
-      console.error('Error transcribing with AssemblyAI:', error);
+      debugLog.error('AssemblyAI', 'Transcription failed', error instanceof Error ? error.message : error);
       toast({
         title: "שגיאה",
         description: error instanceof Error ? error.message : "שגיאה בתמלול הקובץ",
         variant: "destructive",
       });
+      throw error;
     } finally {
       setIsUploading(false);
     }
   };
 
-  const transcribeWithDeepgram = async (file: File) => {
+  const transcribeWithDeepgram = async (file: File, fileAudioUrl?: string) => {
     setIsUploading(true);
     
     try {
@@ -486,32 +576,61 @@ const Index = () => {
       if (error) throw error;
 
       if (data?.text) {
+        const timings = data.wordTimings || [];
         setTranscript(data.text);
+        setWordTimings(timings);
         saveToHistory(data.text, 'Deepgram');
         toast({
           title: "הצלחה!",
           description: "התמלול הושלם בהצלחה - עובר לעריכת טקסט",
         });
         setTimeout(() => {
-          navigate('/text-editor', { state: { text: data.text } });
+          navigate('/text-editor', { state: { text: data.text, audioUrl: fileAudioUrl, wordTimings: timings } });
         }, 1000);
       } else {
         throw new Error('No transcription received');
       }
     } catch (error) {
-      console.error('Error transcribing with Deepgram:', error);
+      debugLog.error('Deepgram', 'Transcription failed', error instanceof Error ? error.message : error);
       toast({
         title: "שגיאה",
         description: error instanceof Error ? error.message : "שגיאה בתמלול הקובץ",
         variant: "destructive",
       });
+      throw error;
     } finally {
       setIsUploading(false);
     }
   };
 
-  const isLoading = isUploading || isLocalLoading;
-  const progress = engine === 'local' ? localProgress : (isUploading ? uploadProgress : undefined);
+  const isLoading = isUploading || isLocalLoading || isServerLoading || bgTask.isRunning;
+  const progress = engine === 'local' ? localProgress : engine === 'local-server' ? serverProgress : (isUploading ? uploadProgress : undefined);
+
+  // ── Debug: watch loading/progress state ──
+  useEffect(() => {
+    console.log(`[Index] 🔄 STATE — isLoading:${isLoading} | bgTask:${bgTask.status} | isServerLoading:${isServerLoading} | serverProgress:${serverProgress} | isUploading:${isUploading} | serverConnected:${serverConnected}`);
+  }, [isLoading, bgTask.status, isServerLoading, serverProgress, isUploading, serverConnected]);
+
+  // Elapsed time counter — starts fresh each time a transcription begins
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const elapsedIntervalRef = useRef<ReturnType<typeof setInterval>>();
+  useEffect(() => {
+    if (isLoading) {
+      setElapsedSeconds(0);
+      elapsedIntervalRef.current = setInterval(() => setElapsedSeconds(s => s + 1), 1000);
+    } else {
+      clearInterval(elapsedIntervalRef.current);
+    }
+    return () => clearInterval(elapsedIntervalRef.current);
+  }, [isLoading]);
+
+  const handleCancelTranscription = () => {
+    if (engine === 'local-server') {
+      cancelServerStream();
+    }
+    bgTask.reset();
+    setIsUploading(false);
+  };
 
   return (
     <div className="min-h-screen bg-background p-4 md:p-8" dir="rtl">
@@ -568,8 +687,53 @@ const Index = () => {
           />
         </div>
 
-        {/* Local Model Manager - shown only when local engine selected */}
-        {engine === 'local' && (
+        {/* Active transcription progress panel */}
+        {isLoading && (
+          <Card className="p-4 border-primary/40 bg-primary/5 shadow-sm" dir="rtl">
+            <div className="flex items-center gap-3">
+              <div className="flex-1 space-y-2 text-right">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="font-mono text-xs text-muted-foreground">
+                    {String(Math.floor(elapsedSeconds / 60)).padStart(2, '0')}:{String(elapsedSeconds % 60).padStart(2, '0')} ⏱
+                  </span>
+                  <span className="font-medium">
+                    {progress !== undefined && progress > 0 ? `מתמלל... ${progress}%` : 'מתמלל...'}
+                  </span>
+                </div>
+                <div className="relative h-2.5 rounded-full bg-muted overflow-hidden">
+                  {progress === undefined || progress === 0 ? (
+                    <div className="absolute inset-0 rounded-full overflow-hidden">
+                      <div className="h-full w-full bg-primary/30 rounded-full" />
+                      <div
+                        className="absolute top-0 h-full w-1/3 bg-primary/70 rounded-full"
+                        style={{ animation: 'transcription-scan 1.6s ease-in-out infinite' }}
+                      />
+                    </div>
+                  ) : (
+                    <div
+                      className="absolute top-0 left-0 h-full rounded-full bg-primary transition-[width] duration-300 ease-out overflow-hidden"
+                      style={{ width: `${Math.max(progress, 3)}%` }}
+                    >
+                      <div className="absolute top-0 right-0 h-full w-5 bg-white/40 animate-pulse" />
+                    </div>
+                  )}
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-9 w-9 shrink-0 text-destructive border-destructive/40 hover:bg-destructive/10"
+                onClick={handleCancelTranscription}
+                title="עצור תמלול"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </Card>
+        )}
+
+        {/* Local Model Manager - shown when local engine or local-server selected */}
+        {(engine === 'local' || engine === 'local-server') && (
           <Collapsible>
             <CollapsibleTrigger asChild>
               <Button variant="outline" className="w-full mb-4">

@@ -7,6 +7,12 @@ import { AIEditorDual } from "@/components/AIEditorDual";
 import { TextComparisonMulti } from "@/components/TextComparisonMulti";
 import { TextStyleControl } from "@/components/TextStyleControl";
 import { TextEditHistory, TextVersion } from "@/components/TextEditHistory";
+import { PromptLibrary } from "@/components/PromptLibrary";
+import { EditPipeline } from "@/components/EditPipeline";
+import { OllamaManager } from "@/components/OllamaManager";
+import { SyncAudioPlayer } from "@/components/SyncAudioPlayer";
+import { SyncTranscriptView } from "@/components/SyncTranscriptView";
+import type { WordTiming } from "@/components/SyncAudioPlayer";
 import { ArrowRight, Home } from "lucide-react";
 
 const TextEditor = () => {
@@ -15,6 +21,9 @@ const TextEditor = () => {
   const [text, setText] = useState("");
   const [versions, setVersions] = useState<TextVersion[]>([]);
   const [selectedVersionId, setSelectedVersionId] = useState<string>();
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [wordTimings, setWordTimings] = useState<WordTiming[]>([]);
+  const [playerTime, setPlayerTime] = useState(0);
   
   // Style settings
   const [fontSize, setFontSize] = useState(16);
@@ -55,6 +64,14 @@ const TextEditor = () => {
       if (savedText) {
         setText(savedText);
       }
+    }
+
+    // Load audio URL and word timings from navigation state
+    if (location.state?.audioUrl) {
+      setAudioUrl(location.state.audioUrl);
+    }
+    if (location.state?.wordTimings) {
+      setWordTimings(location.state.wordTimings);
     }
 
     // Load style settings
@@ -130,12 +147,34 @@ const TextEditor = () => {
 
         {/* Main Content */}
         <Tabs defaultValue="edit" className="w-full" dir="rtl">
-          <TabsList className="grid w-full grid-cols-4 mb-6">
+          <TabsList className="grid w-full grid-cols-4 md:grid-cols-8 mb-6">
+            <TabsTrigger value="player">🎧 נגן</TabsTrigger>
             <TabsTrigger value="edit">עריכת טקסט</TabsTrigger>
             <TabsTrigger value="ai">עריכה עם AI</TabsTrigger>
+            <TabsTrigger value="pipeline">צינור עיבוד</TabsTrigger>
+            <TabsTrigger value="prompts">ספריית פרומפטים</TabsTrigger>
+            <TabsTrigger value="ollama">🖥️ Ollama</TabsTrigger>
             <TabsTrigger value="compare">השוואה</TabsTrigger>
             <TabsTrigger value="history">היסטוריה</TabsTrigger>
           </TabsList>
+
+          <TabsContent value="player" className="space-y-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <SyncAudioPlayer
+                audioUrl={audioUrl}
+                wordTimings={wordTimings}
+                currentTime={playerTime}
+                onTimeUpdate={setPlayerTime}
+              />
+              <SyncTranscriptView
+                wordTimings={wordTimings}
+                currentTime={playerTime}
+                onWordClick={(time) => setPlayerTime(time)}
+                fontSize={fontSize}
+                fontFamily={fontFamily}
+              />
+            </div>
+          </TabsContent>
 
           <TabsContent value="edit" className="space-y-4">
             <TextStyleControl
@@ -219,6 +258,30 @@ const TextEditor = () => {
                 יש צורך בלפחות שתי גרסאות כדי להשוות
               </div>
             )}
+          </TabsContent>
+
+          <TabsContent value="pipeline" className="space-y-4">
+            <EditPipeline
+              text={text}
+              onTextChange={(newText, source, customPrompt) => {
+                setText(newText);
+                addVersion(newText, source as TextVersion['source'], customPrompt);
+              }}
+            />
+          </TabsContent>
+
+          <TabsContent value="prompts" className="space-y-4">
+            <PromptLibrary
+              text={text}
+              onTextChange={(newText, source, customPrompt) => {
+                setText(newText);
+                addVersion(newText, source as TextVersion['source'], customPrompt);
+              }}
+            />
+          </TabsContent>
+
+          <TabsContent value="ollama" className="space-y-4">
+            <OllamaManager />
           </TabsContent>
 
           <TabsContent value="history" className="space-y-4">

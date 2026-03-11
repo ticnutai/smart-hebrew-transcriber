@@ -129,34 +129,63 @@ export const RichTextEditor = ({ text, onChange }: RichTextEditorProps) => {
   };
 
   const handleExportDOCX = () => {
-    // For DOCX export, we'll create an HTML file that can be opened in Word
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html dir="rtl">
-      <head>
-        <meta charset="UTF-8">
-        <style>
-          body { font-family: Arial, sans-serif; direction: rtl; }
-          mark { padding: 2px 4px; }
-        </style>
-      </head>
-      <body>
-        <pre style="white-space: pre-wrap; font-family: inherit;">${text}</pre>
-      </body>
-      </html>
-    `;
-    
-    const blob = new Blob([htmlContent], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+    const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br/>');
+    const htmlContent = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="UTF-8">
+<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]-->
+<style>@page{direction:rtl}body{font-family:Arial,sans-serif;direction:rtl;unicode-bidi:embed;line-height:1.8;}</style>
+</head><body dir="rtl"><div style="white-space:pre-wrap;font-family:Arial;">${escaped}</div></body></html>`;
+    const blob = new Blob(['\ufeff' + htmlContent], { type: 'application/msword' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `edited-transcript-${Date.now()}.docx`;
+    a.download = `edited-transcript-${Date.now()}.doc`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    
-    toast({ title: "ייצוא הצליח", description: "הקובץ DOCX הורד" });
+    toast({ title: "ייצוא הצליח", description: "קובץ Word הורד" });
+  };
+
+  const handleExportPDF = () => {
+    const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      toast({ title: "שגיאה", description: "יש לאפשר חלונות קופצים ליצוא PDF", variant: "destructive" });
+      return;
+    }
+    printWindow.document.write(`<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8"><title>ייצוא PDF</title><style>body{font-family:Arial,sans-serif;direction:rtl;padding:40px;line-height:1.8}@media print{body{padding:20px}}</style></head><body><pre style="white-space:pre-wrap;font-family:Arial;">${escaped}</pre></body></html>`);
+    printWindow.document.close();
+    printWindow.print();
+  };
+
+  const handleExportSRT = () => {
+    const words = text.split(/\s+/).filter(w => w);
+    const segmentSize = 10;
+    let srtContent = '';
+    for (let i = 0; i < words.length; i += segmentSize) {
+      const seg = words.slice(i, i + segmentSize).join(' ');
+      const idx = Math.floor(i / segmentSize);
+      const startSec = idx * 5;
+      const endSec = (idx + 1) * 5;
+      const fmt = (s: number) => {
+        const h = String(Math.floor(s / 3600)).padStart(2, '0');
+        const m = String(Math.floor((s % 3600) / 60)).padStart(2, '0');
+        const sc = String(s % 60).padStart(2, '0');
+        return `${h}:${m}:${sc},000`;
+      };
+      srtContent += `${idx + 1}\n${fmt(startSec)} --> ${fmt(endSec)}\n${seg}\n\n`;
+    }
+    const blob = new Blob([srtContent], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `transcript-${Date.now()}.srt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast({ title: "ייצוא הצליח", description: "קובץ SRT (כתוביות) הורד" });
   };
 
   return (
@@ -244,10 +273,30 @@ export const RichTextEditor = ({ text, onChange }: RichTextEditorProps) => {
             variant="outline"
             size="sm"
             onClick={handleExportDOCX}
-            title="ייצא DOCX"
+            title="ייצא Word"
           >
             <FileDown className="w-4 h-4 ml-1" />
-            DOCX
+            DOC
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExportPDF}
+            title="ייצא PDF"
+          >
+            <FileDown className="w-4 h-4 ml-1" />
+            PDF
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExportSRT}
+            title="ייצא כתוביות SRT"
+          >
+            <FileDown className="w-4 h-4 ml-1" />
+            SRT
           </Button>
         </div>
 

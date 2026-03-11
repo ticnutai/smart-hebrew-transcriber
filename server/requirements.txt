@@ -1,0 +1,4 @@
+torch
+faster-whisper
+flask
+flask-cors

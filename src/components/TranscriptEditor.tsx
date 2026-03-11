@@ -3,7 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { Wand2, BookOpen, FileText, Copy, Download, Loader2, Upload, Settings2 } from "lucide-react";
+import { Wand2, BookOpen, FileText, Copy, Download, Loader2, Upload, Settings2, CheckCheck, AlignJustify, Quote } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -25,7 +25,7 @@ export const TranscriptEditor = ({ transcript, onTranscriptChange }: TranscriptE
   const [customPrompt, setCustomPrompt] = useState("");
   const [showPromptDialog, setShowPromptDialog] = useState(false);
 
-  const handleEdit = async (action: 'improve' | 'sources' | 'readable' | 'custom', prompt?: string) => {
+  const handleEdit = async (action: 'improve' | 'sources' | 'readable' | 'custom' | 'grammar' | 'punctuation' | 'paragraphs', prompt?: string) => {
     if (!transcript.trim()) {
       toast({
         title: "שגיאה",
@@ -211,6 +211,45 @@ export const TranscriptEditor = ({ transcript, onTranscriptChange }: TranscriptE
       <div className="border-t pt-4">
         <h3 className="text-sm font-semibold mb-3 text-right">עריכת טקסט עם AI</h3>
         <div className="flex flex-wrap gap-2">
+          <Button
+            variant="secondary"
+            onClick={() => handleEdit('grammar')}
+            disabled={!transcript.trim() || isEditing}
+          >
+            {isEditing ? (
+              <Loader2 className="w-4 h-4 ml-2 animate-spin" />
+            ) : (
+              <CheckCheck className="w-4 h-4 ml-2" />
+            )}
+            דקדוק ואיות
+          </Button>
+
+          <Button
+            variant="secondary"
+            onClick={() => handleEdit('punctuation')}
+            disabled={!transcript.trim() || isEditing}
+          >
+            {isEditing ? (
+              <Loader2 className="w-4 h-4 ml-2 animate-spin" />
+            ) : (
+              <Quote className="w-4 h-4 ml-2" />
+            )}
+            פיסוק
+          </Button>
+
+          <Button
+            variant="secondary"
+            onClick={() => handleEdit('paragraphs')}
+            disabled={!transcript.trim() || isEditing}
+          >
+            {isEditing ? (
+              <Loader2 className="w-4 h-4 ml-2 animate-spin" />
+            ) : (
+              <AlignJustify className="w-4 h-4 ml-2" />
+            )}
+            חלק לפסקאות
+          </Button>
+
           <Button
             variant="secondary"
             onClick={() => handleEdit('improve')}

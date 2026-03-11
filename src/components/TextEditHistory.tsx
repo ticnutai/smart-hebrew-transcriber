@@ -9,7 +9,9 @@ export interface TextVersion {
   id: string;
   text: string;
   timestamp: Date;
-  source: 'original' | 'manual' | 'ai-improve' | 'ai-sources' | 'ai-readable' | 'ai-custom';
+  source: 'original' | 'manual' | 'ai-improve' | 'ai-sources' | 'ai-readable' | 'ai-custom' |
+    'ai-grammar' | 'ai-punctuation' | 'ai-paragraphs' | 'ai-bullets' | 'ai-headings' |
+    'ai-expand' | 'ai-shorten' | 'ai-summarize' | 'ai-translate' | 'ai-speakers' | 'ai-tone';
   customPrompt?: string;
 }
 
@@ -25,7 +27,18 @@ const sourceLabels: Record<TextVersion['source'], string> = {
   'ai-improve': 'AI - שיפור ניסוח',
   'ai-sources': 'AI - הוספת מקורות',
   'ai-readable': 'AI - זורם לקריאה',
-  'ai-custom': 'AI - פרומפט מותאם'
+  'ai-custom': 'AI - פרומפט מותאם',
+  'ai-grammar': 'AI - דקדוק ואיות',
+  'ai-punctuation': 'AI - פיסוק',
+  'ai-paragraphs': 'AI - חלוקה לפסקאות',
+  'ai-bullets': 'AI - נקודות מפתח',
+  'ai-headings': 'AI - כותרות',
+  'ai-expand': 'AI - הרחבה',
+  'ai-shorten': 'AI - קיצור',
+  'ai-summarize': 'AI - סיכום',
+  'ai-translate': 'AI - תרגום',
+  'ai-speakers': 'AI - זיהוי דוברים',
+  'ai-tone': 'AI - שינוי טון'
 };
 
 export const TextEditHistory = ({ versions, onSelectVersion, selectedVersionId }: TextEditHistoryProps) => {
