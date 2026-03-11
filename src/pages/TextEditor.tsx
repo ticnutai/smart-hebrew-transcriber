@@ -29,6 +29,7 @@ const TextEditor = () => {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [wordTimings, setWordTimings] = useState<WordTiming[]>([]);
   const [playerTime, setPlayerTime] = useState(0);
+  const [syncEnabled, setSyncEnabled] = useState(true);
   
   // Cloud-synced style settings
   const { preferences, updatePreference } = useCloudPreferences();
@@ -234,6 +235,8 @@ const TextEditor = () => {
                 wordTimings={wordTimings}
                 currentTime={playerTime}
                 onTimeUpdate={setPlayerTime}
+                syncEnabled={syncEnabled}
+                onSyncToggle={setSyncEnabled}
               />
               <SyncTranscriptView
                 wordTimings={wordTimings}
@@ -241,6 +244,7 @@ const TextEditor = () => {
                 onWordClick={(time) => setPlayerTime(time)}
                 fontSize={fontSize}
                 fontFamily={fontFamily}
+                syncEnabled={syncEnabled}
               />
             </div>
           </TabsContent>

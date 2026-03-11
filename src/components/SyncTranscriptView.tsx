@@ -10,6 +10,7 @@ interface SyncTranscriptViewProps {
   onWordClick: (time: number) => void;
   fontSize?: number;
   fontFamily?: string;
+  syncEnabled?: boolean;
 }
 
 export const SyncTranscriptView = ({
@@ -18,18 +19,19 @@ export const SyncTranscriptView = ({
   onWordClick,
   fontSize = 18,
   fontFamily = 'Assistant',
+  syncEnabled = true,
 }: SyncTranscriptViewProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const activeWordRef = useRef<HTMLSpanElement>(null);
 
   // Current word index 
   const currentWordIndex = useMemo(() => {
-    if (!wordTimings.length) return -1;
+    if (!syncEnabled || !wordTimings.length) return -1;
     for (let i = wordTimings.length - 1; i >= 0; i--) {
       if (currentTime >= wordTimings[i].start) return i;
     }
     return -1;
-  }, [currentTime, wordTimings]);
+  }, [currentTime, wordTimings, syncEnabled]);
 
   // Group words into sentences (split on period, newline, or every ~15 words)
   const sentences = useMemo(() => {
