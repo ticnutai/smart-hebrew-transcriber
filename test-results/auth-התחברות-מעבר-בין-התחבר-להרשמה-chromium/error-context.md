@@ -1,0 +1,79 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e2]:
+  - region "Notifications (F8)":
+    - list
+  - region "Notifications alt+T"
+  - button "התחבר" [ref=e4] [cursor=pointer]:
+    - img
+    - text: התחבר
+  - button "Debug Panel" [ref=e5] [cursor=pointer]:
+    - img [ref=e6]
+  - generic [ref=e16]:
+    - generic [ref=e17]:
+      - heading "ניווט" [level=2] [ref=e18]
+      - generic [ref=e19]:
+        - button "הצמד" [ref=e20] [cursor=pointer]:
+          - img [ref=e21]
+        - button [ref=e25] [cursor=pointer]:
+          - img [ref=e26]
+    - generic [ref=e30]:
+      - navigation [ref=e31]:
+        - button "דשבורד" [ref=e32] [cursor=pointer]:
+          - img [ref=e33]
+          - generic [ref=e38]: דשבורד
+        - button "תמלול" [ref=e39] [cursor=pointer]:
+          - img [ref=e40]
+          - generic [ref=e43]: תמלול
+        - button "תיקיות" [ref=e44] [cursor=pointer]:
+          - img [ref=e45]
+          - generic [ref=e47]: תיקיות
+        - button "עורך טקסט" [ref=e48] [cursor=pointer]:
+          - img [ref=e49]
+          - generic [ref=e52]: עורך טקסט
+        - button "הגדרות" [ref=e53] [cursor=pointer]:
+          - img [ref=e54]
+          - generic [ref=e57]: הגדרות
+      - generic [ref=e58]:
+        - generic [ref=e59]:
+          - button "תיקיות" [ref=e60] [cursor=pointer]:
+            - img [ref=e61]
+            - generic [ref=e63]: תיקיות
+          - generic [ref=e64]:
+            - button "סגור רשימה" [ref=e65] [cursor=pointer]:
+              - img [ref=e66]
+            - button "תיקיה חדשה" [ref=e68] [cursor=pointer]:
+              - img [ref=e69]
+        - generic [ref=e70]:
+          - button "הכל" [ref=e71] [cursor=pointer]:
+            - img [ref=e72]
+            - generic [ref=e74]: הכל
+          - paragraph [ref=e75]: אין תיקיות עדיין — לחץ + להוספה
+    - button "התחבר" [ref=e77] [cursor=pointer]:
+      - img [ref=e78]
+      - generic [ref=e81]: התחבר
+  - generic [ref=e84]:
+    - generic [ref=e85]:
+      - img [ref=e87]
+      - heading "הרשמה" [level=3] [ref=e90]
+      - paragraph [ref=e91]: צור חשבון חדש להתחלה
+    - generic [ref=e92]:
+      - button "המשך עם Google" [ref=e93] [cursor=pointer]:
+        - img
+        - text: המשך עם Google
+      - generic [ref=e98]: או
+      - generic [ref=e99]:
+        - generic [ref=e100]:
+          - img [ref=e101]
+          - textbox "כתובת אימייל" [ref=e104]
+        - generic [ref=e105]:
+          - img [ref=e106]
+          - textbox "סיסמה" [ref=e109]
+          - button [ref=e110] [cursor=pointer]:
+            - img [ref=e111]
+        - button "הרשמה" [ref=e114] [cursor=pointer]
+      - paragraph [ref=e115]:
+        - text: כבר יש לך חשבון?
+        - button "התחבר" [active] [ref=e116] [cursor=pointer]
+```

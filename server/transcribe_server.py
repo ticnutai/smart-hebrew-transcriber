@@ -73,18 +73,25 @@ MODEL_REGISTRY = {
 DEFAULT_MODEL = "ivrit-ai/whisper-large-v3-turbo-ct2"
 
 
+_cached_device = None
+
 def get_device():
-    """Detect best available device using CTranslate2."""
+    """Detect best available device using CTranslate2 (cached)."""
+    global _cached_device
+    if _cached_device is not None:
+        return _cached_device
     try:
         import ctranslate2
         cuda_types = ctranslate2.get_supported_compute_types("cuda")
         if cuda_types and len(cuda_types) > 0:
             gpu_name = get_gpu_name() or "GPU (CUDA)"
             print(f"  GPU: {gpu_name} (CUDA via CTranslate2)")
+            _cached_device = "cuda"
             return "cuda"
     except Exception as e:
         print(f"  CUDA detection failed: {e}")
     print("  GPU: Not available, using CPU")
+    _cached_device = "cpu"
     return "cpu"
 
 
@@ -528,7 +535,6 @@ def transcribe_stream():
     return Response(generate(), mimetype="text/event-stream", headers={
         "Cache-Control": "no-cache",
         "X-Accel-Buffering": "no",
-        "Transfer-Encoding": "chunked",
     })
 
 
@@ -719,7 +725,7 @@ def main():
         print()
         serve(app, host="0.0.0.0", port=args.port, threads=4,
               channel_timeout=300, recv_bytes=65536,
-              send_bytes=65536, url_scheme='http')
+              send_bytes=4096, url_scheme='http')
     except ImportError:
         print("  Server: Flask dev server (install waitress for production)")
         print("  Tip: pip install waitress")
