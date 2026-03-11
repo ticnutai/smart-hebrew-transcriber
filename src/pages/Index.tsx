@@ -33,7 +33,10 @@ type SourceLanguage = 'auto' | 'he' | 'yi' | 'en';
 const Index = () => {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
-  const [engine, setEngine] = useState<Engine>('groq');
+  const [engine, setEngine] = useState<Engine>(() => {
+    const saved = localStorage.getItem('transcript_engine') as Engine | null;
+    return saved || 'groq';
+  });
   const [sourceLanguage, setSourceLanguage] = useState<SourceLanguage>('auto');
   const [transcript, setTranscript] = useState('');
   const [isUploading, setIsUploading] = useState(false);
@@ -90,6 +93,17 @@ const Index = () => {
     localStorage.setItem('transcript_lineHeight', String(lineHeight));
     localStorage.setItem('transcript_sourceLanguage', sourceLanguage);
   }, [fontSize, fontFamily, textColor, lineHeight, sourceLanguage]);
+
+  // Save engine choice & auto-switch to local GPU when available
+  useEffect(() => {
+    localStorage.setItem('transcript_engine', engine);
+  }, [engine]);
+
+  useEffect(() => {
+    if (serverConnected && engine === 'groq') {
+      setEngine('local-server');
+    }
+  }, [serverConnected]);
 
   // Save to cloud history
   const saveToHistory = async (text: string, engineUsed: string) => {
