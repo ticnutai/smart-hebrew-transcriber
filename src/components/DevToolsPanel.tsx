@@ -588,6 +588,7 @@ const DevToolsPanel = () => {
               </div>
             </div>
 
+            {edgeFnResult && (
               <Card className={`border-2 ${edgeFnResult.status >= 200 && edgeFnResult.status < 300 ? "border-green-500/30 bg-green-500/5" : "border-destructive/30 bg-destructive/5"}`}>
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
