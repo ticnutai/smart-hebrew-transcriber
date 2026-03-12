@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable/index";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -23,6 +22,17 @@ const Login = () => {
       navigate("/");
     }
   }, [isAuthenticated, navigate]);
+
+  // Detect OAuth error from hash params (e.g. Supabase redirects back with error)
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (hash.includes("error=")) {
+      const params = new URLSearchParams(hash.replace("#", ""));
+      const errorDesc = params.get("error_description") || params.get("error") || "שגיאה בהתחברות";
+      toast.error(decodeURIComponent(errorDesc));
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+  }, []);
 
   if (isAuthenticated) return null;
 
@@ -57,8 +67,11 @@ const Login = () => {
   const handleGoogleLogin = async () => {
     setIsLoading(true);
     try {
-      const { error } = await lovable.auth.signInWithOAuth("google", {
-        redirect_uri: window.location.origin,
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: window.location.origin,
+        },
       });
       if (error) throw error;
     } catch (error: any) {

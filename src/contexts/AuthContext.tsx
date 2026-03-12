@@ -35,9 +35,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const authStart = Date.now();
     debugLog.info('Auth', '🔐 מאתחל auth listener...');
 
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
     // Single source of truth: onAuthStateChange handles all auth state
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
+        // Clear fallback timeout as soon as we get any auth response
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
         const elapsed = Date.now() - authStart;
         debugLog.info('Auth', `🔐 Auth event: ${event} (${elapsed}ms)`, {
           hasSession: !!session,
@@ -58,14 +65,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     supabase.auth.getSession();
 
     // Fallback: if auth never responds, stop loading after 5 seconds
-    const timeout = setTimeout(() => {
+    timeoutId = setTimeout(() => {
       debugLog.warn('Auth', '⚠ Auth timeout — 5s ללא תגובה, ממשיך בלי auth');
       setIsLoading(false);
     }, 5000);
 
     return () => {
       subscription.unsubscribe();
-      clearTimeout(timeout);
+      if (timeoutId) clearTimeout(timeoutId);
     };
   }, []);
 
