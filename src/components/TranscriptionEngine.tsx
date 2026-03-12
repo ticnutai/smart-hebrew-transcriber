@@ -27,8 +27,15 @@ const getLocalModelLabel = (): string => {
   return 'whisper-tiny';
 };
 
-const START_CMD = '.\\scripts\\start-whisper-server.ps1';
-const isRemoteAccess = !['localhost', '127.0.0.1'].includes(window.location.hostname);
+const START_CMD_LOCAL = '.\\scripts\\start-whisper-server.ps1';
+const START_CMD_LOVABLE = '.\\scripts\\start-lovable.ps1';
+
+// True remote = not localhost AND server URL is explicitly set to a non-localhost address
+const isNonLocalHost = !['localhost', '127.0.0.1'].includes(window.location.hostname);
+const hasCustomServerUrl = () => {
+  const url = localStorage.getItem('whisper_server_url') || '';
+  return url !== '' && !url.includes('localhost') && !url.includes('127.0.0.1');
+};
 
 export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSourceLanguageChange }: TranscriptionEngineProps) => {
   const { isConnected, serverStatus, checkConnection, startPolling, stopPolling, shutdownServer, warmupServer, preloadModelStream, cancelPreload, modelReady, modelLoading, getBaseUrl } = useLocalServer();
@@ -47,6 +54,10 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
   const [paragraphThreshold, setParagraphThreshold] = useState(() => parseFloat(localStorage.getItem('cuda_paragraph_threshold') || '0'));
   const [serverUrl, setServerUrl] = useState(() => localStorage.getItem('whisper_server_url') || '');
   const [ollamaUrl, setOllamaUrl] = useState(() => localStorage.getItem('ollama_base_url') || '');
+
+  // "True remote" = non-localhost site + custom remote URL configured
+  // If on Lovable but targeting localhost:8765, that's local-via-web, NOT remote
+  const isRemoteAccess = isNonLocalHost && hasCustomServerUrl();
 
   // When user selects CUDA server, start polling; otherwise stop
   useEffect(() => {
@@ -96,11 +107,6 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
       setIsStarting(false);
     }
   }, []);
-
-  const handleCopyCommand = () => {
-    navigator.clipboard.writeText(START_CMD);
-    toast({ title: "הועתק", description: "הפקודה הועתקה ללוח" });
-  };
 
   return (
     <Card className="p-6" dir="rtl">
@@ -263,7 +269,7 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
                 <>
                   <span className="h-2.5 w-2.5 rounded-full bg-red-400" />
                   <span className="text-xs text-red-500 font-medium">
-                    {isStarting ? 'מחכה לשרת...' : isRemoteAccess ? 'נדרשת כתובת מרחוק' : 'לא מחובר'}
+                    {isStarting ? 'מחכה לשרת...' : isRemoteAccess ? 'נדרשת כתובת מרחוק' : 'לא מחובר — הפעל שרת CUDA'}
                   </span>
                 </>
               )}
@@ -281,6 +287,32 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
                 >
                   <Link2 className="w-3.5 h-3.5" />
                   הגדר כתובת שרת
+                </Button>
+              ) : isNonLocalHost ? (
+                /* On Lovable site — can't start server remotely, show polling status */
+                <Button
+                  size="sm"
+                  variant="default"
+                  className="gap-1.5 text-xs h-7"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setIsStarting(true);
+                    checkConnection().then((ok) => {
+                      if (ok) {
+                        toast({ title: '🟢 מחובר!', description: 'שרת CUDA זוהה' });
+                      } else {
+                        toast({ title: '🔴 שרת לא נמצא', description: 'הפעל start-lovable.ps1 במחשב ונסה שוב', variant: 'destructive' });
+                      }
+                      setIsStarting(false);
+                    });
+                  }}
+                >
+                  {isStarting ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Server className="w-3.5 h-3.5" />
+                  )}
+                  {isStarting ? 'בודק חיבור...' : 'חבר לשרת'}
                 </Button>
               ) : (
                 <Button
@@ -316,17 +348,31 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
               </Button>
             )}
           </div>
-          {!isConnected && !isRemoteAccess && (
+          {!isConnected && !isRemoteAccess && !isNonLocalHost && (
             <div className="text-[11px] text-muted-foreground space-y-1 border-t pt-2">
               <p>הפעל בטרמינל:</p>
               <div className="flex items-center gap-1">
                 <code className="flex-1 bg-background px-2 py-1 rounded text-[11px] font-mono border select-all">
-                  {START_CMD}
+                  {START_CMD_LOCAL}
                 </code>
-                <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={(e) => { e.preventDefault(); handleCopyCommand(); }}>
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={(e) => { e.preventDefault(); navigator.clipboard.writeText(START_CMD_LOCAL); toast({ title: 'הועתק', description: 'הפקודה הועתקה ללוח' }); }}>
                   <Copy className="w-3 h-3" />
                 </Button>
               </div>
+            </div>
+          )}
+          {!isConnected && !isRemoteAccess && isNonLocalHost && (
+            <div className="text-[11px] text-muted-foreground space-y-1.5 border-t pt-2">
+              <p className="font-medium">🖥️ הפעל את הסקריפט במחשב שלך:</p>
+              <div className="flex items-center gap-1">
+                <code className="flex-1 bg-background px-2 py-1 rounded text-[11px] font-mono border select-all">
+                  {START_CMD_LOVABLE}
+                </code>
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={(e) => { e.preventDefault(); navigator.clipboard.writeText(START_CMD_LOVABLE); toast({ title: 'הועתק', description: 'הפקודה הועתקה ללוח' }); }}>
+                  <Copy className="w-3 h-3" />
+                </Button>
+              </div>
+              <p className="text-muted-foreground">הסקריפט מפעיל את שרת ה-CUDA ופותח את האתר. הדפדפן מתחבר ישירות ל-localhost:8765</p>
             </div>
           )}
           {!isConnected && isRemoteAccess && (
