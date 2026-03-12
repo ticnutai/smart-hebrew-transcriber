@@ -47,7 +47,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     // Trigger initial session check (will flow through onAuthStateChange)
     supabase.auth.getSession();
 
-    return () => subscription.unsubscribe();
+    // Fallback: if auth never responds, stop loading after 5 seconds
+    const timeout = setTimeout(() => setIsLoading(false), 5000);
+
+    return () => {
+      subscription.unsubscribe();
+      clearTimeout(timeout);
+    };
   }, []);
 
   const logout = useCallback(async () => {
