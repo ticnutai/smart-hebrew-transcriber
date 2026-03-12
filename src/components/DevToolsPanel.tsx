@@ -285,6 +285,13 @@ const DevToolsPanel = () => {
         'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
       };
 
+      // Add custom headers
+      for (const h of edgeFnHeaders) {
+        if (h.key.trim()) {
+          headers[h.key.trim()] = h.value;
+        }
+      }
+
       const fetchOptions: RequestInit = { method: edgeFnMethod, headers };
 
       if (edgeFnMethod === 'POST') {
