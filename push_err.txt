@@ -1,1 +1,2 @@
-Everything up-to-date
+To https://github.com/ticnutai/smart-hebrew-transcriber.git
+   b2d1658..e5f4949  main -> main
