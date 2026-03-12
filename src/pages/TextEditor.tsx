@@ -23,6 +23,7 @@ import { ArrowRight, Home, Wand2, SplitSquareVertical, SpellCheck, Loader2, Colu
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { useCloudPreferences } from "@/hooks/useCloudPreferences";
+import { useCloudTranscripts } from "@/hooks/useCloudTranscripts";
 
 const TextEditor = () => {
   const navigate = useNavigate();
@@ -37,6 +38,7 @@ const TextEditor = () => {
   
   // Cloud-synced style settings
   const { preferences, updatePreference } = useCloudPreferences();
+  const { getAudioUrl, getTranscriptById } = useCloudTranscripts();
   const fontSize = preferences.font_size;
   const fontFamily = preferences.font_family;
   const textColor = preferences.text_color;
@@ -140,6 +142,17 @@ const TextEditor = () => {
       } else {
         setAudioUrl(url);
       }
+    } else if (location.state?.cloudTranscriptId) {
+      // Recover audio from Supabase Storage via cloud transcript
+      (async () => {
+        try {
+          const transcript = await getTranscriptById(location.state.cloudTranscriptId);
+          if (transcript?.audio_file_path) {
+            const signedUrl = await getAudioUrl(transcript.audio_file_path);
+            if (signedUrl) setAudioUrl(signedUrl);
+          }
+        } catch { /* cloud unavailable */ }
+      })();
     } else {
       // No state (sidebar nav or refresh) — recover from IndexedDB
       recoverAudioFromIDB();

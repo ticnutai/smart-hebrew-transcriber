@@ -146,6 +146,7 @@ export type Database = {
           title: string | null
           updated_at: string
           user_id: string
+          word_timings: Record<string, unknown>[] | null
         }
         Insert: {
           audio_file_path?: string | null
@@ -161,6 +162,7 @@ export type Database = {
           title?: string | null
           updated_at?: string
           user_id: string
+          word_timings?: Record<string, unknown>[] | null
         }
         Update: {
           audio_file_path?: string | null
@@ -176,6 +178,7 @@ export type Database = {
           title?: string | null
           updated_at?: string
           user_id?: string
+          word_timings?: Record<string, unknown>[] | null
         }
         Relationships: []
       }

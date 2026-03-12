@@ -16,6 +16,7 @@ export interface CloudTranscript {
   category: string;
   is_favorite: boolean;
   audio_file_path: string | null;
+  word_timings: Array<{ word: string; start: number; end: number; probability?: number }> | null;
   created_at: string;
   updated_at: string;
 }
@@ -119,7 +120,8 @@ export const useCloudTranscripts = () => {
     text: string,
     engine: string,
     title?: string,
-    audioFile?: File
+    audioFile?: File,
+    wordTimings?: Array<{ word: string; start: number; end: number; probability?: number }>
   ): Promise<CloudTranscript | null> => {
     if (!user) {
       const history = JSON.parse(localStorage.getItem('transcript_history') || '[]');
@@ -148,6 +150,7 @@ export const useCloudTranscripts = () => {
           notes: '',
           folder: '',
           audio_file_path: audioFilePath,
+          word_timings: wordTimings && wordTimings.length > 0 ? wordTimings as any : null,
         })
         .select()
         .single();
@@ -243,6 +246,20 @@ export const useCloudTranscripts = () => {
     totalChars: transcripts.reduce((sum, t) => sum + t.text.length, 0),
   }), [transcripts]);
 
+  const getTranscriptById = useCallback(async (id: string): Promise<CloudTranscript | null> => {
+    try {
+      const { data, error } = await supabase
+        .from('transcripts')
+        .select('*')
+        .eq('id', id)
+        .single();
+      if (error) throw error;
+      return data as CloudTranscript;
+    } catch {
+      return null;
+    }
+  }, []);
+
   return {
     transcripts,
     isLoading,
@@ -252,6 +269,7 @@ export const useCloudTranscripts = () => {
     deleteAll,
     fetchTranscripts,
     getAudioUrl,
+    getTranscriptById,
     stats,
     isCloud: isAuthenticated,
   };

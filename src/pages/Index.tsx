@@ -150,7 +150,7 @@ const Index = () => {
   const currentFileRef = useRef<File | null>(null);
 
   // Save to cloud history (respects cloud save mode for CUDA engine)
-  const saveToHistory = async (text: string, engineUsed: string, skipCloud?: boolean) => {
+  const saveToHistory = async (text: string, engineUsed: string, skipCloud?: boolean, timings?: Array<{word: string, start: number, end: number, probability?: number}>) => {
     if (skipCloud) {
       // Save only to localStorage, skip cloud upload entirely
       let history: any[] = [];
@@ -160,12 +160,12 @@ const Index = () => {
       localStorage.setItem('transcript_history', JSON.stringify(updated));
       return;
     }
-    await saveTranscript(text, engineUsed, undefined, currentFileRef.current || undefined);
+    await saveTranscript(text, engineUsed, undefined, currentFileRef.current || undefined, timings);
   };
 
   // Save text-only to cloud (deferred mode — upload text without audio file)
-  const saveTextOnlyToCloud = async (text: string, engineUsed: string) => {
-    await saveTranscript(text, engineUsed, undefined, undefined);
+  const saveTextOnlyToCloud = async (text: string, engineUsed: string, timings?: Array<{word: string, start: number, end: number, probability?: number}>) => {
+    await saveTranscript(text, engineUsed, undefined, undefined, timings);
   };
 
   // Helper: invoke edge function with real upload progress via XHR and multipart form
@@ -416,7 +416,7 @@ const Index = () => {
         const timings = data.wordTimings || [];
         setTranscript(data.text);
         setWordTimings(timings);
-        saveToHistory(data.text, 'OpenAI Whisper');
+        saveToHistory(data.text, 'OpenAI Whisper', undefined, timings);
         addAnalyticsRecord({
           engine: 'OpenAI Whisper', status: 'success',
           fileName: file.name, fileSize: file.size,
@@ -510,7 +510,7 @@ const Index = () => {
         const timings = data.wordTimings || [];
         setTranscript(data.text);
         setWordTimings(timings);
-        saveToHistory(data.text, 'Groq Whisper');
+        saveToHistory(data.text, 'Groq Whisper', undefined, timings);
         addAnalyticsRecord({
           engine: 'Groq Whisper', status: 'success',
           fileName: file.name, fileSize: file.size,
@@ -617,7 +617,7 @@ const Index = () => {
         const timings = data.wordTimings || [];
         setTranscript(data.text);
         setWordTimings(timings);
-        saveToHistory(data.text, 'Google Speech-to-Text');
+        saveToHistory(data.text, 'Google Speech-to-Text', undefined, timings);
         addAnalyticsRecord({
           engine: 'Google Speech-to-Text', status: 'success',
           fileName: file.name, fileSize: file.size,
@@ -666,7 +666,7 @@ const Index = () => {
       const result = await localTranscribe(file);
       setTranscript(result.text);
       setWordTimings(result.wordTimings);
-      saveToHistory(result.text, 'Local (Browser)');
+      saveToHistory(result.text, 'Local (Browser)', undefined, result.wordTimings);
       addAnalyticsRecord({
         engine: 'Local (Browser)', status: 'success',
         fileName: file.name, fileSize: file.size,
@@ -761,11 +761,11 @@ const Index = () => {
       const cloudSaveMode = localStorage.getItem('cuda_cloud_save') || 'immediate';
       const engineLabel = `Local CUDA (${result.model || 'server'})`;
       if (cloudSaveMode === 'skip') {
-        saveToHistory(result.text, engineLabel, true);  // localStorage only
+        saveToHistory(result.text, engineLabel, true, timings);  // localStorage only
       } else if (cloudSaveMode === 'text-only') {
-        saveTextOnlyToCloud(result.text, engineLabel);  // text to cloud, no audio upload
+        saveTextOnlyToCloud(result.text, engineLabel, timings);  // text to cloud, no audio upload
       } else {
-        saveToHistory(result.text, engineLabel);  // full: text + audio to cloud
+        saveToHistory(result.text, engineLabel, undefined, timings);  // full: text + audio to cloud
       }
 
       clearPartial();
@@ -856,7 +856,7 @@ const Index = () => {
         const timings = data.wordTimings || [];
         setTranscript(data.text);
         setWordTimings(timings);
-        saveToHistory(data.text, 'AssemblyAI');
+        saveToHistory(data.text, 'AssemblyAI', undefined, timings);
         addAnalyticsRecord({
           engine: 'AssemblyAI', status: 'success',
           fileName: file.name, fileSize: file.size,
@@ -932,7 +932,7 @@ const Index = () => {
         const timings = data.wordTimings || [];
         setTranscript(data.text);
         setWordTimings(timings);
-        saveToHistory(data.text, 'Deepgram');
+        saveToHistory(data.text, 'Deepgram', undefined, timings);
         addAnalyticsRecord({
           engine: 'Deepgram', status: 'success',
           fileName: file.name, fileSize: file.size,
@@ -1130,7 +1130,7 @@ const Index = () => {
   };
 
   const batchSaveTranscript = async (text: string, engineUsed: string, title: string) => {
-    await saveTranscript(text, engineUsed, title);
+    await saveTranscript(text, engineUsed, title, undefined, undefined);
   };
 
   return (
