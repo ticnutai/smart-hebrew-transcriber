@@ -108,6 +108,36 @@ const EDGE_FUNCTIONS = [
   "transcribe-openai",
 ];
 
+type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+
+const BODY_TEMPLATES: Record<string, { method: HttpMethod; body: string; description: string }> = {
+  "deploy-edge-function": {
+    method: "POST",
+    body: JSON.stringify({ slug: "function-name", sourceCode: "// your code here" }, null, 2),
+    description: "דיפלוי פונקציה חדשה או עדכון קיימת",
+  },
+  "edit-transcript": {
+    method: "POST",
+    body: JSON.stringify({ text: "הטקסט לעריכה", instruction: "תקן שגיאות כתיב" }, null, 2),
+    description: "עריכת טקסט באמצעות AI",
+  },
+  "summarize-transcript": {
+    method: "POST",
+    body: JSON.stringify({ text: "הטקסט לסיכום" }, null, 2),
+    description: "סיכום טקסט באמצעות AI",
+  },
+  "run-migration": {
+    method: "POST",
+    body: JSON.stringify({ sql: "SELECT 1;" }, null, 2),
+    description: "הרצת מיגרציית SQL",
+  },
+  "process-transcription": {
+    method: "POST",
+    body: JSON.stringify({ jobId: "", engine: "groq" }, null, 2),
+    description: "עיבוד תמלול מקובץ אודיו",
+  },
+};
+
 const DevToolsPanel = () => {
   const [sqlContent, setSqlContent] = useState("");
   const [isRunning, setIsRunning] = useState(false);
