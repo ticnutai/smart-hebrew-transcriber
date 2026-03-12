@@ -17,7 +17,7 @@ import { useTheme } from "./hooks/useTheme";
 import { debugLog } from "./lib/debugLogger";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 
-// Lazy load with logging
+// Lazy load with logging + auto-reload on stale chunk
 function lazyWithLog(name: string, factory: () => Promise<{ default: React.ComponentType<unknown> }>) {
   return lazy(() => {
     const stop = debugLog.time('LazyLoad', name);
@@ -26,6 +26,13 @@ function lazyWithLog(name: string, factory: () => Promise<{ default: React.Compo
       return mod;
     }).catch(err => {
       debugLog.error('LazyLoad', `❌ Failed: ${name}`, err?.message);
+      // If chunk fetch failed (stale deploy), reload once
+      const key = `chunk_reload_${name}`;
+      if (!sessionStorage.getItem(key)) {
+        sessionStorage.setItem(key, '1');
+        debugLog.info('LazyLoad', `🔄 Reloading page for stale chunk: ${name}`);
+        window.location.reload();
+      }
       throw err;
     });
   });
