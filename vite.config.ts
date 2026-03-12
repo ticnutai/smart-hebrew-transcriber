@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { componentTagger } from "lovable-tagger";
 import { spawn, type ChildProcess } from "child_process";
+import compression from "vite-plugin-compression";
 
 /**
  * Vite plugin: exposes /__api/start-server and /__api/stop-server
@@ -93,7 +94,13 @@ export default defineConfig(({ mode }) => ({
     // Allow Cloudflare Tunnel and other external origins
     allowedHosts: ['localhost', '.trycloudflare.com'],
   },
-  plugins: [react(), mode === "development" && componentTagger(), whisperServerLauncher()].filter(Boolean),
+  plugins: [
+    react(),
+    mode === "development" && componentTagger(),
+    whisperServerLauncher(),
+    compression({ algorithm: 'gzip', threshold: 1024 }),
+    compression({ algorithm: 'brotliCompress', ext: '.br', threshold: 1024 }),
+  ].filter(Boolean),
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
@@ -115,6 +122,11 @@ export default defineConfig(({ mode }) => ({
           'vendor-supabase': ['@supabase/supabase-js'],
           // Heavy utilities
           'vendor-utils': ['jszip', 'file-saver', 'lucide-react'],
+          // Heavy libraries — split for better caching
+          'vendor-charts': ['recharts'],
+          'vendor-pdf': ['jspdf'],
+          'vendor-docx': ['docx'],
+          'vendor-ai': ['@huggingface/transformers'],
         },
       },
     },

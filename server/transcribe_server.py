@@ -53,9 +53,10 @@ try:
     import faster_whisper
     from flask import Flask, request, jsonify, Response
     from flask_cors import CORS
+    from flask_compress import Compress
 except ImportError as e:
     print(f"Missing dependency: {e}")
-    print("Run: pip install faster-whisper flask flask-cors")
+    print("Run: pip install faster-whisper flask flask-cors flask-compress")
     sys.exit(1)
 
 # torch is optional — only used for GPU info display
@@ -67,6 +68,7 @@ except Exception:
 
 app = Flask(__name__)
 CORS(app)
+Compress(app)  # gzip/deflate all JSON responses (60-70% size reduction)
 
 # Allowed audio/video file extensions for upload
 _ALLOWED_SUFFIXES = frozenset({

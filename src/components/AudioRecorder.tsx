@@ -90,7 +90,8 @@ export const AudioRecorder = ({ onRecordingComplete, isTranscribing, engine }: A
       const mediaRecorder = new MediaRecorder(stream, {
         mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
           ? 'audio/webm;codecs=opus'
-          : 'audio/webm'
+          : 'audio/webm',
+        audioBitsPerSecond: 32000,
       });
       mediaRecorderRef.current = mediaRecorder;
       chunksRef.current = [];

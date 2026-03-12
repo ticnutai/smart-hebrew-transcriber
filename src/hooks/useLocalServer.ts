@@ -64,6 +64,24 @@ const DEFAULT_SERVER_URL = 'http://localhost:8765';
 /** Key used to persist partial transcription in localStorage */
 const PARTIAL_STORAGE_KEY = 'transcription_partial';
 
+/** Debounced localStorage write — max once per 2 seconds */
+let _partialSaveTimer: ReturnType<typeof setTimeout> | null = null;
+let _lastPartialSaved = 0;
+function savePartialDebounced(partial: any) {
+  const now = Date.now();
+  if (now - _lastPartialSaved >= 2000) {
+    localStorage.setItem(PARTIAL_STORAGE_KEY, JSON.stringify(partial));
+    _lastPartialSaved = now;
+    if (_partialSaveTimer) { clearTimeout(_partialSaveTimer); _partialSaveTimer = null; }
+  } else if (!_partialSaveTimer) {
+    _partialSaveTimer = setTimeout(() => {
+      localStorage.setItem(PARTIAL_STORAGE_KEY, JSON.stringify(partial));
+      _lastPartialSaved = Date.now();
+      _partialSaveTimer = null;
+    }, 2000 - (now - _lastPartialSaved));
+  }
+}
+
 export type TranscriptionPhase = 'idle' | 'loading-model' | 'transcribing';
 
 export const useLocalServer = () => {
@@ -109,21 +127,55 @@ export const useLocalServer = () => {
   const startPolling = useCallback((intervalMs = 10000) => {
     if (pollRef.current) clearInterval(pollRef.current);
     checkConnection();
-    pollRef.current = setInterval(checkConnection, intervalMs);
+    let currentInterval = intervalMs;
+    const maxInterval = 60000;
+    let consecutiveFails = 0;
+
+    const poll = async () => {
+      const ok = await checkConnection();
+      if (ok) {
+        consecutiveFails = 0;
+        currentInterval = intervalMs;
+      } else {
+        consecutiveFails++;
+        currentInterval = Math.min(intervalMs * Math.pow(2, consecutiveFails), maxInterval);
+      }
+      pollRef.current = setTimeout(poll, currentInterval) as unknown as ReturnType<typeof setInterval>;
+    };
+
+    // Pause polling when tab is hidden, resume when visible
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        if (pollRef.current) { clearTimeout(pollRef.current as unknown as number); pollRef.current = undefined; }
+      } else {
+        checkConnection();
+        poll();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    pollRef.current = setTimeout(poll, currentInterval) as unknown as ReturnType<typeof setInterval>;
+
+    // Store cleanup for visibility listener
+    (pollRef as any)._visCleanup = () => document.removeEventListener('visibilitychange', handleVisibility);
   }, [checkConnection]);
 
   /** Stop polling — call this when the CUDA engine is deselected */
   const stopPolling = useCallback(() => {
     if (pollRef.current) {
-      clearInterval(pollRef.current);
+      clearTimeout(pollRef.current as unknown as number);
       pollRef.current = undefined;
+    }
+    if ((pollRef as any)._visCleanup) {
+      (pollRef as any)._visCleanup();
+      (pollRef as any)._visCleanup = undefined;
     }
   }, []);
 
   // Cleanup on unmount only
   useEffect(() => {
     return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
+      if (pollRef.current) clearTimeout(pollRef.current as unknown as number);
+      if ((pollRef as any)._visCleanup) (pollRef as any)._visCleanup();
     };
   }, []);
 
@@ -323,7 +375,7 @@ export const useLocalServer = () => {
             };
             setPartialTranscript(partial);
             onPartial?.(partial);
-            localStorage.setItem(PARTIAL_STORAGE_KEY, JSON.stringify(partial));
+            savePartialDebounced(partial);
           } else if (evt.type === 'done') {
             setProgress(100);
             const fullText = resumeFrom?.existingText
@@ -504,8 +556,8 @@ export const useLocalServer = () => {
             setPartialTranscript(partial);
             onPartial?.(partial);
 
-            // Persist partial to localStorage for crash recovery
-            localStorage.setItem(PARTIAL_STORAGE_KEY, JSON.stringify(partial));
+            // Persist partial to localStorage for crash recovery (debounced)
+            savePartialDebounced(partial);
           } else if (evt.type === 'done') {
 
             setProgress(100);

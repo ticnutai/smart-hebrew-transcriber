@@ -35,7 +35,7 @@ for i, (fname, label) in enumerate(zip(files, labels), 1):
         resp = requests.post(
             f"{base}/transcribe",
             files={"file": (fname, f, "audio/mpeg")},
-            data={"language": "he", "beam_size": "5", "word_timestamps": "true"},
+            data={"language": "he", "beam_size": "3", "word_timestamps": "true"},
         )
 
     wall_time = time.time() - wall_start
