@@ -310,7 +310,7 @@ const DevToolsPanel = () => {
 
       setEdgeFnResult({ status: res.status, body: formatted, time: Date.now() - start });
       if (res.ok) {
-        toast.success(`פונקציה ${edgeFnName} הורצה בהצלחה`);
+        toast.success(`פונקציה ${activeFnName} הורצה בהצלחה`);
       } else {
         toast.error(`שגיאה ${res.status} מהפונקציה`);
       }
