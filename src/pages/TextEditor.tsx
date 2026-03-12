@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RichTextEditor } from "@/components/RichTextEditor";
+import { debugLog } from "@/lib/debugLogger";
 import type { TextVersion } from "@/components/TextEditHistory";
 import type { WordTiming } from "@/components/SyncAudioPlayer";
 
@@ -44,6 +45,11 @@ const TextEditor = () => {
   const setFontFamily = (v: string) => updatePreference('font_family', v);
   const setTextColor = (v: string) => updatePreference('text_color', v);
   const setLineHeight = (v: number) => updatePreference('line_height', v);
+
+  useEffect(() => {
+    debugLog.info('TextEditor', '📝 TextEditor mounted');
+    return () => debugLog.info('TextEditor', '📝 TextEditor unmounted');
+  }, []);
 
   useEffect(() => {
     // Get text from navigation state or localStorage

@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useMemo, useCallback, ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { debugLog } from "@/lib/debugLogger";
 import type { User, Session } from "@supabase/supabase-js";
 
 interface AuthContextType {
@@ -27,12 +28,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       .eq("role", "admin")
       .maybeSingle();
     setIsAdmin(!!data);
+    debugLog.info('Auth', `👤 Admin check: ${!!data ? 'admin' : 'user'}`);
   };
 
   useEffect(() => {
+    const authStart = Date.now();
+    debugLog.info('Auth', '🔐 מאתחל auth listener...');
+
     // Single source of truth: onAuthStateChange handles all auth state
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
+      async (event, session) => {
+        const elapsed = Date.now() - authStart;
+        debugLog.info('Auth', `🔐 Auth event: ${event} (${elapsed}ms)`, {
+          hasSession: !!session,
+          email: session?.user?.email ?? null,
+        });
         setSession(session);
         setUser(session?.user ?? null);
         if (session?.user) {
@@ -48,7 +58,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     supabase.auth.getSession();
 
     // Fallback: if auth never responds, stop loading after 5 seconds
-    const timeout = setTimeout(() => setIsLoading(false), 5000);
+    const timeout = setTimeout(() => {
+      debugLog.warn('Auth', '⚠ Auth timeout — 5s ללא תגובה, ממשיך בלי auth');
+      setIsLoading(false);
+    }, 5000);
 
     return () => {
       subscription.unsubscribe();
@@ -57,10 +70,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const logout = useCallback(async () => {
+    debugLog.info('Auth', '🚪 מתנתק...');
     await supabase.auth.signOut();
     setUser(null);
     setSession(null);
     setIsAdmin(false);
+    debugLog.info('Auth', '🚪 התנתק בהצלחה');
   }, []);
 
   const value = useMemo(() => ({

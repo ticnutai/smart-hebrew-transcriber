@@ -1,6 +1,8 @@
+import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCloudTranscripts } from "@/hooks/useCloudTranscripts";
+import { debugLog } from "@/lib/debugLogger";
 import { FolderManager } from "@/components/FolderManager";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -14,6 +16,17 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const { isAuthenticated, user } = useAuth();
   const { transcripts, stats, isLoading, updateTranscript, deleteTranscript, getAudioUrl } = useCloudTranscripts();
+
+  useEffect(() => {
+    debugLog.info('Dashboard', '📊 Dashboard mounted');
+    return () => debugLog.info('Dashboard', '📊 Dashboard unmounted');
+  }, []);
+
+  useEffect(() => {
+    if (!isLoading) {
+      debugLog.info('Dashboard', `📊 נתונים נטענו: ${transcripts.length} תמלולים`, stats);
+    }
+  }, [isLoading, transcripts.length, stats]);
 
   const recentTranscripts = transcripts.slice(0, 5);
 

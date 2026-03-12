@@ -1,9 +1,9 @@
-import { lazy, Suspense, useEffect, useMemo } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import AppSidebar from "./components/AppSidebar";
 import AppLayout from "./components/AppLayout";
@@ -14,40 +14,94 @@ import { SmartConsole } from "./components/SmartConsole";
 import { TranscriptionAnalytics } from "./components/TranscriptionAnalytics";
 import { PWAInstallButton } from "./components/PWAInstallButton";
 import { useTheme } from "./hooks/useTheme";
+import { debugLog } from "./lib/debugLogger";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 
-const Dashboard = lazy(() => import("./pages/Dashboard"));
-const Index = lazy(() => import("./pages/Index"));
-const Login = lazy(() => import("./pages/Login"));
-const Settings = lazy(() => import("./pages/Settings"));
-const TextEditor = lazy(() => import("./pages/TextEditor"));
-const Folders = lazy(() => import("./pages/Folders"));
-const NotFound = lazy(() => import("./pages/NotFound"));
+// Lazy load with logging
+function lazyWithLog(name: string, factory: () => Promise<{ default: React.ComponentType<unknown> }>) {
+  return lazy(() => {
+    const stop = debugLog.time('LazyLoad', name);
+    return factory().then(mod => {
+      stop();
+      return mod;
+    }).catch(err => {
+      debugLog.error('LazyLoad', `❌ Failed: ${name}`, err?.message);
+      throw err;
+    });
+  });
+}
+
+const Dashboard = lazyWithLog('Dashboard', () => import("./pages/Dashboard"));
+const Index = lazyWithLog('Transcribe', () => import("./pages/Index"));
+const Login = lazyWithLog('Login', () => import("./pages/Login"));
+const Settings = lazyWithLog('Settings', () => import("./pages/Settings"));
+const TextEditor = lazyWithLog('TextEditor', () => import("./pages/TextEditor"));
+const Folders = lazyWithLog('Folders', () => import("./pages/Folders"));
+const NotFound = lazyWithLog('NotFound', () => import("./pages/NotFound"));
+
+/** Logs route changes */
+const RouteLogger = () => {
+  const location = useLocation();
+  const prevPath = useRef(location.pathname);
+  useEffect(() => {
+    debugLog.info('Router', `📍 ${prevPath.current} → ${location.pathname}`);
+    prevPath.current = location.pathname;
+  }, [location.pathname]);
+  return null;
+};
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { isAuthenticated, isLoading } = useAuth();
-  if (isLoading) return <PageLoader />;
+  useEffect(() => {
+    if (isLoading) {
+      debugLog.info('Auth', '🔄 ProtectedRoute: ממתין לאימות...');
+    } else if (!isAuthenticated) {
+      debugLog.info('Auth', '🚫 ProtectedRoute: לא מאומת → redirect /login');
+    } else {
+      debugLog.info('Auth', '✅ ProtectedRoute: מאומת');
+    }
+  }, [isLoading, isAuthenticated]);
+  if (isLoading) return <PageLoader label="auth" />;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
   return <>{children}</>;
 };
 
-const PageLoader = () => (
-  <div className="flex items-center justify-center min-h-[50vh]">
-    <Loader2 className="w-8 h-8 animate-spin text-primary" />
-  </div>
-);
+/** Spinner with logging */
+const PageLoader = ({ label = 'page' }: { label?: string }) => {
+  const startRef = useRef(Date.now());
+  useEffect(() => {
+    debugLog.info('Spinner', `⏳ Spinner מוצג (${label})`);
+    return () => {
+      const elapsed = Date.now() - startRef.current;
+      debugLog.perf('Spinner', `Spinner הוסתר (${label})`, elapsed);
+    };
+  }, [label]);
+  return (
+    <div className="flex items-center justify-center min-h-[50vh]">
+      <Loader2 className="w-8 h-8 animate-spin text-primary" />
+    </div>
+  );
+};
 
 const App = () => {
   // Initialize theme on app load
   useTheme();
   const queryClient = useMemo(() => new QueryClient(), []);
 
+  useEffect(() => {
+    debugLog.info('App', '📦 App component mounted');
+    return () => debugLog.info('App', '📦 App component unmounted');
+  }, []);
+
   return (
+  <ErrorBoundary>
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
       <TooltipProvider>
         <Toaster />
         <Sonner />
         <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <RouteLogger />
           <CloudKeySync />
           <UserFloatingBadge />
           <SmartConsole />
@@ -55,7 +109,7 @@ const App = () => {
           <PWAInstallButton />
           <AppSidebar />
           <AppLayout>
-            <Suspense fallback={<PageLoader />}>
+            <Suspense fallback={<PageLoader label="suspense" />}>
               <Routes>
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/transcribe" element={<ProtectedRoute><Index /></ProtectedRoute>} />
@@ -71,6 +125,7 @@ const App = () => {
       </TooltipProvider>
     </AuthProvider>
   </QueryClientProvider>
+  </ErrorBoundary>
   );
 };
 
