@@ -31,6 +31,7 @@ import { cn } from "@/lib/utils";
 interface RichTextEditorProps {
   text: string;
   onChange: (text: string) => void;
+  columnStyle?: React.CSSProperties;
 }
 
 const prepareHtml = (text: string): string => {
@@ -51,7 +52,7 @@ const stripHtml = (html: string): string => {
 
 type ViewMode = 'edit' | 'preview' | 'split';
 
-export const RichTextEditor = ({ text, onChange }: RichTextEditorProps) => {
+export const RichTextEditor = ({ text, onChange, columnStyle }: RichTextEditorProps) => {
   const editorRef = useRef<HTMLDivElement>(null);
   const [showFormatBar, setShowFormatBar] = useState(false);
   const [textColor, setTextColor] = useState("#000000");
@@ -477,6 +478,7 @@ export const RichTextEditor = ({ text, onChange }: RichTextEditorProps) => {
                     lineHeight: '1.8',
                     whiteSpace: 'pre-wrap',
                     wordBreak: 'break-word',
+                    ...columnStyle,
                   }}
                   onInput={syncContent}
                   dangerouslySetInnerHTML={{ __html: htmlContent }}
@@ -505,6 +507,7 @@ export const RichTextEditor = ({ text, onChange }: RichTextEditorProps) => {
                   lineHeight: '1.8',
                   whiteSpace: 'pre-wrap',
                   wordBreak: 'break-word',
+                  ...columnStyle,
                 }}
                 dangerouslySetInnerHTML={{ __html: htmlContent }}
               />

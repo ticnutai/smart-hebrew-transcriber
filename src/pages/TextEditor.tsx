@@ -312,7 +312,6 @@ const TextEditor = () => {
                 fontFamily: fontFamily,
                 color: textColor,
                 lineHeight: lineHeight,
-                ...columnStyle,
               }}
             >
               <RichTextEditor 
@@ -320,7 +319,8 @@ const TextEditor = () => {
                 onChange={(newText) => {
                   setText(newText);
                   addVersion(newText, 'manual');
-                }} 
+                }}
+                columnStyle={columnStyle}
               />
             </div>
           </TabsContent>
