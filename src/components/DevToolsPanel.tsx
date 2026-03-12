@@ -96,6 +96,7 @@ ORDER BY tablename, policyname;`,
 ];
 
 const EDGE_FUNCTIONS = [
+  "deploy-edge-function",
   "edit-transcript",
   "process-transcription",
   "run-migration",
