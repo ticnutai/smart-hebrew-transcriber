@@ -114,14 +114,23 @@ MAX_UPLOAD_SIZE_MB = 500  # reject files larger than this
 WAITRESS_CHANNEL_TIMEOUT = 1800  # 30 minutes — enough for very long audio
 WAITRESS_RECV_BYTES = 131072  # 128 KB receive buffer
 
+# GPU memory cache for fast health checks
+_gpu_mem_cache: dict | None = None
+_gpu_mem_cache_time: float = 0.0
+
 def _get_gpu_mem() -> dict | None:
-    """Get GPU memory usage in MB. Returns None if unavailable."""
+    """Get GPU memory usage in MB. Cached for 2s to keep /health fast."""
+    global _gpu_mem_cache, _gpu_mem_cache_time
+    now = time.time()
+    if _gpu_mem_cache is not None and (now - _gpu_mem_cache_time) < 2.0:
+        return _gpu_mem_cache
+    result = None
     try:
         if _has_torch and torch.cuda.is_available():
             allocated = torch.cuda.memory_allocated(0) / 1024 / 1024
             reserved = torch.cuda.memory_reserved(0) / 1024 / 1024
             total = torch.cuda.get_device_properties(0).total_mem / 1024 / 1024
-            return {
+            result = {
                 "allocated_mb": round(allocated, 1),
                 "reserved_mb": round(reserved, 1),
                 "total_mb": round(total, 1),
@@ -130,26 +139,28 @@ def _get_gpu_mem() -> dict | None:
             }
     except Exception:
         pass
-    # Fallback: nvidia-smi
-    try:
-        import subprocess
-        result = subprocess.run(
-            ["nvidia-smi", "--query-gpu=memory.total,memory.used,memory.free", "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, timeout=5
-        )
-        if result.returncode == 0:
-            parts = result.stdout.strip().split(",")
-            total, used, free = float(parts[0]), float(parts[1]), float(parts[2])
-            return {
-                "allocated_mb": round(used, 1),
-                "reserved_mb": round(used, 1),
-                "total_mb": round(total, 1),
-                "free_mb": round(free, 1),
-                "utilization_pct": round(used / total * 100, 1) if total > 0 else 0,
-            }
-    except Exception:
-        pass
-    return None
+    if result is None:
+        try:
+            import subprocess
+            r = subprocess.run(
+                ["nvidia-smi", "--query-gpu=memory.total,memory.used,memory.free", "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=5
+            )
+            if r.returncode == 0:
+                parts = r.stdout.strip().split(",")
+                total, used, free = float(parts[0]), float(parts[1]), float(parts[2])
+                result = {
+                    "allocated_mb": round(used, 1),
+                    "reserved_mb": round(used, 1),
+                    "total_mb": round(total, 1),
+                    "free_mb": round(free, 1),
+                    "utilization_pct": round(used / total * 100, 1) if total > 0 else 0,
+                }
+        except Exception:
+            pass
+    _gpu_mem_cache = result
+    _gpu_mem_cache_time = now
+    return result
 
 def _get_system_mem() -> dict:
     """Get system RAM usage."""
@@ -545,6 +556,7 @@ def transcribe():
     audio_file = request.files["file"]
     model_id = request.form.get("model", _current_model_id or DEFAULT_MODEL)
     language = request.form.get("language", "he")
+    beam_size = int(request.form.get("beam_size", 3))
 
     # Resolve model ID
     resolved = MODEL_REGISTRY.get(model_id, model_id)
@@ -565,6 +577,7 @@ def transcribe():
             tmp_path,
             language=language if language != "auto" else None,
             word_timestamps=True,
+            beam_size=beam_size,
             vad_filter=True,
             vad_parameters=dict(
                 min_silence_duration_ms=500,
@@ -602,8 +615,12 @@ def transcribe():
         })
 
     except Exception as e:
-        print(f"  Transcription error: {e}")
-        return jsonify({"error": str(e)}), 500
+        err_msg = str(e)
+        print(f"  Transcription error: {err_msg}")
+        # Don't leak temp file paths to client
+        if "Invalid data found" in err_msg or "Errno" in err_msg:
+            return jsonify({"error": "Invalid or corrupt audio file"}), 400
+        return jsonify({"error": "Transcription failed"}), 500
 
     finally:
         try:
