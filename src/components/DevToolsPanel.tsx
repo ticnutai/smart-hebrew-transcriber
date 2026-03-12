@@ -125,6 +125,7 @@ const DevToolsPanel = () => {
   const [edgeFnName, setEdgeFnName] = useState(EDGE_FUNCTIONS[0]);
   const [edgeFnMethod, setEdgeFnMethod] = useState<"GET" | "POST">("POST");
   const [edgeFnBody, setEdgeFnBody] = useState("{}");
+  const [edgeFnHeaders, setEdgeFnHeaders] = useState<Array<{ key: string; value: string }>>([]);
   const [edgeFnRunning, setEdgeFnRunning] = useState(false);
   const [edgeFnResult, setEdgeFnResult] = useState<{
     status: number;
@@ -283,6 +284,13 @@ const DevToolsPanel = () => {
         'Authorization': `Bearer ${session.access_token}`,
         'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
       };
+
+      // Add custom headers
+      for (const h of edgeFnHeaders) {
+        if (h.key.trim()) {
+          headers[h.key.trim()] = h.value;
+        }
+      }
 
       const fetchOptions: RequestInit = { method: edgeFnMethod, headers };
 
@@ -525,6 +533,60 @@ const DevToolsPanel = () => {
                 />
               </div>
             )}
+
+            {/* Custom Headers */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-sm font-medium">Headers מותאמים</label>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs gap-1"
+                  onClick={() => setEdgeFnHeaders([...edgeFnHeaders, { key: "", value: "" }])}
+                >
+                  <span>+</span> הוסף Header
+                </Button>
+              </div>
+              {edgeFnHeaders.length === 0 && (
+                <p className="text-xs text-muted-foreground">Authorization ו-apikey נשלחים אוטומטית</p>
+              )}
+              <div className="space-y-2">
+                {edgeFnHeaders.map((h, i) => (
+                  <div key={i} className="flex gap-2 items-center">
+                    <Input
+                      value={h.key}
+                      onChange={(e) => {
+                        const updated = [...edgeFnHeaders];
+                        updated[i] = { ...updated[i], key: e.target.value };
+                        setEdgeFnHeaders(updated);
+                      }}
+                      placeholder="Header name"
+                      className="flex-1 font-mono text-xs h-8"
+                      dir="ltr"
+                    />
+                    <Input
+                      value={h.value}
+                      onChange={(e) => {
+                        const updated = [...edgeFnHeaders];
+                        updated[i] = { ...updated[i], value: e.target.value };
+                        setEdgeFnHeaders(updated);
+                      }}
+                      placeholder="Value"
+                      className="flex-1 font-mono text-xs h-8"
+                      dir="ltr"
+                    />
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                      onClick={() => setEdgeFnHeaders(edgeFnHeaders.filter((_, idx) => idx !== i))}
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
 
             {edgeFnResult && (
               <Card className={`border-2 ${edgeFnResult.status >= 200 && edgeFnResult.status < 300 ? "border-green-500/30 bg-green-500/5" : "border-destructive/30 bg-destructive/5"}`}>
