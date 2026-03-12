@@ -1,36 +1,45 @@
 # ============================================
-#  Install Launcher Service as Windows Startup
+#  Install Launcher Tray as Windows Startup
 # ============================================
-#  Adds the launcher micro-service to Windows
-#  startup so it runs automatically on boot.
+#  Installs pystray + Pillow, then optionally
+#  registers the tray launcher as a Windows
+#  startup task.
 #
 #  Usage:
-#    .\scripts\install-launcher.ps1
-#    .\scripts\install-launcher.ps1 -Remove   # to remove from startup
+#    .\scripts\install-launcher.ps1              # install deps only
+#    .\scripts\install-launcher.ps1 -AutoStart   # + register startup
+#    .\scripts\install-launcher.ps1 -Remove      # remove startup task
+#    .\scripts\install-launcher.ps1 -Run         # run tray now
 # ============================================
 
 param(
-    [switch]$Remove
+    [switch]$AutoStart,
+    [switch]$Remove,
+    [switch]$Run
 )
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $taskName = "SmartTranscriberLauncher"
 
-# Find python
-$venvPython = Join-Path $projectRoot ".venv\Scripts\pythonw.exe"
-if (-not (Test-Path $venvPython)) {
-    $venvPython = Join-Path $projectRoot "venv-whisper\Scripts\pythonw.exe"
-}
-if (-not (Test-Path $venvPython)) {
-    # Fallback to python.exe (visible window)
-    $venvPython = Join-Path $projectRoot ".venv\Scripts\python.exe"
-    if (-not (Test-Path $venvPython)) {
-        $venvPython = Join-Path $projectRoot "venv-whisper\Scripts\python.exe"
-    }
+# Find pip
+$venvPip = Join-Path $projectRoot ".venv\Scripts\pip.exe"
+if (-not (Test-Path $venvPip)) {
+    $venvPip = Join-Path $projectRoot "venv-whisper\Scripts\pip.exe"
 }
 
-$launcherScript = Join-Path $projectRoot "server\launcher_service.py"
+# Find pythonw (silent) or python (with window)
+$venvPythonW = Join-Path $projectRoot ".venv\Scripts\pythonw.exe"
+if (-not (Test-Path $venvPythonW)) {
+    $venvPythonW = Join-Path $projectRoot "venv-whisper\Scripts\pythonw.exe"
+}
+$venvPython = Join-Path $projectRoot ".venv\Scripts\python.exe"
+if (-not (Test-Path $venvPython)) {
+    $venvPython = Join-Path $projectRoot "venv-whisper\Scripts\python.exe"
+}
 
+$launcherScript = Join-Path $projectRoot "server\launcher_tray.py"
+
+# --- Remove ---
 if ($Remove) {
     Write-Host "Removing launcher from startup..." -ForegroundColor Yellow
     Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
@@ -45,39 +54,73 @@ if (-not (Test-Path $venvPython)) {
 
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  Installing Launcher Service" -ForegroundColor Cyan
+Write-Host "  Install Launcher Tray Service" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "  Python : $venvPython" -ForegroundColor Gray
-Write-Host "  Script : $launcherScript" -ForegroundColor Gray
+
+# --- Install dependencies ---
+Write-Host "[1/2] Installing pystray + Pillow..." -ForegroundColor Yellow
+if (Test-Path $venvPip) {
+    & $venvPip install pystray Pillow --quiet 2>$null
+    Write-Host "      [V] Dependencies installed" -ForegroundColor Green
+} else {
+    Write-Host "      [!] pip not found, trying python -m pip..." -ForegroundColor Yellow
+    & $venvPython -m pip install pystray Pillow --quiet 2>$null
+}
+
+# --- AutoStart ---
+if ($AutoStart) {
+    Write-Host "[2/2] Registering as startup task..." -ForegroundColor Yellow
+
+    $exePath = if (Test-Path $venvPythonW) { $venvPythonW } else { $venvPython }
+    Write-Host "      Python: $exePath" -ForegroundColor Gray
+    Write-Host "      Script: $launcherScript" -ForegroundColor Gray
+
+    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+
+    $action = New-ScheduledTaskAction `
+        -Execute $exePath `
+        -Argument "`"$launcherScript`"" `
+        -WorkingDirectory $projectRoot
+
+    $trigger = New-ScheduledTaskTrigger -AtLogOn
+    $settings = New-ScheduledTaskSettingsSet `
+        -AllowStartIfOnBatteries `
+        -DontStopIfGoingOnBatteries `
+        -StartWhenAvailable `
+        -ExecutionTimeLimit ([TimeSpan]::Zero)
+
+    Register-ScheduledTask `
+        -TaskName $taskName `
+        -Action $action `
+        -Trigger $trigger `
+        -Settings $settings `
+        -Description "Smart Hebrew Transcriber - Tray launcher (port 8764)" `
+        -RunLevel Limited `
+        -Force | Out-Null
+
+    Write-Host "      [V] Registered as startup task!" -ForegroundColor Green
+} else {
+    Write-Host "[2/2] Skipping startup registration (use -AutoStart to enable)" -ForegroundColor Gray
+}
+
+Write-Host ""
+Write-Host "========================================" -ForegroundColor Green
+Write-Host "  Installation complete!" -ForegroundColor Green
+Write-Host "========================================" -ForegroundColor Green
+Write-Host ""
+Write-Host "  To run tray now:   .\scripts\install-launcher.ps1 -Run" -ForegroundColor Gray
+Write-Host "  To add auto-start: .\scripts\install-launcher.ps1 -AutoStart" -ForegroundColor Gray
+Write-Host "  To remove:         .\scripts\install-launcher.ps1 -Remove" -ForegroundColor Gray
 Write-Host ""
 
-# Remove existing task if present
-Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
-
-# Create scheduled task that runs at logon
-$action = New-ScheduledTaskAction `
-    -Execute $venvPython `
-    -Argument "`"$launcherScript`"" `
-    -WorkingDirectory $projectRoot
-
-$trigger = New-ScheduledTaskTrigger -AtLogOn
-$settings = New-ScheduledTaskSettingsSet `
-    -AllowStartIfOnBatteries `
-    -DontStopIfGoingOnBatteries `
-    -StartWhenAvailable `
-    -ExecutionTimeLimit ([TimeSpan]::Zero)
-
-Register-ScheduledTask `
-    -TaskName $taskName `
-    -Action $action `
-    -Trigger $trigger `
-    -Settings $settings `
-    -Description "Smart Hebrew Transcriber - Launcher service (port 8764)" `
-    -RunLevel Limited `
-    -Force | Out-Null
-
-Write-Host "[V] Launcher registered as startup task!" -ForegroundColor Green
+# --- Run now ---
+if ($Run) {
+    Write-Host "Starting tray launcher..." -ForegroundColor Cyan
+    $exePath = if (Test-Path $venvPythonW) { $venvPythonW } else { $venvPython }
+    Start-Process -FilePath $exePath -ArgumentList "`"$launcherScript`"" -WorkingDirectory $projectRoot
+    Write-Host "[V] Tray launcher started! Look for the icon in the system tray." -ForegroundColor Green
+}
 Write-Host ""
 
 # Start it now
