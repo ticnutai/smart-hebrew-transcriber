@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Start remote access to Smart Hebrew Transcriber via Cloudflare Tunnel.
     Exposes the local Vite frontend and Whisper CUDA server to the internet.
@@ -50,11 +50,13 @@ function Show-QRCode {
     $padding = " " * (($len - $shortUrl.Length) / 2)
 
     Write-Host ""
-    Write-Host "  $border" -ForegroundColor Magenta
-    Write-Host "  |$(' ' * $len)|" -ForegroundColor Magenta
-    Write-Host "  |$padding$shortUrl$padding|" -ForegroundColor White
-    Write-Host "  |$(' ' * $len)|" -ForegroundColor Magenta
-    Write-Host "  $border" -ForegroundColor Magenta
+    Write-Host ("  " + $border) -ForegroundColor Magenta
+    $emptyLine = "  |" + (" " * $len) + "|"
+    Write-Host $emptyLine -ForegroundColor Magenta
+    $urlLine = "  |" + $padding + $shortUrl + $padding + "|"
+    Write-Host $urlLine -ForegroundColor White
+    Write-Host $emptyLine -ForegroundColor Magenta
+    Write-Host ("  " + $border) -ForegroundColor Magenta
 
     # Generate actual QR code using PowerShell — encode URL to QR blocks
     try {
@@ -161,7 +163,7 @@ try {
 
 # Check Ollama
 try {
-    $null = Invoke-WebRequest -Uri "http://localhost:11434/api/tags" -TimeoutSec 3 -ErrorAction Stop
+    $null = Invoke-WebRequest -Uri "http://localhost:11434/api/tags" -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop
     $ollamaOk = $true
     Write-Host "  Ollama: RUNNING" -ForegroundColor Green
 } catch {
@@ -170,7 +172,7 @@ try {
 
 # Check Vite frontend
 try {
-    $null = Invoke-WebRequest -Uri "http://localhost:8080" -TimeoutSec 3 -ErrorAction Stop
+    $null = Invoke-WebRequest -Uri "http://localhost:8080" -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop
     $viteOk = $true
     Write-Host "  Vite frontend: RUNNING" -ForegroundColor Green
 } catch {
@@ -190,7 +192,7 @@ try {
             Start-Sleep -Seconds 2
             $retries++
             try {
-                $null = Invoke-WebRequest -Uri "http://localhost:8080" -TimeoutSec 2 -ErrorAction Stop
+                $null = Invoke-WebRequest -Uri "http://localhost:8080" -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop
                 $viteOk = $true
                 Write-Host "  Vite frontend: STARTED" -ForegroundColor Green
                 break
@@ -372,7 +374,7 @@ try {
             $wOk = $false
             $vOk = $false
             try { $null = Invoke-RestMethod -Uri "http://localhost:8765/health" -TimeoutSec 2 -ErrorAction Stop; $wOk = $true } catch {}
-            try { $null = Invoke-WebRequest -Uri "http://localhost:8080" -TimeoutSec 2 -ErrorAction Stop; $vOk = $true } catch {}
+            try { $null = Invoke-WebRequest -Uri "http://localhost:8080" -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop; $vOk = $true } catch {}
             $wStatus = if ($wOk) { "OK" } else { "DOWN" }
             $vStatus = if ($vOk) { "OK" } else { "DOWN" }
             $ts = Get-Date -Format "HH:mm:ss"
