@@ -1,12 +1,8 @@
-const CACHE_NAME = 'transcriber-v3';
+const CACHE_NAME = 'transcriber-v4';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/manifest.json',
-  '/favicon.ico',
-  '/pwa-192.svg',
-  '/pwa-512.svg',
-  '/offline.html',
 ];
 
 // Offline fallback page (inline)
@@ -48,8 +44,10 @@ const OFFLINE_HTML = `<!DOCTYPE html>
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(async (cache) => {
-      // Cache static assets
-      await cache.addAll(STATIC_ASSETS);
+      // Cache static assets individually — skip failures silently
+      await Promise.allSettled(
+        STATIC_ASSETS.map((url) => cache.add(url).catch(() => {}))
+      );
       // Store offline page
       await cache.put('/offline.html', new Response(OFFLINE_HTML, {
         headers: { 'Content-Type': 'text/html; charset=utf-8' }

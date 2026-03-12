@@ -93,14 +93,19 @@ const Index = () => {
   const transcriptionStartRef = useRef<number>(0);
 
   // Start/stop health polling when CUDA engine is selected
+  // Skip polling when on cloud (non-localhost) with default server URL
+  const isCloudWithDefaultUrl = typeof window !== 'undefined'
+    && !['localhost', '127.0.0.1'].includes(window.location.hostname)
+    && !localStorage.getItem('whisper_server_url');
+
   useEffect(() => {
-    if (engine === 'local-server') {
+    if (engine === 'local-server' && !isCloudWithDefaultUrl) {
       startPolling(serverConnected ? 10000 : 5000);
       return () => stopPolling();
     } else {
       stopPolling();
     }
-  }, [engine, serverConnected, startPolling, stopPolling]);
+  }, [engine, serverConnected, startPolling, stopPolling, isCloudWithDefaultUrl]);
 
   // Cleanup audio Object URL on unmount
   useEffect(() => {
