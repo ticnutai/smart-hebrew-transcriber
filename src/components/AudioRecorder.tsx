@@ -62,16 +62,21 @@ export const AudioRecorder = ({ onRecordingComplete, isTranscribing, engine }: A
     audioCtxRef.current = audioCtx;
     const source = audioCtx.createMediaStreamSource(stream);
     const analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 256;
+    analyser.fftSize = 64;
     source.connect(analyser);
     analyserRef.current = analyser;
 
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
+    let lastUpdate = 0;
 
     const tick = () => {
-      analyser.getByteFrequencyData(dataArray);
-      const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-      setAudioLevel(avg / 255);
+      const now = performance.now();
+      if (now - lastUpdate >= 100) { // ~10fps instead of 60fps
+        analyser.getByteFrequencyData(dataArray);
+        const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+        setAudioLevel(avg / 255);
+        lastUpdate = now;
+      }
       animFrameRef.current = requestAnimationFrame(tick);
     };
     tick();

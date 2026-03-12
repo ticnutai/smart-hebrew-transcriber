@@ -189,8 +189,7 @@ def _cleanup_gpu_memory():
     gc.collect()
     if _has_torch and torch.cuda.is_available():
         torch.cuda.empty_cache()
-        torch.cuda.synchronize()
-        _log.debug("GPU memory cleaned up (gc + empty_cache + sync)")
+        _log.debug("GPU memory cleaned up (gc + empty_cache)")
 
 def _log_memory_state(label: str):
     """Log current GPU + system memory state."""
@@ -780,7 +779,7 @@ def transcribe_stream():
                     transcribe_path,
                     language=language if language != "auto" else None,
                     word_timestamps=True,
-                    beam_size=beam_size or 5,
+                    beam_size=beam_size or 3,
                     vad_filter=True,
                     vad_parameters=vad_params,
                     condition_on_previous_text=condition_on_prev,
@@ -1080,7 +1079,7 @@ def youtube_transcribe():
             segments_gen, info = current_model.transcribe(
                 audio_file,
                 language=language,
-                beam_size=5,
+                beam_size=3,
                 word_timestamps=True,
                 vad_filter=True,
             )
