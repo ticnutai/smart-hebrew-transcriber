@@ -19,7 +19,7 @@ const EditPipeline = lazy(() => import("@/components/EditPipeline").then(m => ({
 const OllamaManager = lazy(() => import("@/components/OllamaManager").then(m => ({ default: m.OllamaManager })));
 const SyncAudioPlayer = lazy(() => import("@/components/SyncAudioPlayer").then(m => ({ default: m.SyncAudioPlayer })));
 const SyncTranscriptView = lazy(() => import("@/components/SyncTranscriptView").then(m => ({ default: m.SyncTranscriptView })));
-import { ArrowRight, Home, Wand2, SplitSquareVertical, SpellCheck, Loader2 } from "lucide-react";
+import { ArrowRight, Home, Wand2, SplitSquareVertical, SpellCheck, Loader2, Columns2, Columns3, AlignJustify, LayoutGrid, Rows3 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { useCloudPreferences } from "@/hooks/useCloudPreferences";
@@ -45,6 +45,21 @@ const TextEditor = () => {
   const setFontFamily = (v: string) => updatePreference('font_family', v);
   const setTextColor = (v: string) => updatePreference('text_color', v);
   const setLineHeight = (v: number) => updatePreference('line_height', v);
+
+  // Column view
+  const [columns, setColumns] = useState(() => {
+    const saved = localStorage.getItem('editor_columns');
+    return saved ? parseInt(saved, 10) : 1;
+  });
+  useEffect(() => {
+    localStorage.setItem('editor_columns', String(columns));
+  }, [columns]);
+
+  const columnStyle: React.CSSProperties = columns > 1 ? {
+    columnCount: columns,
+    columnGap: '2rem',
+    columnRule: '1px solid hsl(var(--border))',
+  } : {};
 
   useEffect(() => {
     debugLog.info('TextEditor', '📝 TextEditor mounted');
@@ -186,6 +201,25 @@ const TextEditor = () => {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {/* Column view selector */}
+            <div className="flex items-center border rounded-md overflow-hidden">
+              {[
+                { cols: 1, icon: AlignJustify, label: "עמודה אחת" },
+                { cols: 2, icon: Columns2, label: "2 עמודות" },
+                { cols: 3, icon: Columns3, label: "3 עמודות" },
+              ].map(({ cols, icon: Icon, label }) => (
+                <Button
+                  key={cols}
+                  variant={columns === cols ? "default" : "ghost"}
+                  size="icon"
+                  className="h-8 w-8 rounded-none"
+                  onClick={() => setColumns(cols)}
+                  title={label}
+                >
+                  <Icon className="h-4 w-4" />
+                </Button>
+              ))}
+            </div>
             <TextStyleControl
               fontSize={fontSize}
               fontFamily={fontFamily}
@@ -283,6 +317,7 @@ const TextEditor = () => {
                 fontFamily: fontFamily,
                 color: textColor,
                 lineHeight: lineHeight,
+                ...columnStyle,
               }}
             >
               <RichTextEditor 
@@ -311,6 +346,7 @@ const TextEditor = () => {
                 fontFamily: fontFamily,
                 color: textColor,
                 lineHeight: lineHeight,
+                ...columnStyle,
               }}
             >
               <AIEditorDual 
