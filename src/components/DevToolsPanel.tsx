@@ -312,9 +312,34 @@ const DevToolsPanel = () => {
     }
   };
 
+  const loadTemplate = (fnName: string) => {
+    const template = BODY_TEMPLATES[fnName];
+    if (template) {
+      setEdgeFnBody(template.body);
+      setEdgeFnMethod(template.method);
+      toast.success(`תבנית "${fnName}" נטענה`);
+    }
+  };
+
+  const replayFromHistory = (entry: typeof edgeFnHistory[0]) => {
+    if (EDGE_FUNCTIONS.includes(entry.fn)) {
+      setUseCustomFn(false);
+      setEdgeFnName(entry.fn);
+    } else {
+      setUseCustomFn(true);
+      setCustomFnName(entry.fn);
+    }
+    setEdgeFnMethod(entry.method);
+    if (entry.body) setEdgeFnBody(entry.body);
+  };
+
   const runEdgeFunction = async () => {
     if (!session?.access_token) {
       toast.error("יש להתחבר כדי להריץ פונקציות");
+      return;
+    }
+    if (!activeFnName.trim()) {
+      toast.error("יש להזין שם פונקציה");
       return;
     }
 
@@ -338,7 +363,7 @@ const DevToolsPanel = () => {
 
       const fetchOptions: RequestInit = { method: edgeFnMethod, headers };
 
-      if (edgeFnMethod === 'POST') {
+      if (edgeFnMethod !== 'GET' && edgeFnMethod !== 'DELETE') {
         headers['Content-Type'] = 'application/json';
         fetchOptions.body = edgeFnBody;
       }
@@ -348,11 +373,26 @@ const DevToolsPanel = () => {
       let formatted = text;
       try { formatted = JSON.stringify(JSON.parse(text), null, 2); } catch { /* not json */ }
 
-      setEdgeFnResult({ status: res.status, body: formatted, time: Date.now() - start });
+      const elapsed = Date.now() - start;
+      setEdgeFnResult({ status: res.status, body: formatted, time: elapsed });
+
+      // Save to history
+      setEdgeFnHistory(prev => [{
+        id: crypto.randomUUID(),
+        fn: activeFnName,
+        method: edgeFnMethod,
+        status: res.status,
+        time: elapsed,
+        timestamp: new Date(),
+        body: edgeFnMethod !== 'GET' ? edgeFnBody : undefined,
+        response: formatted.slice(0, 500),
+      }, ...prev].slice(0, 50));
+
       if (res.ok) {
         toast.success(`פונקציה ${activeFnName} הורצה בהצלחה`);
       } else {
         toast.error(`שגיאה ${res.status} מהפונקציה`);
+      }
       }
     } catch (err: any) {
       setEdgeFnResult({ status: 0, body: err.message, time: Date.now() - start });
