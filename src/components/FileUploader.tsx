@@ -2,10 +2,84 @@ import { useRef, useState, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Upload, Loader2, Zap, Globe, Chrome, Mic, Waves, Server, Cpu, Film, Music, FolderUp, Files, Play, X, CheckCircle, AlertCircle, RotateCcw } from "lucide-react";
+import { Upload, Loader2, Zap, Globe, Chrome, Mic, Waves, Server, Cpu, Film, Music, FolderUp, Files, Play, X, CheckCircle, AlertCircle, RotateCcw, Clock, FileAudio } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { isVideoFile } from "@/lib/videoUtils";
 import type { TranscriptionJob } from "@/hooks/useTranscriptionJobs";
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+function UploadProgressBar({ progress, fileName, fileSize }: { progress?: number; fileName?: string; fileSize?: number }) {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    setElapsed(0);
+    const iv = setInterval(() => setElapsed(s => s + 1), 1000);
+    return () => clearInterval(iv);
+  }, []);
+
+  const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
+  const ss = String(elapsed % 60).padStart(2, '0');
+  const pct = progress !== undefined && progress > 0 ? progress : 0;
+  const hasProgress = pct > 0;
+
+  return (
+    <div className="w-full space-y-2 p-3 rounded-lg bg-muted/40 border border-border/50">
+      {/* Top row: file info + elapsed */}
+      <div className="flex items-center justify-between text-xs text-muted-foreground" dir="rtl">
+        <div className="flex items-center gap-1.5 truncate max-w-[70%]">
+          <FileAudio className="w-3.5 h-3.5 shrink-0" />
+          {fileName && <span className="truncate font-medium">{fileName}</span>}
+          {fileSize && <span className="text-[10px]">({formatBytes(fileSize)})</span>}
+        </div>
+        <div className="flex items-center gap-1 font-mono tabular-nums">
+          <Clock className="w-3 h-3" />
+          <span>{mm}:{ss}</span>
+        </div>
+      </div>
+
+      {/* Progress bar */}
+      <div className="relative h-3 rounded-full bg-muted overflow-hidden">
+        {hasProgress ? (
+          <div
+            className="absolute top-0 right-0 h-full rounded-full bg-primary transition-[width] duration-500 ease-out"
+            style={{ width: `${Math.max(pct, 3)}%` }}
+          >
+            <div className="absolute top-0 left-0 h-full w-6 bg-white/30 animate-pulse rounded-full" />
+          </div>
+        ) : (
+          <div className="absolute inset-0 rounded-full overflow-hidden">
+            <div className="h-full w-full bg-primary/20 rounded-full" />
+            <div
+              className="absolute top-0 h-full w-1/3 bg-primary/50 rounded-full"
+              style={{ animation: 'transcription-scan 1.6s ease-in-out infinite' }}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Bottom row: percentage */}
+      <div className="flex items-center justify-between text-xs" dir="rtl">
+        <span className="font-medium text-primary">
+          {hasProgress ? `${pct}%` : 'מעבד...'}
+        </span>
+        {hasProgress && pct < 100 && elapsed > 3 && (
+          <span className="text-muted-foreground text-[11px]">
+            נותרו ~{(() => {
+              const etaSec = Math.max(1, Math.round((elapsed / pct) * (100 - pct)));
+              const etaMin = Math.floor(etaSec / 60);
+              const etaSecRem = etaSec % 60;
+              return etaMin > 0 ? `${etaMin}:${String(etaSecRem).padStart(2, '0')}` : `${etaSecRem}s`;
+            })()}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
 
 const ENGINE_META: Record<string, { label: string; icon: React.ReactNode; color: string }> = {
   groq: { label: 'Groq', icon: <Zap className="w-3 h-3" />, color: 'text-primary' },
@@ -212,12 +286,9 @@ export const FileUploader = ({
           </div>
         </div>
 
-        {/* Progress bar */}
-        {progress !== undefined && progress > 0 && (
-          <div className="w-full">
-            <Progress value={progress} className="h-2" />
-            <p className="text-xs text-center mt-1 text-muted-foreground">{progress}%</p>
-          </div>
+        {/* Progress bar with elapsed time */}
+        {isLoading && (
+          <UploadProgressBar progress={progress} fileName={selectedFile?.name} fileSize={selectedFile?.size} />
         )}
 
         {/* Action buttons row */}

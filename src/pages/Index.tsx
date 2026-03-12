@@ -1288,53 +1288,44 @@ const Index = () => {
         {isLoading && (
           <Card className="p-4 border-primary/40 bg-primary/5 shadow-sm" dir="rtl">
             <div className="flex items-center gap-3">
-              <div className="flex-1 space-y-2 text-right">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="font-mono text-xs text-muted-foreground">
-                    {/* Timer + ETA */}
-                    {String(Math.floor(elapsedSeconds / 60)).padStart(2, '0')}:{String(elapsedSeconds % 60).padStart(2, '0')} ⏱
-                    {engine === 'local-server' && progress !== undefined && progress >= 5 && progress < 100 && transcribeElapsed > 3 && (() => {
-                      const etaSec = Math.round((transcribeElapsed / progress) * (100 - progress));
-                      const etaMin = Math.floor(etaSec / 60);
-                      const etaSecRem = etaSec % 60;
-                      return ` · נותרו ~${etaMin > 0 ? `${etaMin}:${String(etaSecRem).padStart(2, '0')}` : `${etaSecRem}s`}`;
-                    })()}
+              <div className="flex-1 space-y-2.5 text-right">
+                {/* Top row: status + engine badge */}
+                <div className="flex items-center justify-between">
+                  <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border ${
+                    engine === 'groq' ? 'text-primary border-primary/30' :
+                    engine === 'google' ? 'text-blue-500 border-blue-500/30' :
+                    engine === 'assemblyai' ? 'text-green-500 border-green-500/30' :
+                    engine === 'deepgram' ? 'text-purple-500 border-purple-500/30' :
+                    engine === 'local-server' ? 'text-purple-500 border-purple-500/30' :
+                    engine === 'local' ? 'text-accent border-accent/30' :
+                    'text-primary border-primary/30'
+                  }`}>
+                    {engine === 'groq' && <Zap className="w-3 h-3" />}
+                    {engine === 'openai' && <Globe className="w-3 h-3" />}
+                    {engine === 'google' && <Chrome className="w-3 h-3" />}
+                    {engine === 'assemblyai' && <Mic className="w-3 h-3" />}
+                    {engine === 'deepgram' && <Waves className="w-3 h-3" />}
+                    {engine === 'local-server' && <Server className="w-3 h-3" />}
+                    {engine === 'local' && <Cpu className="w-3 h-3" />}
+                    {engine === 'groq' ? 'Groq' : engine === 'openai' ? 'OpenAI' : engine === 'google' ? 'Google' : engine === 'assemblyai' ? 'AssemblyAI' : engine === 'deepgram' ? 'Deepgram' : engine === 'local-server' ? 'CUDA' : 'ONNX'}
                   </span>
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">
-                      {progress !== undefined && progress > 0
-                        ? `מתמלל... ${progress}%`
-                        : engine === 'local-server' && serverPhase === 'loading-model'
-                          ? '⏳ טוען מודל...'
-                          : 'מתמלל...'}
-                    </span>
-                    <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border ${
-                      engine === 'groq' ? 'text-primary border-primary/30' :
-                      engine === 'google' ? 'text-blue-500 border-blue-500/30' :
-                      engine === 'assemblyai' ? 'text-green-500 border-green-500/30' :
-                      engine === 'deepgram' ? 'text-purple-500 border-purple-500/30' :
-                      engine === 'local-server' ? 'text-purple-500 border-purple-500/30' :
-                      engine === 'local' ? 'text-accent border-accent/30' :
-                      'text-primary border-primary/30'
-                    }`}>
-                      {engine === 'groq' && <Zap className="w-3 h-3" />}
-                      {engine === 'openai' && <Globe className="w-3 h-3" />}
-                      {engine === 'google' && <Chrome className="w-3 h-3" />}
-                      {engine === 'assemblyai' && <Mic className="w-3 h-3" />}
-                      {engine === 'deepgram' && <Waves className="w-3 h-3" />}
-                      {engine === 'local-server' && <Server className="w-3 h-3" />}
-                      {engine === 'local' && <Cpu className="w-3 h-3" />}
-                      {engine === 'groq' ? 'Groq' : engine === 'openai' ? 'OpenAI' : engine === 'google' ? 'Google' : engine === 'assemblyai' ? 'AssemblyAI' : engine === 'deepgram' ? 'Deepgram' : engine === 'local-server' ? 'CUDA' : 'ONNX'}
-                    </span>
-                  </div>
+                  <span className="font-medium text-sm">
+                    {progress !== undefined && progress > 0
+                      ? `מתמלל... ${progress}%`
+                      : engine === 'local-server' && serverPhase === 'loading-model'
+                        ? '⏳ טוען מודל...'
+                        : 'מתמלל...'}
+                  </span>
                 </div>
-                <div className="relative h-2.5 rounded-full bg-muted overflow-hidden">
+
+                {/* Progress bar */}
+                <div className="relative h-3 rounded-full bg-muted overflow-hidden">
                   {progress !== undefined && progress > 0 ? (
                     <div
-                      className="absolute top-0 right-0 h-full rounded-full bg-primary transition-[width] duration-300 ease-out overflow-hidden"
+                      className="absolute top-0 right-0 h-full rounded-full bg-primary transition-[width] duration-500 ease-out overflow-hidden"
                       style={{ width: `${Math.max(progress, 3)}%` }}
                     >
-                      <div className="absolute top-0 right-0 h-full w-5 bg-white/40 animate-pulse" />
+                      <div className="absolute top-0 left-0 h-full w-6 bg-white/30 animate-pulse rounded-full" />
                     </div>
                   ) : (
                     <div className="absolute inset-0 rounded-full overflow-hidden">
@@ -1345,6 +1336,21 @@ const Index = () => {
                       />
                     </div>
                   )}
+                </div>
+
+                {/* Bottom row: timer + ETA */}
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>
+                    {engine === 'local-server' && progress !== undefined && progress >= 5 && progress < 100 && transcribeElapsed > 3 && (() => {
+                      const etaSec = Math.round((transcribeElapsed / progress) * (100 - progress));
+                      const etaMin = Math.floor(etaSec / 60);
+                      const etaSecRem = etaSec % 60;
+                      return `נותרו ~${etaMin > 0 ? `${etaMin}:${String(etaSecRem).padStart(2, '0')}` : `${etaSecRem}s`}`;
+                    })()}
+                  </span>
+                  <span className="font-mono tabular-nums">
+                    ⏱ {String(Math.floor(elapsedSeconds / 60)).padStart(2, '0')}:{String(elapsedSeconds % 60).padStart(2, '0')}
+                  </span>
                 </div>
               </div>
               <Button
