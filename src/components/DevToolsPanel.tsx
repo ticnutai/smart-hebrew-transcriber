@@ -124,6 +124,8 @@ const DevToolsPanel = () => {
 
   // Edge function state
   const [edgeFnName, setEdgeFnName] = useState(EDGE_FUNCTIONS[0]);
+  const [useCustomFn, setUseCustomFn] = useState(false);
+  const [customFnName, setCustomFnName] = useState("");
   const [edgeFnMethod, setEdgeFnMethod] = useState<"GET" | "POST">("POST");
   const [edgeFnBody, setEdgeFnBody] = useState("{}");
   const [edgeFnHeaders, setEdgeFnHeaders] = useState<Array<{ key: string; value: string }>>([]);
