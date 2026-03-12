@@ -163,7 +163,7 @@ const Index = () => {
       return;
     }
     await saveTranscript(text, engineUsed, undefined, currentFileRef.current || undefined, timings);
-    addNotification('success', 'תמלול הושלם', `מנוע: ${engineUsed} — ${text.split(/\s+/).length} מילים`);
+    addNotification({ type: 'success', title: 'תמלול הושלם', description: `מנוע: ${engineUsed} — ${text.split(/\s+/).length} מילים` });
   };
 
   // Save text-only to cloud (deferred mode — upload text without audio file)
