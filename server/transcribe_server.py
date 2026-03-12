@@ -928,6 +928,200 @@ def transcribe_stream():
     })
 
 
+@app.route("/transcribe-live", methods=["POST"])
+def transcribe_live():
+    """Transcribe a short audio chunk for live/real-time transcription.
+
+    Optimized for low-latency: uses beam_size=1, no VAD filter.
+    Accepts audio chunks (typically 3-5 seconds each).
+
+    Form params:
+        file: audio chunk (webm/wav/etc)
+        model: whisper model id (optional)
+        language: language code (optional, default 'he')
+    """
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+
+    audio_file = request.files["file"]
+    model_id = request.form.get("model", _current_model_id or DEFAULT_MODEL)
+    language = request.form.get("language", "he")
+
+    resolved = MODEL_REGISTRY.get(model_id, model_id)
+    suffix = _safe_suffix(audio_file.filename)
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        audio_file.save(tmp)
+        tmp_path = tmp.name
+
+    try:
+        model = load_model(resolved)
+        start = time.time()
+
+        segments, info = model.transcribe(
+            tmp_path,
+            language=language if language != "auto" else None,
+            word_timestamps=True,
+            beam_size=1,
+            vad_filter=False,
+            without_timestamps=True,
+        )
+
+        text_parts = []
+        word_timings = []
+        for segment in segments:
+            text_parts.append(segment.text.strip())
+            if segment.words:
+                for w in segment.words:
+                    word_timings.append({
+                        "word": w.word.strip(),
+                        "start": round(w.start, 3),
+                        "end": round(w.end, 3),
+                        "probability": round(w.probability, 3),
+                    })
+
+        text = " ".join(text_parts)
+        elapsed = time.time() - start
+
+        return jsonify({
+            "text": text,
+            "wordTimings": word_timings,
+            "processing_time": round(elapsed, 3),
+            "audio_duration": round(info.duration, 2),
+        })
+
+    except Exception as e:
+        _log.error(f"Live transcription error: {e}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
+# ─── YouTube URL Download + Transcribe ────────────────────────────────────────
+
+@app.route("/youtube-transcribe", methods=["POST"])
+def youtube_transcribe():
+    """Download audio from a YouTube URL using yt-dlp and transcribe it.
+    Expects JSON body: { url, language?, model? }
+    """
+    import re as _re
+    import subprocess
+
+    data = request.get_json(force=True) or {}
+    url = (data.get("url") or "").strip()
+    language = data.get("language", "he")
+    model_id = data.get("model")
+
+    if not url:
+        return jsonify({"error": "No URL provided"}), 400
+
+    # Basic URL validation — only allow YouTube domains
+    yt_pattern = r'^https?://(www\.)?(youtube\.com/watch\?v=|youtu\.be/|youtube\.com/shorts/)[\w\-]+'
+    if not _re.match(yt_pattern, url):
+        return jsonify({"error": "Invalid YouTube URL"}), 400
+
+    # Check yt-dlp availability
+    try:
+        subprocess.run(["yt-dlp", "--version"], capture_output=True, timeout=10, check=True)
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return jsonify({"error": "yt-dlp not installed. Install with: pip install yt-dlp"}), 500
+
+    tmp_dir = tempfile.mkdtemp(prefix="yt_")
+    output_template = os.path.join(tmp_dir, "audio.%(ext)s")
+
+    try:
+        # Download audio only using yt-dlp
+        cmd = [
+            "yt-dlp",
+            "--no-playlist",
+            "--extract-audio",
+            "--audio-format", "wav",
+            "--audio-quality", "0",
+            "--max-filesize", f"{MAX_UPLOAD_SIZE_MB}m",
+            "--output", output_template,
+            "--no-post-overwrites",
+            url,
+        ]
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=120
+        )
+
+        if result.returncode != 0:
+            return jsonify({"error": f"yt-dlp failed: {result.stderr[:500]}"}), 500
+
+        # Find downloaded file
+        audio_file = None
+        for f in os.listdir(tmp_dir):
+            if f.startswith("audio"):
+                audio_file = os.path.join(tmp_dir, f)
+                break
+
+        if not audio_file or not os.path.isfile(audio_file):
+            return jsonify({"error": "Failed to download audio from YouTube"}), 500
+
+        file_size_mb = os.path.getsize(audio_file) / (1024 * 1024)
+        if file_size_mb > MAX_UPLOAD_SIZE_MB:
+            return jsonify({"error": f"Audio too large ({file_size_mb:.1f}MB > {MAX_UPLOAD_SIZE_MB}MB)"}), 400
+
+        # Model handling
+        target_model = model_id or DEFAULT_MODEL
+        if not current_model or current_model_id != target_model:
+            _load_model(target_model)
+
+        if current_model is None:
+            return jsonify({"error": "Model failed to load"}), 500
+
+        # Transcribe
+        start_time = time.time()
+        with gpu_lock:
+            segments_gen, info = current_model.transcribe(
+                audio_file,
+                language=language,
+                beam_size=5,
+                word_timestamps=True,
+                vad_filter=True,
+            )
+            segments = list(segments_gen)
+
+        elapsed = time.time() - start_time
+
+        full_text = " ".join(seg.text.strip() for seg in segments if seg.text.strip())
+        word_timings = []
+        for seg in segments:
+            if seg.words:
+                for w in seg.words:
+                    word_timings.append({
+                        "word": w.word.strip(),
+                        "start": round(w.start, 3),
+                        "end": round(w.end, 3),
+                        "probability": round(w.probability, 4),
+                    })
+
+        return jsonify({
+            "text": full_text,
+            "wordTimings": word_timings,
+            "language": info.language,
+            "language_probability": round(info.language_probability, 4),
+            "duration": round(info.duration, 2),
+            "processing_time": round(elapsed, 2),
+            "segments": len(segments),
+            "source": "youtube",
+            "url": url,
+        })
+
+    except subprocess.TimeoutExpired:
+        return jsonify({"error": "YouTube download timed out (120s limit)"}), 504
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+    finally:
+        # Cleanup temp dir
+        import shutil
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
 @app.route("/stage-audio", methods=["POST"])
 def stage_audio():
     """Pre-upload audio file while model loads in parallel.
@@ -1386,6 +1580,8 @@ def main():
     print("    POST /transcribe        — Transcribe audio (single response)")
     print("    POST /transcribe-stream — Transcribe audio (SSE streaming)")
     print("    POST /diarize           — Transcribe + speaker diarization")
+    print("    POST /transcribe-live   — Low-latency chunk transcription (live mode)")
+    print("    POST /youtube-transcribe — Download + transcribe YouTube video")
     print("    POST /stage-audio       — Pre-upload audio (parallel with preload)")
     print("    POST /load-model        — Load model into GPU memory")
     print("    POST /preload-stream    — Preload model via SSE (background)")

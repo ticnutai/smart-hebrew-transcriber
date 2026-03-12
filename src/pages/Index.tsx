@@ -34,6 +34,7 @@ const TextStyleControl = lazy(() => import("@/components/TextStyleControl").then
 const LocalModelManager = lazy(() => import("@/components/LocalModelManager").then(m => ({ default: m.LocalModelManager })));
 const BackgroundJobsPanel = lazy(() => import("@/components/BackgroundJobsPanel").then(m => ({ default: m.BackgroundJobsPanel })));
 const SpeakerDiarization = lazy(() => import("@/components/SpeakerDiarization").then(m => ({ default: m.SpeakerDiarization })));
+const YouTubeTranscriber = lazy(() => import("@/components/YouTubeTranscriber").then(m => ({ default: m.YouTubeTranscriber })));
 
 type Engine = 'openai' | 'groq' | 'google' | 'local' | 'local-server' | 'assemblyai' | 'deepgram';
 type SourceLanguage = 'auto' | 'he' | 'yi' | 'en';
@@ -1315,6 +1316,7 @@ const Index = () => {
 
         {/* Live Transcription */}
         <LiveTranscriber
+          serverConnected={serverConnected}
           onTranscriptComplete={(text) => {
             setTranscript(text);
             saveToHistory(text, 'Live (Web Speech API)');
@@ -1402,6 +1404,22 @@ const Index = () => {
               onSearchOpenChange={setSearchOpen}
             />
           </div>
+        )}
+
+        {/* YouTube Transcription — available when local server is connected */}
+        {serverConnected && (
+          <YouTubeTranscriber
+            onTranscriptComplete={(text) => {
+              setTranscript(text);
+              saveToHistory(text, 'YouTube (Whisper GPU)');
+              addAnalyticsRecord({
+                engine: 'YouTube (Whisper GPU)', status: 'success',
+                charCount: text.length, wordCount: text.split(/\s+/).length,
+              });
+              toast({ title: "תמלול YouTube הושלם!" });
+              setTimeout(() => navigate('/text-editor', { state: { text } }), 1000);
+            }}
+          />
         )}
 
         {/* Speaker Diarization — available when local server is connected */}
