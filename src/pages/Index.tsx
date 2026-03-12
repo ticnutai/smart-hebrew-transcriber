@@ -15,7 +15,9 @@ import { useBackgroundTask } from "@/hooks/useBackgroundTask";
 import { debugLog } from "@/lib/debugLogger";
 import { useCloudTranscripts } from "@/hooks/useCloudTranscripts";
 import { useTranscriptionAnalytics } from "@/hooks/useTranscriptionAnalytics";
-import { Settings, FileEdit, ChevronDown, X, Zap, Globe, Chrome, Mic, Waves, Server, Cpu, Film, Pause, Play, Square, Copy, Check, Keyboard } from "lucide-react";
+import { Settings, FileEdit, ChevronDown, X, Zap, Globe, Chrome, Mic, Waves, Server, Cpu, Film, Pause, Play, Square, Copy, Check, Keyboard, Activity } from "lucide-react";
+import { usePerfMonitor } from "@/hooks/usePerfMonitor";
+import { PerfMonitorPanel } from "@/components/PerfMonitorPanel";
 import { useTranscriptionJobs } from "@/hooks/useTranscriptionJobs";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCloudPreferences } from "@/hooks/useCloudPreferences";
@@ -84,6 +86,8 @@ const Index = () => {
   const { transcripts, isLoading: isCloudLoading, saveTranscript, updateTranscript, deleteTranscript, deleteAll, isCloud, getAudioUrl } = useCloudTranscripts();
   const { jobs, submitJob, submitBatchJobs, retryJob, deleteJob } = useTranscriptionJobs();
   const { addRecord: addAnalyticsRecord } = useTranscriptionAnalytics();
+  const perfMonitor = usePerfMonitor();
+  const [showPerfPanel, setShowPerfPanel] = useState(false);
 
   // Helper to track the start time of each transcription for analytics
   const transcriptionStartRef = useRef<number>(0);
@@ -328,6 +332,7 @@ const Index = () => {
 
     // Track start time for analytics
     transcriptionStartRef.current = Date.now();
+    perfMonitor.startTimer();
 
     // Run in background — doesn't block tab, sends notification on complete
     bgTask.run(`${engine} — ${file.name}`, async () => {
@@ -397,6 +402,13 @@ const Index = () => {
           fileName: file.name, fileSize: file.size,
           processingTime: (Date.now() - transcriptionStartRef.current) / 1000,
           charCount: data.text.length, wordCount: data.text.split(/\s+/).length,
+        });
+        perfMonitor.record({
+          engine: 'OpenAI Whisper', status: 'success',
+          fileName: file.name, fileSize: file.size,
+          audioDuration: data.duration || 0,
+          processingTime: (Date.now() - transcriptionStartRef.current) / 1000,
+          text: data.text, wordTimings: timings,
         });
         toast({
           title: "הצלחה!",
@@ -482,6 +494,13 @@ const Index = () => {
           fileName: file.name, fileSize: file.size,
           processingTime: (Date.now() - transcriptionStartRef.current) / 1000,
           charCount: data.text.length, wordCount: data.text.split(/\s+/).length,
+        });
+        perfMonitor.record({
+          engine: 'Groq Whisper', status: 'success',
+          fileName: file.name, fileSize: file.size,
+          audioDuration: data.duration || 0,
+          processingTime: (Date.now() - transcriptionStartRef.current) / 1000,
+          text: data.text, wordTimings: timings,
         });
         toast({ 
           title: "הצלחה!", 
@@ -582,6 +601,13 @@ const Index = () => {
           processingTime: (Date.now() - transcriptionStartRef.current) / 1000,
           charCount: data.text.length, wordCount: data.text.split(/\s+/).length,
         });
+        perfMonitor.record({
+          engine: 'Google Speech-to-Text', status: 'success',
+          fileName: file.name, fileSize: file.size,
+          audioDuration: 0,
+          processingTime: (Date.now() - transcriptionStartRef.current) / 1000,
+          text: data.text, wordTimings: timings,
+        });
         toast({
           title: "הצלחה!",
           description: "התמלול עם Google הושלם בהצלחה - עובר לעריכת טקסט"
@@ -622,6 +648,13 @@ const Index = () => {
         fileName: file.name, fileSize: file.size,
         processingTime: (Date.now() - transcriptionStartRef.current) / 1000,
         charCount: result.text.length, wordCount: result.text.split(/\s+/).length,
+      });
+      perfMonitor.record({
+        engine: 'Local (Browser)', status: 'success',
+        fileName: file.name, fileSize: file.size,
+        audioDuration: 0,
+        processingTime: (Date.now() - transcriptionStartRef.current) / 1000,
+        text: result.text, wordTimings: result.wordTimings,
       });
       toast({
         title: "הצלחה!",
@@ -725,6 +758,16 @@ const Index = () => {
         beamSize: result.stats?.beam_size,
         fastMode: result.stats?.fast_mode,
       });
+      perfMonitor.record({
+        engine: engineLabel, status: 'success',
+        fileName: file.name, fileSize: file.size,
+        audioDuration: result.duration || result.stats?.duration || 0,
+        processingTime: result.processing_time || result.stats?.processing_time || 0,
+        text: result.text, wordTimings: timings,
+        computeType: result.stats?.compute_type,
+        beamSize: result.stats?.beam_size,
+        model: result.model,
+      });
       const statsInfo = result.stats ? ` | RTF=${result.stats.rtf} | ${result.stats.compute_type}` : '';
       toast({
         title: "הצלחה!",
@@ -794,6 +837,13 @@ const Index = () => {
           processingTime: (Date.now() - transcriptionStartRef.current) / 1000,
           charCount: data.text.length, wordCount: data.text.split(/\s+/).length,
         });
+        perfMonitor.record({
+          engine: 'AssemblyAI', status: 'success',
+          fileName: file.name, fileSize: file.size,
+          audioDuration: 0,
+          processingTime: (Date.now() - transcriptionStartRef.current) / 1000,
+          text: data.text, wordTimings: timings,
+        });
         toast({
           title: "הצלחה!",
           description: "התמלול הושלם בהצלחה - עובר לעריכת טקסט",
@@ -861,6 +911,13 @@ const Index = () => {
           fileName: file.name, fileSize: file.size,
           processingTime: (Date.now() - transcriptionStartRef.current) / 1000,
           charCount: data.text.length, wordCount: data.text.split(/\s+/).length,
+        });
+        perfMonitor.record({
+          engine: 'Deepgram', status: 'success',
+          fileName: file.name, fileSize: file.size,
+          audioDuration: 0,
+          processingTime: (Date.now() - transcriptionStartRef.current) / 1000,
+          text: data.text, wordTimings: timings,
         });
         toast({
           title: "הצלחה!",
@@ -1073,6 +1130,19 @@ const Index = () => {
               onTextColorChange={setTextColor}
               onLineHeightChange={setLineHeight}
             />
+            <Button
+              variant={perfMonitor.enabled ? "default" : "outline"}
+              size="icon"
+              onClick={() => {
+                perfMonitor.toggle();
+                if (!perfMonitor.enabled) setShowPerfPanel(true);
+                else setShowPerfPanel(false);
+              }}
+              title={perfMonitor.enabled ? "מוניטור ביצועים פעיל — לחץ לכיבוי" : "הפעל מוניטור ביצועים"}
+              className={perfMonitor.enabled ? "bg-purple-600 hover:bg-purple-700 text-white" : ""}
+            >
+              <Activity className="h-4 w-4" />
+            </Button>
             <Button 
               variant="outline" 
               size="icon"
@@ -1178,6 +1248,15 @@ const Index = () => {
               </div>
             </div>
           </Card>
+        )}
+
+        {/* Performance Monitor Panel */}
+        {perfMonitor.enabled && showPerfPanel && (
+          <PerfMonitorPanel
+            records={perfMonitor.records}
+            onClear={perfMonitor.clearRecords}
+            onClose={() => setShowPerfPanel(false)}
+          />
         )}
 
         {/* Transcription stats — shown after CUDA transcription completes */}
