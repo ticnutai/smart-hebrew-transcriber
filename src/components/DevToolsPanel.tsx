@@ -267,13 +267,60 @@ const DevToolsPanel = () => {
     }
   };
 
+  const runEdgeFunction = async () => {
+    if (!session?.access_token) {
+      toast.error("יש להתחבר כדי להריץ פונקציות");
+      return;
+    }
+
+    setEdgeFnRunning(true);
+    setEdgeFnResult(null);
+    const start = Date.now();
+
+    try {
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${edgeFnName}`;
+      const headers: Record<string, string> = {
+        'Authorization': `Bearer ${session.access_token}`,
+        'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+      };
+
+      const fetchOptions: RequestInit = { method: edgeFnMethod, headers };
+
+      if (edgeFnMethod === 'POST') {
+        headers['Content-Type'] = 'application/json';
+        fetchOptions.body = edgeFnBody;
+      }
+
+      const res = await fetch(url, fetchOptions);
+      const text = await res.text();
+      let formatted = text;
+      try { formatted = JSON.stringify(JSON.parse(text), null, 2); } catch { /* not json */ }
+
+      setEdgeFnResult({ status: res.status, body: formatted, time: Date.now() - start });
+      if (res.ok) {
+        toast.success(`פונקציה ${edgeFnName} הורצה בהצלחה`);
+      } else {
+        toast.error(`שגיאה ${res.status} מהפונקציה`);
+      }
+    } catch (err: any) {
+      setEdgeFnResult({ status: 0, body: err.message, time: Date.now() - start });
+      toast.error(err.message || "שגיאה בהרצת הפונקציה");
+    } finally {
+      setEdgeFnRunning(false);
+    }
+  };
+
   return (
     <div className="space-y-4" dir="rtl">
       <Tabs defaultValue="editor" className="w-full">
-        <TabsList className="grid w-full grid-cols-3 h-12">
+        <TabsList className="grid w-full grid-cols-4 h-12">
           <TabsTrigger value="editor" className="gap-2 text-sm">
             <Code2 className="w-4 h-4" />
             עורך SQL
+          </TabsTrigger>
+          <TabsTrigger value="edge" className="gap-2 text-sm">
+            <Zap className="w-4 h-4" />
+            Edge Functions
           </TabsTrigger>
           <TabsTrigger value="logs" className="gap-2 text-sm">
             <ScrollText className="w-4 h-4" />
