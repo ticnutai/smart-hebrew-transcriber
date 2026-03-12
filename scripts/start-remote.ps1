@@ -384,16 +384,19 @@ try {
 } finally {
     # Cleanup
     Write-Host "Stopping tunnels..." -ForegroundColor Yellow
-    if (-not $whisperTunnelProc.HasExited) { $whisperTunnelProc.Kill() }
-    if (-not $viteTunnelProc.HasExited) { $viteTunnelProc.Kill() }
-    if ($ollamaTunnelProc -and -not $ollamaTunnelProc.HasExited) { $ollamaTunnelProc.Kill() }
+    try { if (-not $whisperTunnelProc.HasExited) { $whisperTunnelProc.Kill() } } catch {}
+    try { if (-not $viteTunnelProc.HasExited) { $viteTunnelProc.Kill() } } catch {}
+    try { if ($ollamaTunnelProc -and -not $ollamaTunnelProc.HasExited) { $ollamaTunnelProc.Kill() } } catch {}
     # Stop auto-started services
     foreach ($proc in $autoStartedProcesses) {
-        if (-not $proc.HasExited) {
-            Write-Host "  Stopping auto-started service (PID: $($proc.Id))..." -ForegroundColor Gray
-            $proc.Kill()
-        }
+        try {
+            if (-not $proc.HasExited) {
+                Write-Host "  Stopping auto-started service (PID: $($proc.Id))..." -ForegroundColor Gray
+                $proc.Kill()
+            }
+        } catch {}
     }
     Remove-Item $whisperLog, $viteLog, $ollamaLog -ErrorAction SilentlyContinue
     Write-Host "Done. / סיום." -ForegroundColor Green
+    exit 0
 }
