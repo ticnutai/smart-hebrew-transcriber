@@ -1,8 +1,11 @@
+-- Enable pgcrypto for gen_random_bytes
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 -- Create shared_transcripts table for shareable public links
 CREATE TABLE IF NOT EXISTS public.shared_transcripts (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   transcript_id uuid NOT NULL REFERENCES public.transcripts(id) ON DELETE CASCADE,
-  share_token text NOT NULL UNIQUE DEFAULT encode(gen_random_bytes(24), 'hex'),
+  share_token text NOT NULL UNIQUE DEFAULT replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', ''),
   user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   created_at timestamp with time zone DEFAULT now(),
   expires_at timestamp with time zone DEFAULT (now() + interval '30 days'),
