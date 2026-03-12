@@ -283,7 +283,7 @@ const DevToolsPanel = () => {
     const start = Date.now();
 
     try {
-      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${edgeFnName}`;
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${activeFnName}`;
       const headers: Record<string, string> = {
         'Authorization': `Bearer ${session.access_token}`,
         'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
