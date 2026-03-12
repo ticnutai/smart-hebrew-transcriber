@@ -157,7 +157,7 @@ const DevToolsPanel = () => {
   const [useCustomFn, setUseCustomFn] = useState(false);
   const [customFnName, setCustomFnName] = useState("");
   const activeFnName = useCustomFn ? customFnName : edgeFnName;
-  const [edgeFnMethod, setEdgeFnMethod] = useState<"GET" | "POST">("POST");
+  const [edgeFnMethod, setEdgeFnMethod] = useState<HttpMethod>("POST");
   const [edgeFnBody, setEdgeFnBody] = useState("{}");
   const [edgeFnHeaders, setEdgeFnHeaders] = useState<Array<{ key: string; value: string }>>([]);
   const [edgeFnRunning, setEdgeFnRunning] = useState(false);
@@ -166,6 +166,16 @@ const DevToolsPanel = () => {
     body: string;
     time: number;
   } | null>(null);
+  const [edgeFnHistory, setEdgeFnHistory] = useState<Array<{
+    id: string;
+    fn: string;
+    method: HttpMethod;
+    status: number;
+    time: number;
+    timestamp: Date;
+    body?: string;
+    response?: string;
+  }>>([]);
   const { session } = useAuth();
 
   useEffect(() => {
