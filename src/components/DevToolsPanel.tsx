@@ -95,6 +95,18 @@ ORDER BY tablename, policyname;`,
   },
 ];
 
+const EDGE_FUNCTIONS = [
+  "edit-transcript",
+  "process-transcription",
+  "run-migration",
+  "summarize-transcript",
+  "transcribe-assemblyai",
+  "transcribe-deepgram",
+  "transcribe-google",
+  "transcribe-groq",
+  "transcribe-openai",
+];
+
 const DevToolsPanel = () => {
   const [sqlContent, setSqlContent] = useState("");
   const [isRunning, setIsRunning] = useState(false);
@@ -108,6 +120,18 @@ const DevToolsPanel = () => {
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Edge function state
+  const [edgeFnName, setEdgeFnName] = useState(EDGE_FUNCTIONS[0]);
+  const [edgeFnMethod, setEdgeFnMethod] = useState<"GET" | "POST">("POST");
+  const [edgeFnBody, setEdgeFnBody] = useState("{}");
+  const [edgeFnRunning, setEdgeFnRunning] = useState(false);
+  const [edgeFnResult, setEdgeFnResult] = useState<{
+    status: number;
+    body: string;
+    time: number;
+  } | null>(null);
+  const { session } = useAuth();
 
   useEffect(() => {
     loadLogs();
