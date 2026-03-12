@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { debugLog, type LogEntry } from '@/lib/debugLogger';
 
 // --- Types ---
@@ -151,6 +151,10 @@ export function useSmartConsole() {
   });
   const [perfMetrics, setPerfMetrics] = useState<PerformanceMetric[]>([]);
   const lastAnalysisRef = useRef<number>(0);
+  const entriesRef = useRef(entries);
+  entriesRef.current = entries;
+  const alertsRef = useRef(alerts);
+  alertsRef.current = alerts;
 
   // Subscribe to debug log updates
   useEffect(() => {
@@ -164,7 +168,7 @@ export function useSmartConsole() {
     localStorage.setItem(ALERTS_KEY, JSON.stringify(alerts.slice(0, MAX_ALERTS)));
   }, [alerts]);
 
-  // Periodic analysis — run every 10 seconds
+  // Periodic analysis — run every 10 seconds (stable interval, reads from refs)
   useEffect(() => {
     const interval = setInterval(() => {
       const now = Date.now();
@@ -174,16 +178,18 @@ export function useSmartConsole() {
     }, 10000);
     return () => clearInterval(interval);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entries]);
+  }, []);
 
   const runAnalysis = useCallback(() => {
+    const currentEntries = entriesRef.current;
+    const currentAlerts = alertsRef.current;
     const newAlerts: ConsoleAlert[] = [];
 
     // 1. Detect recurring errors
-    const patterns = detectErrorPatterns(entries, 30);
+    const patterns = detectErrorPatterns(currentEntries, 30);
     for (const pattern of patterns) {
       if (pattern.count >= 3) {
-        const existing = alerts.find(a =>
+        const existing = currentAlerts.find(a =>
           a.type === 'recurring-error' && a.pattern === `${pattern.source}::${pattern.message}` && !a.dismissed
         );
         if (!existing) {
@@ -203,9 +209,9 @@ export function useSmartConsole() {
     }
 
     // 2. Error spike detection
-    const errorRate = calculateErrorRate(entries, 5);
+    const errorRate = calculateErrorRate(currentEntries, 5);
     if (errorRate > 2) {
-      const existing = alerts.find(a => a.type === 'error-spike' && !a.dismissed && (Date.now() - a.timestamp) < 300000);
+      const existing = currentAlerts.find(a => a.type === 'error-spike' && !a.dismissed && (Date.now() - a.timestamp) < 300000);
       if (!existing) {
         newAlerts.push({
           id: generateId(),
@@ -219,13 +225,13 @@ export function useSmartConsole() {
     }
 
     // 3. Server down detection
-    const serverErrors = entries.filter(e =>
+    const serverErrors = currentEntries.filter(e =>
       e.level === 'error' &&
       (e.source === 'CUDA Server' || e.source === 'CUDA' || e.message.toLowerCase().includes('server') || e.message.toLowerCase().includes('connection')) &&
       (Date.now() - e.timestamp) < 60000
     );
     if (serverErrors.length >= 2) {
-      const existing = alerts.find(a => a.type === 'server-down' && !a.dismissed && (Date.now() - a.timestamp) < 120000);
+      const existing = currentAlerts.find(a => a.type === 'server-down' && !a.dismissed && (Date.now() - a.timestamp) < 120000);
       if (!existing) {
         newAlerts.push({
           id: generateId(),
@@ -241,7 +247,7 @@ export function useSmartConsole() {
     if (newAlerts.length > 0) {
       setAlerts(prev => [...newAlerts, ...prev].slice(0, MAX_ALERTS));
     }
-  }, [entries, alerts]);
+  }, []);
 
   const addPerformanceMetric = useCallback((metric: Omit<PerformanceMetric, 'timestamp'>) => {
     setPerfMetrics(prev => [{ ...metric, timestamp: Date.now() }, ...prev].slice(0, MAX_PERF_METRICS));
@@ -288,9 +294,9 @@ export function useSmartConsole() {
   const getTrends = useCallback(() => buildTrends(entries), [entries]);
   const getSourceBreakdown = useCallback(() => computeSourceStats(entries), [entries]);
 
-  const errorCount = entries.filter(e => e.level === 'error').length;
-  const warnCount = entries.filter(e => e.level === 'warn').length;
-  const activeAlertCount = alerts.filter(a => !a.dismissed).length;
+  const errorCount = useMemo(() => entries.filter(e => e.level === 'error').length, [entries]);
+  const warnCount = useMemo(() => entries.filter(e => e.level === 'warn').length, [entries]);
+  const activeAlertCount = useMemo(() => alerts.filter(a => !a.dismissed).length, [alerts]);
 
   return {
     entries,

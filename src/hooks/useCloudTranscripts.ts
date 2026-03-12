@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
@@ -236,12 +236,12 @@ export const useCloudTranscripts = () => {
     }
   }, [user, transcripts]);
 
-  // Stats
-  const stats = {
+  // Stats (memoized to prevent unnecessary re-renders)
+  const stats = useMemo(() => ({
     total: transcripts.length,
     engines: [...new Set(transcripts.map(t => t.engine))],
     totalChars: transcripts.reduce((sum, t) => sum + t.text.length, 0),
-  };
+  }), [transcripts]);
 
   return {
     transcripts,
