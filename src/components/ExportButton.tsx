@@ -17,7 +17,7 @@ interface ExportButtonProps {
   text: string;
   title?: string;
   disabled?: boolean;
-  wordTimings?: Array<{ word: string; start: number; end: number }>;
+  wordTimings?: Array<{ word: string; start: number; end: number; probability?: number }>;
 }
 
 export const ExportButton = ({ text, title = "תמלול", disabled, wordTimings }: ExportButtonProps) => {

@@ -14,39 +14,6 @@ export type Database = {
   }
   public: {
     Tables: {
-      shared_transcripts: {
-        Row: {
-          id: string
-          transcript_id: string
-          share_token: string
-          user_id: string
-          created_at: string
-          expires_at: string | null
-          view_count: number
-          is_active: boolean
-        }
-        Insert: {
-          id?: string
-          transcript_id: string
-          share_token?: string
-          user_id: string
-          created_at?: string
-          expires_at?: string | null
-          view_count?: number
-          is_active?: boolean
-        }
-        Update: {
-          id?: string
-          transcript_id?: string
-          share_token?: string
-          user_id?: string
-          created_at?: string
-          expires_at?: string | null
-          view_count?: number
-          is_active?: boolean
-        }
-        Relationships: []
-      }
       migration_logs: {
         Row: {
           created_at: string
@@ -109,6 +76,47 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      shared_transcripts: {
+        Row: {
+          created_at: string | null
+          expires_at: string | null
+          id: string
+          is_active: boolean | null
+          share_token: string
+          transcript_id: string
+          user_id: string
+          view_count: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          share_token?: string
+          transcript_id: string
+          user_id: string
+          view_count?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          share_token?: string
+          transcript_id?: string
+          user_id?: string
+          view_count?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shared_transcripts_transcript_id_fkey"
+            columns: ["transcript_id"]
+            isOneToOne: false
+            referencedRelation: "transcripts"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       transcription_jobs: {
         Row: {
@@ -179,7 +187,6 @@ export type Database = {
           title: string | null
           updated_at: string
           user_id: string
-          word_timings: Record<string, unknown>[] | null
         }
         Insert: {
           audio_file_path?: string | null
@@ -195,7 +202,6 @@ export type Database = {
           title?: string | null
           updated_at?: string
           user_id: string
-          word_timings?: Record<string, unknown>[] | null
         }
         Update: {
           audio_file_path?: string | null
@@ -211,7 +217,6 @@ export type Database = {
           title?: string | null
           updated_at?: string
           user_id?: string
-          word_timings?: Record<string, unknown>[] | null
         }
         Relationships: []
       }
@@ -257,46 +262,52 @@ export type Database = {
       user_preferences: {
         Row: {
           created_at: string
+          custom_themes: Json | null
+          draft_text: string | null
+          editor_columns: number | null
+          engine: string | null
           font_family: string | null
           font_size: number | null
           id: string
           line_height: number | null
           sidebar_pinned: boolean | null
+          source_language: string | null
           text_color: string | null
           theme: string | null
-          engine: string | null
-          source_language: string | null
-          custom_themes: unknown | null
           updated_at: string
           user_id: string
         }
         Insert: {
           created_at?: string
+          custom_themes?: Json | null
+          draft_text?: string | null
+          editor_columns?: number | null
+          engine?: string | null
           font_family?: string | null
           font_size?: number | null
           id?: string
           line_height?: number | null
           sidebar_pinned?: boolean | null
+          source_language?: string | null
           text_color?: string | null
           theme?: string | null
-          engine?: string | null
-          source_language?: string | null
-          custom_themes?: unknown | null
           updated_at?: string
           user_id: string
         }
         Update: {
           created_at?: string
+          custom_themes?: Json | null
+          draft_text?: string | null
+          editor_columns?: number | null
+          engine?: string | null
           font_family?: string | null
           font_size?: number | null
           id?: string
           line_height?: number | null
           sidebar_pinned?: boolean | null
+          source_language?: string | null
           text_color?: string | null
           theme?: string | null
-          engine?: string | null
-          source_language?: string | null
-          custom_themes?: unknown | null
           updated_at?: string
           user_id?: string
         }

@@ -72,7 +72,7 @@ export const useShareLink = () => {
     // Fetch transcript content
     const { data: transcript, error: txError } = await supabase
       .from('transcripts')
-      .select('text, engine, created_at, title, word_timings')
+      .select('text, engine, created_at, title')
       .eq('id', shared.transcript_id)
       .single();
 
