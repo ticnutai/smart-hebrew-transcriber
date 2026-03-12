@@ -124,6 +124,9 @@ const DevToolsPanel = () => {
 
   // Edge function state
   const [edgeFnName, setEdgeFnName] = useState(EDGE_FUNCTIONS[0]);
+  const [useCustomFn, setUseCustomFn] = useState(false);
+  const [customFnName, setCustomFnName] = useState("");
+  const activeFnName = useCustomFn ? customFnName : edgeFnName;
   const [edgeFnMethod, setEdgeFnMethod] = useState<"GET" | "POST">("POST");
   const [edgeFnBody, setEdgeFnBody] = useState("{}");
   const [edgeFnHeaders, setEdgeFnHeaders] = useState<Array<{ key: string; value: string }>>([]);
@@ -280,7 +283,7 @@ const DevToolsPanel = () => {
     const start = Date.now();
 
     try {
-      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${edgeFnName}`;
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${activeFnName}`;
       const headers: Record<string, string> = {
         'Authorization': `Bearer ${session.access_token}`,
         'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
@@ -307,7 +310,7 @@ const DevToolsPanel = () => {
 
       setEdgeFnResult({ status: res.status, body: formatted, time: Date.now() - start });
       if (res.ok) {
-        toast.success(`פונקציה ${edgeFnName} הורצה בהצלחה`);
+        toast.success(`פונקציה ${activeFnName} הורצה בהצלחה`);
       } else {
         toast.error(`שגיאה ${res.status} מהפונקציה`);
       }
@@ -483,17 +486,35 @@ const DevToolsPanel = () => {
           <div className="space-y-3">
             <div className="flex flex-wrap gap-2 items-end">
               <div className="flex-1 min-w-[200px]">
-                <label className="text-sm font-medium mb-1 block">פונקציה</label>
-                <Select value={edgeFnName} onValueChange={setEdgeFnName}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {EDGE_FUNCTIONS.map(fn => (
-                      <SelectItem key={fn} value={fn}>{fn}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-sm font-medium">פונקציה</label>
+                  <button
+                    type="button"
+                    onClick={() => setUseCustomFn(!useCustomFn)}
+                    className="text-xs text-muted-foreground hover:text-foreground underline"
+                  >
+                    {useCustomFn ? "בחר מהרשימה" : "הזן ידנית"}
+                  </button>
+                </div>
+                {useCustomFn ? (
+                  <Input
+                    value={customFnName}
+                    onChange={(e) => setCustomFnName(e.target.value)}
+                    placeholder="שם הפונקציה..."
+                    className="font-mono text-sm"
+                  />
+                ) : (
+                  <Select value={edgeFnName} onValueChange={setEdgeFnName}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {EDGE_FUNCTIONS.map(fn => (
+                        <SelectItem key={fn} value={fn}>{fn}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
               <div className="w-[100px]">
                 <label className="text-sm font-medium mb-1 block">Method</label>
