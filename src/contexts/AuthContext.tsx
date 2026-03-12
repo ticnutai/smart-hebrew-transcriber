@@ -39,7 +39,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     // Single source of truth: onAuthStateChange handles all auth state
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
+      (event, session) => {
         // Clear fallback timeout as soon as we get any auth response
         if (timeoutId) {
           clearTimeout(timeoutId);
@@ -52,12 +52,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         });
         setSession(session);
         setUser(session?.user ?? null);
+        // Set loading false BEFORE admin check so pages render immediately
+        setIsLoading(false);
         if (session?.user) {
-          await checkAdmin(session.user.id);
+          // Admin check runs in background — doesn't block page load
+          checkAdmin(session.user.id);
         } else {
           setIsAdmin(false);
         }
-        setIsLoading(false);
       }
     );
 
