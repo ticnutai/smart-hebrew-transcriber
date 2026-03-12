@@ -28,6 +28,7 @@ const getLocalModelLabel = (): string => {
 };
 
 const START_CMD = '.\\scripts\\start-whisper-server.ps1';
+const isRemoteAccess = !['localhost', '127.0.0.1'].includes(window.location.hostname);
 
 export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSourceLanguageChange }: TranscriptionEngineProps) => {
   const { isConnected, serverStatus, checkConnection, startPolling, stopPolling, shutdownServer, warmupServer, preloadModelStream, cancelPreload, modelReady, modelLoading, getBaseUrl } = useLocalServer();
@@ -262,28 +263,43 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
                 <>
                   <span className="h-2.5 w-2.5 rounded-full bg-red-400" />
                   <span className="text-xs text-red-500 font-medium">
-                    {isStarting ? 'מחכה לשרת...' : 'לא מחובר'}
+                    {isStarting ? 'מחכה לשרת...' : isRemoteAccess ? 'נדרשת כתובת מרחוק' : 'לא מחובר'}
                   </span>
                 </>
               )}
             </div>
             {!isConnected ? (
-              <Button
-                size="sm"
-                variant="default"
-                className="gap-1.5 text-xs h-7"
-                onClick={(e) => {
-                  e.preventDefault();
-                  handleStartServer();
-                }}
-              >
-                {isStarting ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Power className="w-3.5 h-3.5" />
-                )}
-                {isStarting ? 'ממתין לחיבור...' : 'הפעל שרת'}
-              </Button>
+              isRemoteAccess ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5 text-xs h-7"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setAdvancedOpen(true);
+                  }}
+                >
+                  <Link2 className="w-3.5 h-3.5" />
+                  הגדר כתובת שרת
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="default"
+                  className="gap-1.5 text-xs h-7"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    handleStartServer();
+                  }}
+                >
+                  {isStarting ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Power className="w-3.5 h-3.5" />
+                  )}
+                  {isStarting ? 'ממתין לחיבור...' : 'הפעל שרת'}
+                </Button>
+              )
             ) : (
               <Button
                 size="sm"
@@ -300,7 +316,7 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
               </Button>
             )}
           </div>
-          {!isConnected && (
+          {!isConnected && !isRemoteAccess && (
             <div className="text-[11px] text-muted-foreground space-y-1 border-t pt-2">
               <p>הפעל בטרמינל:</p>
               <div className="flex items-center gap-1">
@@ -311,6 +327,12 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
                   <Copy className="w-3 h-3" />
                 </Button>
               </div>
+            </div>
+          )}
+          {!isConnected && isRemoteAccess && (
+            <div className="text-[11px] text-amber-600 dark:text-amber-400 space-y-1.5 border-t pt-2">
+              <p className="font-medium">📡 גישה מרחוק — נדרשת כתובת שרת</p>
+              <p className="text-muted-foreground">פתח הגדרות מתקדמות למטה והזן את כתובת שרת ה-Whisper שקיבלת מ-start-remote.ps1</p>
             </div>
           )}
         </div>

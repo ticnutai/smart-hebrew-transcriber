@@ -26,7 +26,7 @@ import {
   FileAudio,
 } from "lucide-react";
 
-const SERVER_URL = "http://localhost:8765";
+const SERVER_URL = localStorage.getItem('whisper_server_url') || "http://localhost:8765";
 
 interface ScanResult {
   system: {

@@ -1,2 +1,2 @@
 To https://github.com/ticnutai/smart-hebrew-transcriber.git
-   e5f4949..306ee44  main -> main
+   306ee44..3479c90  main -> main
