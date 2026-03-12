@@ -3,6 +3,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/co
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
+import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -15,6 +16,7 @@ import {
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip as RechartsTooltip, Legend, AreaChart, Area } from 'recharts';
 import { debugLog, type LogEntry } from '@/lib/debugLogger';
 import { useSmartConsole, type ConsoleAlert, type SystemHealth } from '@/hooks/useSmartConsole';
+import { spinnerDetector } from '@/lib/spinnerDetector';
 import { toast } from '@/hooks/use-toast';
 import {
   AlertDialog,
@@ -467,6 +469,117 @@ function PatternsTab({ patterns }: {
   );
 }
 
+// --- Spinner Detector Tab ---
+function SpinnerTab() {
+  const [enabled, setEnabled] = useState(spinnerDetector.isEnabled());
+  const [activeSpinners, setActiveSpinners] = useState(spinnerDetector.getActiveSpinners());
+
+  useEffect(() => {
+    const unsub = spinnerDetector.subscribe(setEnabled);
+    return unsub;
+  }, []);
+
+  // Refresh active spinners every second when enabled
+  useEffect(() => {
+    if (!enabled) return;
+    const id = setInterval(() => setActiveSpinners(spinnerDetector.getActiveSpinners()), 1000);
+    return () => clearInterval(id);
+  }, [enabled]);
+
+  return (
+    <div className="space-y-4">
+      {/* Toggle */}
+      <Card className="p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-medium">🔍 זיהוי ספינרים והשהויות</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              מזהה ספינרים ב-DOM, עוקב אחרי משך הצגה, ומנטר בקשות רשת איטיות
+            </p>
+          </div>
+          <Button
+            variant={enabled ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => spinnerDetector.toggle()}
+            className={`gap-1.5 ${enabled ? 'bg-green-600 hover:bg-green-700' : ''}`}
+          >
+            {enabled ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+            {enabled ? 'פעיל' : 'כבוי'}
+          </Button>
+        </div>
+      </Card>
+
+      {enabled && (
+        <>
+          {/* What it monitors */}
+          <Card className="p-3 bg-muted/30">
+            <p className="text-xs font-medium mb-1.5">מה נבדק:</p>
+            <div className="grid grid-cols-2 gap-1.5 text-xs text-muted-foreground">
+              <div className="flex items-center gap-1.5">
+                <Activity className="w-3 h-3 text-blue-500" />
+                <span>ספינרים (animate-spin)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Clock className="w-3 h-3 text-amber-500" />
+                <span>משך הצגת ספינר</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Zap className="w-3 h-3 text-yellow-500" />
+                <span>בקשות רשת איטיות ({'>'}3s)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <XCircle className="w-3 h-3 text-red-500" />
+                <span>בקשות שנכשלו</span>
+              </div>
+            </div>
+            <Separator className="my-2" />
+            <div className="text-[10px] text-muted-foreground space-y-0.5">
+              <div>⚠ אזהרה אחרי 5 שניות ספינר</div>
+              <div>🚨 שגיאה אחרי 15 שניות ספינר</div>
+              <div>🐌 בקשת רשת מעל 3 שניות מדווחת</div>
+            </div>
+          </Card>
+
+          {/* Active Spinners */}
+          <div>
+            <h3 className="text-sm font-medium mb-2">ספינרים פעילים כרגע:</h3>
+            {activeSpinners.length === 0 ? (
+              <Card className="p-6 text-center">
+                <CheckCircle className="w-6 h-6 text-green-500 mx-auto mb-2" />
+                <p className="text-xs text-muted-foreground">אין ספינרים פעילים — הכל טעון</p>
+              </Card>
+            ) : (
+              <div className="space-y-2">
+                {activeSpinners.map((s, i) => (
+                  <Card key={i} className={`p-3 ${s.durationSec > 10 ? 'border-red-500/40 bg-red-500/5' : s.durationSec > 5 ? 'border-amber-500/30 bg-amber-500/5' : ''}`}>
+                    <div className="flex items-center gap-2">
+                      <div className={`animate-spin w-4 h-4 rounded-full border-2 border-t-transparent ${
+                        s.durationSec > 10 ? 'border-red-500' : s.durationSec > 5 ? 'border-amber-500' : 'border-primary'
+                      }`} />
+                      <span className="text-xs flex-1">{s.label}</span>
+                      <Badge variant={s.durationSec > 10 ? 'destructive' : s.durationSec > 5 ? 'outline' : 'secondary'} className="text-xs">
+                        {s.durationSec.toFixed(1)}s
+                      </Badge>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {!enabled && (
+        <Card className="p-6 text-center">
+          <EyeOff className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+          <p className="text-sm text-muted-foreground">הפעל את זיהוי הספינרים כדי לעקוב אחרי השהויות וטעינות</p>
+          <p className="text-xs text-muted-foreground mt-1">הלוגים יופיעו בלשונית "לוג חי" ויישמרו גם אחרי קריסה</p>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 // --- Main Component ---
 export function SmartConsole() {
   const {
@@ -546,6 +659,10 @@ export function SmartConsole() {
                   <RefreshCw className="w-3.5 h-3.5" />
                   דפוסים
                 </TabsTrigger>
+                <TabsTrigger value="spinners" className="gap-1.5">
+                  <Activity className="w-3.5 h-3.5" />
+                  ספינרים
+                </TabsTrigger>
               </TabsList>
 
               <TabsContent value="alerts">
@@ -562,6 +679,10 @@ export function SmartConsole() {
 
               <TabsContent value="patterns">
                 <PatternsTab patterns={patterns} />
+              </TabsContent>
+
+              <TabsContent value="spinners">
+                <SpinnerTab />
               </TabsContent>
             </Tabs>
           </div>
