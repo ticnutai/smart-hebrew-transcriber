@@ -15,10 +15,16 @@ param(
 )
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$venvPython  = Join-Path $projectRoot "venv-whisper\Scripts\python.exe"
+
+# Check .venv first, then venv-whisper (legacy)
+$venvPython = Join-Path $projectRoot ".venv\Scripts\python.exe"
+if (-not (Test-Path $venvPython)) {
+    $venvPython = Join-Path $projectRoot "venv-whisper\Scripts\python.exe"
+}
 
 if (-not (Test-Path $venvPython)) {
-    Write-Host "[ERROR] venv-whisper not found. Run: .\scripts\install-whisper-server.ps1" -ForegroundColor Red
+    Write-Host "[ERROR] No virtual environment found (.venv or venv-whisper)." -ForegroundColor Red
+    Write-Host "  Run: .\scripts\setup-offline.ps1" -ForegroundColor Yellow
     exit 1
 }
 

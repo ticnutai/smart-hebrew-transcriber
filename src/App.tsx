@@ -35,6 +35,7 @@ const Dashboard = lazyWithLog('Dashboard', () => import("./pages/Dashboard"));
 const Index = lazyWithLog('Transcribe', () => import("./pages/Index"));
 const Login = lazyWithLog('Login', () => import("./pages/Login"));
 const Settings = lazyWithLog('Settings', () => import("./pages/Settings"));
+const Setup = lazyWithLog('Setup', () => import("./pages/Setup"));
 const TextEditor = lazyWithLog('TextEditor', () => import("./pages/TextEditor"));
 const Folders = lazyWithLog('Folders', () => import("./pages/Folders"));
 const NotFound = lazyWithLog('NotFound', () => import("./pages/NotFound"));
@@ -115,6 +116,7 @@ const App = () => {
                 <Route path="/transcribe" element={<ProtectedRoute><Index /></ProtectedRoute>} />
                 <Route path="/login" element={<Login />} />
                 <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+                <Route path="/setup" element={<ProtectedRoute><Setup /></ProtectedRoute>} />
                 <Route path="/text-editor" element={<ProtectedRoute><TextEditor /></ProtectedRoute>} />
                 <Route path="/folders" element={<ProtectedRoute><Folders /></ProtectedRoute>} />
                 <Route path="*" element={<NotFound />} />

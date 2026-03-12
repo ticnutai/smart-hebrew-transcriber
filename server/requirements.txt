@@ -2,4 +2,5 @@ torch
 faster-whisper
 flask
 flask-cors
+flask-compress
 waitress

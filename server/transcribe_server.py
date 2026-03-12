@@ -536,6 +536,71 @@ def diagnostics_endpoint():
     })
 
 
+@app.route("/setup/scan", methods=["GET"])
+def setup_scan():
+    """System scan for the setup wizard — returns GPU, RAM, disk, installed packages."""
+    import shutil
+    gpu_mem = _get_gpu_mem()
+    sys_mem = _get_system_mem()
+    gpu_name = get_gpu_name()
+    device = get_device()
+
+    # Disk space for project root
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    disk = shutil.disk_usage(project_root)
+    disk_free_gb = round(disk.free / (1024**3), 1)
+    disk_total_gb = round(disk.total / (1024**3), 1)
+
+    # CUDA info
+    cuda_available = False
+    cuda_version = None
+    gpu_device_name = None
+    if _has_torch:
+        cuda_available = torch.cuda.is_available()
+        if cuda_available:
+            cuda_version = torch.version.cuda
+            gpu_device_name = torch.cuda.get_device_name(0)
+
+    # Package versions
+    packages = {}
+    for pkg in ["faster_whisper", "flask", "flask_compress", "waitress", "torch", "ctranslate2"]:
+        try:
+            mod = __import__(pkg)
+            packages[pkg] = getattr(mod, "__version__", "installed")
+        except ImportError:
+            packages[pkg] = None
+
+    # Downloaded models
+    downloaded = get_downloaded_models()
+
+    return jsonify({
+        "system": {
+            "python_version": sys.version.split()[0],
+            "ram": sys_mem,
+            "disk_free_gb": disk_free_gb,
+            "disk_total_gb": disk_total_gb,
+        },
+        "gpu": {
+            "name": gpu_name or gpu_device_name,
+            "device": device,
+            "cuda_available": cuda_available,
+            "cuda_version": cuda_version,
+            "memory": gpu_mem,
+        },
+        "packages": packages,
+        "models": {
+            "current": _current_model_id,
+            "downloaded": downloaded,
+            "available": list(MODEL_REGISTRY.keys()),
+            "model_ready": len(_model_cache) > 0,
+        },
+        "server": {
+            "uptime_seconds": int(time.time() - _server_start_time),
+            "port": int(os.environ.get("PORT", 8765)),
+        },
+    })
+
+
 @app.route("/models", methods=["GET"])
 def list_models():
     """List available models."""

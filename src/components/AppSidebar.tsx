@@ -20,6 +20,7 @@ import {
   ChevronDown,
   Plus,
   Trash2,
+  Server,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
@@ -41,6 +42,7 @@ const navItems: NavItem[] = [
   { label: "תמלול", icon: Mic, path: "/transcribe" },
   { label: "תיקיות", icon: FolderOpen, path: "/folders" },
   { label: "עורך טקסט", icon: FileText, path: "/text-editor" },
+  { label: "התקנת שרת", icon: Server, path: "/setup" },
   { label: "הגדרות", icon: Settings, path: "/settings" },
 ];
 
