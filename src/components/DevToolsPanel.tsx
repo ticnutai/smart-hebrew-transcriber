@@ -563,6 +563,7 @@ const DevToolsPanel = () => {
         {/* Edge Functions Tab */}
         <TabsContent value="edge" className="space-y-4 mt-4">
           <div className="space-y-3">
+            {/* Function selector + method + run */}
             <div className="flex flex-wrap gap-2 items-end">
               <div className="flex-1 min-w-[200px]">
                 <div className="flex items-center justify-between mb-1">
@@ -583,33 +584,45 @@ const DevToolsPanel = () => {
                     className="font-mono text-sm"
                   />
                 ) : (
-                  <Select value={edgeFnName} onValueChange={setEdgeFnName}>
+                  <Select value={edgeFnName} onValueChange={(v) => {
+                    setEdgeFnName(v);
+                    if (BODY_TEMPLATES[v]) {
+                      setEdgeFnBody(BODY_TEMPLATES[v].body);
+                      setEdgeFnMethod(BODY_TEMPLATES[v].method);
+                    }
+                  }}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       {EDGE_FUNCTIONS.map(fn => (
-                        <SelectItem key={fn} value={fn}>{fn}</SelectItem>
+                        <SelectItem key={fn} value={fn}>
+                          <span className="flex items-center gap-2">
+                            {fn}
+                            {BODY_TEMPLATES[fn] && <Sparkles className="w-3 h-3 text-muted-foreground" />}
+                          </span>
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 )}
               </div>
-              <div className="w-[100px]">
+              <div className="w-[120px]">
                 <label className="text-sm font-medium mb-1 block">Method</label>
-                <Select value={edgeFnMethod} onValueChange={(v) => setEdgeFnMethod(v as "GET" | "POST")}>
+                <Select value={edgeFnMethod} onValueChange={(v) => setEdgeFnMethod(v as HttpMethod)}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="GET">GET</SelectItem>
-                    <SelectItem value="POST">POST</SelectItem>
+                    {(["GET", "POST", "PUT", "PATCH", "DELETE"] as HttpMethod[]).map(m => (
+                      <SelectItem key={m} value={m}>{m}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
               <Button
                 onClick={runEdgeFunction}
-                disabled={edgeFnRunning}
+                disabled={edgeFnRunning || !activeFnName.trim()}
                 className="gap-2"
               >
                 {edgeFnRunning ? (
@@ -621,9 +634,54 @@ const DevToolsPanel = () => {
               </Button>
             </div>
 
-            {edgeFnMethod === "POST" && (
+            {/* Template description */}
+            {!useCustomFn && BODY_TEMPLATES[edgeFnName] && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2">
+                <Sparkles className="w-3 h-3 shrink-0" />
+                <span>{BODY_TEMPLATES[edgeFnName].description}</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 text-xs mr-auto"
+                  onClick={() => loadTemplate(edgeFnName)}
+                >
+                  <RotateCcw className="w-3 h-3 ml-1" />
+                  אפס תבנית
+                </Button>
+              </div>
+            )}
+
+            {/* Body editor */}
+            {edgeFnMethod !== "GET" && edgeFnMethod !== "DELETE" && (
               <div>
-                <label className="text-sm font-medium mb-1 block">Body (JSON)</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-sm font-medium">Body (JSON)</label>
+                  <div className="flex gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 text-xs"
+                      onClick={() => {
+                        try {
+                          setEdgeFnBody(JSON.stringify(JSON.parse(edgeFnBody), null, 2));
+                          toast.success("JSON פורמט");
+                        } catch { toast.error("JSON לא תקין"); }
+                      }}
+                    >
+                      <Code2 className="w-3 h-3 ml-1" />
+                      פרמט
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 text-xs"
+                      onClick={() => setEdgeFnBody("{}")}
+                    >
+                      <Trash2 className="w-3 h-3 ml-1" />
+                      נקה
+                    </Button>
+                  </div>
+                </div>
                 <textarea
                   value={edgeFnBody}
                   onChange={(e) => setEdgeFnBody(e.target.value)}
@@ -689,6 +747,7 @@ const DevToolsPanel = () => {
               </div>
             </div>
 
+            {/* Result */}
             {edgeFnResult && (
               <Card className={`border-2 ${edgeFnResult.status >= 200 && edgeFnResult.status < 300 ? "border-green-500/30 bg-green-500/5" : "border-destructive/30 bg-destructive/5"}`}>
                 <CardHeader className="pb-2">
@@ -711,6 +770,9 @@ const DevToolsPanel = () => {
                       <Button variant="ghost" size="sm" onClick={() => copyToClipboard(edgeFnResult.body)}>
                         <Copy className="w-3 h-3" />
                       </Button>
+                      <Button variant="ghost" size="sm" onClick={() => setEdgeFnResult(null)}>
+                        <Trash2 className="w-3 h-3" />
+                      </Button>
                     </div>
                   </div>
                 </CardHeader>
@@ -722,6 +784,54 @@ const DevToolsPanel = () => {
                   </ScrollArea>
                 </CardContent>
               </Card>
+            )}
+
+            {/* History */}
+            {edgeFnHistory.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-medium flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    היסטוריית הרצות ({edgeFnHistory.length})
+                  </label>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 text-xs"
+                    onClick={() => setEdgeFnHistory([])}
+                  >
+                    נקה היסטוריה
+                  </Button>
+                </div>
+                <ScrollArea className="max-h-[200px]">
+                  <div className="space-y-1">
+                    {edgeFnHistory.map((entry) => (
+                      <div
+                        key={entry.id}
+                        className="flex items-center gap-2 text-xs p-2 rounded-md hover:bg-muted/50 cursor-pointer group"
+                        onClick={() => replayFromHistory(entry)}
+                        title="לחץ לטעינה מחדש"
+                      >
+                        {entry.status >= 200 && entry.status < 300 ? (
+                          <CheckCircle className="w-3 h-3 text-green-500 shrink-0" />
+                        ) : (
+                          <XCircle className="w-3 h-3 text-destructive shrink-0" />
+                        )}
+                        <Badge variant="outline" className="text-[10px] px-1 py-0 font-mono">
+                          {entry.method}
+                        </Badge>
+                        <span className="font-mono truncate flex-1">{entry.fn}</span>
+                        <span className="text-muted-foreground">{entry.status}</span>
+                        <span className="text-muted-foreground">{entry.time}ms</span>
+                        <span className="text-muted-foreground">
+                          {entry.timestamp.toLocaleTimeString("he-IL")}
+                        </span>
+                        <RotateCcw className="w-3 h-3 opacity-0 group-hover:opacity-100 text-muted-foreground shrink-0" />
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </div>
             )}
           </div>
         </TabsContent>
