@@ -393,7 +393,6 @@ const DevToolsPanel = () => {
       } else {
         toast.error(`שגיאה ${res.status} מהפונקציה`);
       }
-      }
     } catch (err: any) {
       setEdgeFnResult({ status: 0, body: err.message, time: Date.now() - start });
       toast.error(err.message || "שגיאה בהרצת הפונקציה");
