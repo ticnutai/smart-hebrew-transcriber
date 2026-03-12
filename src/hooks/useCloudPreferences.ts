@@ -12,6 +12,7 @@ export interface UserPreferences {
   engine: string;         // transcription engine
   source_language: string; // source language for transcription
   custom_themes: string;  // JSON string of custom themes array
+  editor_columns: number; // 1, 2, or 3 column text display
 }
 
 const DEFAULT_PREFERENCES: UserPreferences = {
@@ -24,6 +25,7 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   engine: 'groq',
   source_language: 'auto',
   custom_themes: '[]',
+  editor_columns: 1,
 };
 
 export const useCloudPreferences = () => {
@@ -52,8 +54,10 @@ export const useCloudPreferences = () => {
           const lineHeight = localStorage.getItem('transcript_lineHeight');
           const themeId = localStorage.getItem('app_theme_id');
           const customThemes = localStorage.getItem('app_custom_themes');
+          const editorCols = localStorage.getItem('editor_columns');
           if (engine) prefs.engine = engine;
           if (srcLang) prefs.source_language = srcLang;
+          if (editorCols) prefs.editor_columns = Number(editorCols);
           if (fontSize) prefs.font_size = Number(fontSize);
           if (fontFamily) prefs.font_family = fontFamily;
           if (textColor) prefs.text_color = textColor;
@@ -87,11 +91,13 @@ export const useCloudPreferences = () => {
           custom_themes: typeof (data as any).custom_themes === 'string'
             ? (data as any).custom_themes
             : JSON.stringify((data as any).custom_themes ?? []),
+          editor_columns: (data as any).editor_columns ?? DEFAULT_PREFERENCES.editor_columns,
         };
         setPreferences(loaded);
         // Mirror to localStorage so useTheme picks up cloud values
         localStorage.setItem('app_theme_id', loaded.theme);
         localStorage.setItem('app_custom_themes', loaded.custom_themes);
+        localStorage.setItem('editor_columns', String(loaded.editor_columns));
         window.dispatchEvent(new CustomEvent('cloud-prefs-loaded'));
       } else if (!error) {
         // Create initial record
@@ -120,6 +126,7 @@ export const useCloudPreferences = () => {
     localStorage.setItem('transcript_lineHeight', String(updated.line_height));
     localStorage.setItem('app_theme_id', updated.theme);
     localStorage.setItem('app_custom_themes', updated.custom_themes);
+    localStorage.setItem('editor_columns', String(updated.editor_columns));
 
     if (!user) return;
 
@@ -142,6 +149,7 @@ export const useCloudPreferences = () => {
           engine: updated.engine,
           source_language: updated.source_language,
           custom_themes: customThemesParsed,
+          editor_columns: updated.editor_columns,
           updated_at: new Date().toISOString(),
         } as any, { onConflict: 'user_id' });
 

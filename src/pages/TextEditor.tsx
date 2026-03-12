@@ -46,14 +46,9 @@ const TextEditor = () => {
   const setTextColor = (v: string) => updatePreference('text_color', v);
   const setLineHeight = (v: number) => updatePreference('line_height', v);
 
-  // Column view
-  const [columns, setColumns] = useState(() => {
-    const saved = localStorage.getItem('editor_columns');
-    return saved ? parseInt(saved, 10) : 1;
-  });
-  useEffect(() => {
-    localStorage.setItem('editor_columns', String(columns));
-  }, [columns]);
+  // Column view (cloud-synced)
+  const columns = preferences.editor_columns;
+  const setColumns = (v: number) => updatePreference('editor_columns', v);
 
   const columnStyle: React.CSSProperties = columns > 1 ? {
     columnCount: columns,
