@@ -1,4 +1,4 @@
-const CACHE_NAME = 'transcriber-v2';
+const CACHE_NAME = 'transcriber-v3';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -127,5 +127,47 @@ self.addEventListener('fetch', (event) => {
         if (cached) return cached;
         return new Response('Service Unavailable', { status: 503, statusText: 'Service Unavailable' });
       })
+  );
+});
+
+// ═══════════════════════════════════════════════
+//  PUSH NOTIFICATIONS — batch job completion etc.
+// ═══════════════════════════════════════════════
+
+// Listen for messages from the main app
+self.addEventListener('message', (event) => {
+  if (!event.data) return;
+
+  // Show local notification (no push server needed)
+  if (event.data.type === 'SHOW_NOTIFICATION') {
+    const { title, body, tag, url } = event.data;
+    self.registration.showNotification(title || 'מתמלל עברי חכם', {
+      body: body || '',
+      icon: '/pwa-192.svg',
+      badge: '/pwa-192.svg',
+      tag: tag || 'transcriber-notification',
+      dir: 'rtl',
+      lang: 'he',
+      data: { url: url || '/' },
+    });
+  }
+});
+
+// Handle notification click — focus or open the app
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = event.notification.data?.url || '/';
+
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      // Focus existing tab if open
+      for (const client of windowClients) {
+        if (client.url.includes(self.location.origin) && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      // Otherwise open a new tab
+      return clients.openWindow(url);
+    })
   );
 });

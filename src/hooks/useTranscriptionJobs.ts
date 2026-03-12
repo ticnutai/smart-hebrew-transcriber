@@ -76,8 +76,27 @@ export const useTranscriptionJobs = () => {
           setJobs(prev => prev.map(j => j.id === updated.id ? updated : j));
           if (updated.status === 'completed') {
             toast({ title: "תמלול הושלם! ✅", description: `הקובץ "${updated.file_name}" תומלל בהצלחה` });
+            // Send push notification if page is not focused
+            if (document.hidden && 'serviceWorker' in navigator && navigator.serviceWorker.controller) {
+              navigator.serviceWorker.controller.postMessage({
+                type: 'SHOW_NOTIFICATION',
+                title: 'תמלול הושלם! ✅',
+                body: `הקובץ "${updated.file_name}" תומלל בהצלחה`,
+                tag: `job-${updated.id}`,
+                url: '/transcribe',
+              });
+            }
           } else if (updated.status === 'failed') {
             toast({ title: "שגיאה בתמלול", description: updated.error_message || 'שגיאה לא ידועה', variant: "destructive" });
+            if (document.hidden && 'serviceWorker' in navigator && navigator.serviceWorker.controller) {
+              navigator.serviceWorker.controller.postMessage({
+                type: 'SHOW_NOTIFICATION',
+                title: 'שגיאה בתמלול ❌',
+                body: `${updated.file_name}: ${updated.error_message || 'שגיאה לא ידועה'}`,
+                tag: `job-${updated.id}`,
+                url: '/transcribe',
+              });
+            }
           }
         } else if (payload.eventType === 'DELETE') {
           setJobs(prev => prev.filter(j => j.id !== payload.old.id));
@@ -136,6 +155,11 @@ export const useTranscriptionJobs = () => {
       if (jobError || !job) throw new Error('Failed to create job');
 
       toast({ title: "מעלה קובץ ברקע...", description: `"${file.name}" - ${chunks.length > 1 ? `${chunks.length} חלקים` : 'חלק אחד'}` });
+
+      // Request notification permission (non-blocking) for background job alerts
+      if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission();
+      }
 
       // Upload file to storage
       const filePath = `${user.id}/${job.id}_${Date.now()}.${file.name.split('.').pop()}`;

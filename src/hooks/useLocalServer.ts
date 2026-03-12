@@ -101,6 +101,11 @@ export const useLocalServer = () => {
     return localStorage.getItem('whisper_server_url') || DEFAULT_SERVER_URL;
   };
 
+  const getApiHeaders = (): Record<string, string> => {
+    const key = localStorage.getItem('whisper_api_key') || '';
+    return key ? { 'X-API-Key': key } : {};
+  };
+
   const checkConnection = useCallback(async () => {
     const url = `${getBaseUrl()}/health`;
     try {
@@ -198,6 +203,7 @@ export const useLocalServer = () => {
 
       const res = await fetch(`${getBaseUrl()}/transcribe`, {
         method: 'POST',
+        headers: getApiHeaders(),
         body: form,
       });
 
@@ -232,6 +238,7 @@ export const useLocalServer = () => {
       form.append('file', file, file.name);
       const res = await fetch(`${getBaseUrl()}/stage-audio`, {
         method: 'POST',
+        headers: getApiHeaders(),
         body: form,
       });
       if (!res.ok) return null;
@@ -315,6 +322,7 @@ export const useLocalServer = () => {
 
       const res = await fetch(`${getBaseUrl()}/transcribe-stream`, {
         method: 'POST',
+        headers: getApiHeaders(),
         body: form,
         signal: abortRef.current.signal,
       });
@@ -488,6 +496,7 @@ export const useLocalServer = () => {
 
       const res = await fetch(streamUrl, {
         method: 'POST',
+        headers: getApiHeaders(),
         body: form,
         signal: abortRef.current.signal,
       });
@@ -652,7 +661,7 @@ export const useLocalServer = () => {
   const loadModel = async (modelId: string) => {
     const res = await fetch(`${getBaseUrl()}/load-model`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...getApiHeaders() },
       body: JSON.stringify({ model: modelId }),
     });
     if (!res.ok) {
@@ -665,7 +674,7 @@ export const useLocalServer = () => {
   const downloadModel = async (modelId: string) => {
     const res = await fetch(`${getBaseUrl()}/download-model`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...getApiHeaders() },
       body: JSON.stringify({ model: modelId }),
     });
     if (!res.ok) {
@@ -677,7 +686,7 @@ export const useLocalServer = () => {
 
   const shutdownServer = useCallback(async () => {
     try {
-      await fetch(`${getBaseUrl()}/shutdown`, { method: 'POST', signal: AbortSignal.timeout(3000) });
+      await fetch(`${getBaseUrl()}/shutdown`, { method: 'POST', headers: getApiHeaders(), signal: AbortSignal.timeout(3000) });
     } catch {
       // Expected — server dies before responding
     }
@@ -687,7 +696,7 @@ export const useLocalServer = () => {
 
   const warmupServer = useCallback(async () => {
     try {
-      const res = await fetch(`${getBaseUrl()}/warmup`, { method: 'POST', signal: AbortSignal.timeout(30000) });
+      const res = await fetch(`${getBaseUrl()}/warmup`, { method: 'POST', headers: getApiHeaders(), signal: AbortSignal.timeout(30000) });
       if (res.ok) {
         const data = await res.json();
         return data.warmup_time as number;
@@ -713,7 +722,7 @@ export const useLocalServer = () => {
     try {
       const res = await fetch(`${getBaseUrl()}/preload-stream`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getApiHeaders() },
         body: JSON.stringify({ model, compute_type: ct }),
         signal: preloadAbortRef.current.signal,
       });

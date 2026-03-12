@@ -70,6 +70,53 @@ app = Flask(__name__)
 CORS(app)
 Compress(app)  # gzip/deflate all JSON responses (60-70% size reduction)
 
+# ════════════════════════════════════════════════════════════════════
+#  OPTIONAL API KEY + RATE LIMITING
+# ════════════════════════════════════════════════════════════════════
+# Set via --api-key flag or WHISPER_API_KEY env var.
+# When set, every request must include header: X-API-Key: <key>
+# Health/status endpoints are exempt so the frontend can detect the server.
+
+_api_key: str | None = os.environ.get("WHISPER_API_KEY")
+
+# Simple rate limiter — max requests per minute per IP
+_rate_limit_max = 30  # transcription requests per minute
+_rate_limit_window = 60  # seconds
+_rate_limit_store: dict[str, list[float]] = {}  # ip → list of timestamps
+
+def _check_rate_limit(ip: str) -> bool:
+    """Return True if allowed, False if rate-limited."""
+    now = time.time()
+    timestamps = _rate_limit_store.get(ip, [])
+    timestamps = [t for t in timestamps if now - t < _rate_limit_window]
+    _rate_limit_store[ip] = timestamps
+    if len(timestamps) >= _rate_limit_max:
+        return False
+    timestamps.append(now)
+    return True
+
+@app.before_request
+def _auth_and_rate_limit():
+    """Check API key (if configured) and rate limit on mutation endpoints."""
+    # Exempt endpoints — always accessible for server discovery
+    exempt = {"/health", "/status", "/debug", "/diagnostics", "/models"}
+    if request.path in exempt or request.method == "OPTIONS":
+        return None
+
+    # API key check
+    if _api_key:
+        provided = request.headers.get("X-API-Key", "")
+        if provided != _api_key:
+            return jsonify({"error": "Invalid or missing API key", "hint": "Set X-API-Key header"}), 401
+
+    # Rate limit on POST endpoints (transcription, model loading, etc.)
+    if request.method == "POST":
+        ip = request.remote_addr or "unknown"
+        if not _check_rate_limit(ip):
+            return jsonify({"error": "Rate limit exceeded", "limit": f"{_rate_limit_max} requests per {_rate_limit_window}s"}), 429
+
+    return None
+
 # Allowed audio/video file extensions for upload
 _ALLOWED_SUFFIXES = frozenset({
     ".mp3", ".wav", ".m4a", ".webm", ".ogg", ".flac", ".aac", ".wma",
@@ -1600,11 +1647,16 @@ def _evict_stale_models():
 
 
 def main():
+    global _api_key
     parser = argparse.ArgumentParser(description="Local Whisper Transcription Server")
     parser.add_argument("--port", type=int, default=8765, help="Port to listen on")
     parser.add_argument("--model", type=str, default=DEFAULT_MODEL, help="Default model to preload")
     parser.add_argument("--no-preload", action="store_true", help="Don't preload the default model")
+    parser.add_argument("--api-key", type=str, default=None, help="Require API key for requests (or set WHISPER_API_KEY env var)")
     args = parser.parse_args()
+
+    if args.api_key:
+        _api_key = args.api_key
 
     print("=" * 60)
     print("  Smart Hebrew Transcriber — Local Whisper Server")
@@ -1619,6 +1671,10 @@ def main():
         print(f"  GPU: {gpu_name}")
     print(f"  Port: {args.port}")
     print(f"  Default model: {args.model}")
+    if _api_key:
+        print(f"  API Key: {'*' * (len(_api_key) - 4)}{_api_key[-4:]}")
+    else:
+        print(f"  API Key: not set (open access)")
     print("=" * 60)
 
     if not args.no_preload:
@@ -1653,6 +1709,7 @@ def main():
     eviction_thread.start()
     print(f"  Model cache TTL: {MODEL_TTL_SECONDS // 60} minutes")
     print(f"  Max upload size: {MAX_UPLOAD_SIZE_MB} MB")
+    print(f"  Rate limit: {_rate_limit_max} requests/{_rate_limit_window}s per IP")
     print(f"  GPU concurrency: 1 (serialized via lock)")
 
     print("  Endpoints:")

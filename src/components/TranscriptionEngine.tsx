@@ -53,6 +53,7 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
   const [hotwords, setHotwords] = useState(() => localStorage.getItem('cuda_hotwords') || '');
   const [paragraphThreshold, setParagraphThreshold] = useState(() => parseFloat(localStorage.getItem('cuda_paragraph_threshold') || '0'));
   const [serverUrl, setServerUrl] = useState(() => localStorage.getItem('whisper_server_url') || '');
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem('whisper_api_key') || '');
   const [ollamaUrl, setOllamaUrl] = useState(() => localStorage.getItem('ollama_base_url') || '');
 
   // "True remote" = non-localhost site + custom remote URL configured
@@ -660,6 +661,22 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
                       setServerUrl(v);
                       if (v) localStorage.setItem('whisper_server_url', v);
                       else localStorage.removeItem('whisper_server_url');
+                    }}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[11px] text-muted-foreground text-right block">מפתח API לשרת (אופציונלי)</Label>
+                  <input
+                    type="password"
+                    className="w-full h-8 text-xs rounded-md border bg-background px-3 text-left dir-ltr font-mono"
+                    dir="ltr"
+                    placeholder="ריק = ללא הגנה"
+                    value={apiKey}
+                    onChange={(e) => {
+                      const v = e.target.value.trim();
+                      setApiKey(v);
+                      if (v) localStorage.setItem('whisper_api_key', v);
+                      else localStorage.removeItem('whisper_api_key');
                     }}
                   />
                 </div>
