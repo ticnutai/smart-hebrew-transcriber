@@ -99,9 +99,23 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
         throw new Error(data.error || 'Failed to start');
       }
     } catch (err: any) {
+      // Fallback: try launcher service on 8764
+      try {
+        const launcherRes = await fetch('http://localhost:8764/start', { method: 'POST', signal: AbortSignal.timeout(5000) });
+        const launcherData = await launcherRes.json();
+        if (launcherData.ok) {
+          toast({
+            title: "🚀 השרת מופעל!",
+            description: launcherData.results?.whisper?.message === 'already running' ? 'השרת כבר רץ, ממתין לחיבור...' : 'שרת CUDA + Ollama עולים...',
+          });
+          return;
+        }
+      } catch {
+        // launcher not available either
+      }
       toast({
         title: "שגיאה בהפעלת השרת",
-        description: err.message || "לא ניתן להפעיל. הפעל ידנית בטרמינל.",
+        description: "לא ניתן להפעיל. הפעל ידנית בטרמינל.",
         variant: "destructive",
       });
       setIsStarting(false);
@@ -289,22 +303,42 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
                   הגדר כתובת שרת
                 </Button>
               ) : isNonLocalHost ? (
-                /* On Lovable site — can't start server remotely, show polling status */
+                /* On Lovable site — try launcher service on 8764, then check connection */
                 <Button
                   size="sm"
                   variant="default"
                   className="gap-1.5 text-xs h-7"
-                  onClick={(e) => {
+                  onClick={async (e) => {
                     e.preventDefault();
                     setIsStarting(true);
-                    checkConnection().then((ok) => {
-                      if (ok) {
-                        toast({ title: '🟢 מחובר!', description: 'שרת CUDA זוהה' });
-                      } else {
-                        toast({ title: '🔴 שרת לא נמצא', description: 'הפעל start-lovable.ps1 במחשב ונסה שוב', variant: 'destructive' });
+                    // Step 1: Try launcher service to start everything
+                    try {
+                      const res = await fetch('http://localhost:8764/start', { method: 'POST', signal: AbortSignal.timeout(5000) });
+                      const data = await res.json();
+                      if (data.ok) {
+                        toast({
+                          title: '🚀 מפעיל שרת CUDA...',
+                          description: data.results?.whisper?.message === 'already running'
+                            ? 'השרת כבר רץ, ממתין לחיבור...'
+                            : 'השרת עולה, ממתין לחיבור...',
+                        });
+                        return; // polling will pick it up
                       }
-                      setIsStarting(false);
-                    });
+                    } catch {
+                      // Launcher not running — try direct connection check
+                    }
+                    // Step 2: Fallback — just check if server already reachable
+                    const ok = await checkConnection();
+                    if (ok) {
+                      toast({ title: '🟢 מחובר!', description: 'שרת CUDA זוהה' });
+                    } else {
+                      toast({
+                        title: '🔴 שרת לא נמצא',
+                        description: 'הפעל install-launcher.ps1 ואז נסה שוב, או הפעל start-lovable.ps1 ידנית',
+                        variant: 'destructive',
+                      });
+                    }
+                    setIsStarting(false);
                   }}
                 >
                   {isStarting ? (
@@ -312,7 +346,7 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
                   ) : (
                     <Server className="w-3.5 h-3.5" />
                   )}
-                  {isStarting ? 'בודק חיבור...' : 'חבר לשרת'}
+                  {isStarting ? 'מפעיל...' : 'הפעל שרת'}
                 </Button>
               ) : (
                 <Button
@@ -363,16 +397,19 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
           )}
           {!isConnected && !isRemoteAccess && isNonLocalHost && (
             <div className="text-[11px] text-muted-foreground space-y-1.5 border-t pt-2">
-              <p className="font-medium">🖥️ הפעל את הסקריפט במחשב שלך:</p>
+              <p className="font-medium">🖥️ לחץ "הפעל שרת" — ה-Launcher יפעיל הכל אוטומטית!</p>
+              <p className="text-muted-foreground">
+                הפעם ראשונה? הרץ פעם אחת בטרמינל:
+              </p>
               <div className="flex items-center gap-1">
                 <code className="flex-1 bg-background px-2 py-1 rounded text-[11px] font-mono border select-all">
-                  {START_CMD_LOVABLE}
+                  .\scripts\install-launcher.ps1
                 </code>
-                <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={(e) => { e.preventDefault(); navigator.clipboard.writeText(START_CMD_LOVABLE); toast({ title: 'הועתק', description: 'הפקודה הועתקה ללוח' }); }}>
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={(e) => { e.preventDefault(); navigator.clipboard.writeText('.\\scripts\\install-launcher.ps1'); toast({ title: 'הועתק', description: 'הפקודה הועתקה ללוח' }); }}>
                   <Copy className="w-3 h-3" />
                 </Button>
               </div>
-              <p className="text-muted-foreground">הסקריפט מפעיל את שרת ה-CUDA ופותח את האתר. הדפדפן מתחבר ישירות ל-localhost:8765</p>
+              <p className="text-[10px] text-muted-foreground">זה מתקין שירות קטן שעולה אוטומטית עם Windows ומאפשר הפעלת השרת מהאתר</p>
             </div>
           )}
           {!isConnected && isRemoteAccess && (
