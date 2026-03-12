@@ -125,6 +125,7 @@ const DevToolsPanel = () => {
   const [edgeFnName, setEdgeFnName] = useState(EDGE_FUNCTIONS[0]);
   const [edgeFnMethod, setEdgeFnMethod] = useState<"GET" | "POST">("POST");
   const [edgeFnBody, setEdgeFnBody] = useState("{}");
+  const [edgeFnHeaders, setEdgeFnHeaders] = useState<Array<{ key: string; value: string }>>([]);
   const [edgeFnRunning, setEdgeFnRunning] = useState(false);
   const [edgeFnResult, setEdgeFnResult] = useState<{
     status: number;
