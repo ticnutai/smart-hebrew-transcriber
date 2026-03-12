@@ -250,6 +250,21 @@ const Index = () => {
     const url = URL.createObjectURL(file);
     setAudioUrl(url);
 
+    // Persist audio blob to IndexedDB for text-editor recovery
+    try {
+      const idb = await new Promise<IDBDatabase>((resolve, reject) => {
+        const req = indexedDB.open('transcriber_audio', 1);
+        req.onupgradeneeded = () => req.result.createObjectStore('blobs');
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+      const tx = idb.transaction('blobs', 'readwrite');
+      tx.objectStore('blobs').put(file, 'last_audio');
+      tx.objectStore('blobs').put(file.type, 'last_audio_type');
+      tx.objectStore('blobs').put(file.name, 'last_audio_name');
+      idb.close();
+    } catch { /* IndexedDB not available — ok */ }
+
     // Show audio/video duration after file select
     try {
       const mediaEl = isVideo ? document.createElement('video') : new Audio();
@@ -419,6 +434,8 @@ const Index = () => {
           title: "הצלחה!",
           description: "התמלול הושלם בהצלחה - עובר לעריכת טקסט",
         });
+        // Persist word timings for text-editor recovery
+        if (timings.length > 0) localStorage.setItem('last_word_timings', JSON.stringify(timings));
         // Auto-navigate to text editor
         setTimeout(() => {
           navigate('/text-editor', { state: { text: data.text, audioUrl: fileAudioUrl, wordTimings: timings } });
@@ -511,6 +528,7 @@ const Index = () => {
           title: "הצלחה!", 
           description: "התמלול עם Groq הושלם בהצלחה - עובר לעריכת טקסט" 
         });
+        if (timings.length > 0) localStorage.setItem('last_word_timings', JSON.stringify(timings));
         // Auto-navigate to text editor
         setTimeout(() => {
           navigate('/text-editor', { state: { text: data.text, audioUrl: fileAudioUrl, wordTimings: timings } });
@@ -617,6 +635,7 @@ const Index = () => {
           title: "הצלחה!",
           description: "התמלול עם Google הושלם בהצלחה - עובר לעריכת טקסט"
         });
+        if (timings.length > 0) localStorage.setItem('last_word_timings', JSON.stringify(timings));
         // Auto-navigate to text editor
         setTimeout(() => {
           navigate('/text-editor', { state: { text: data.text, audioUrl: fileAudioUrl, wordTimings: timings } });
@@ -665,6 +684,7 @@ const Index = () => {
         title: "הצלחה!",
         description: "התמלול המקומי הושלם בהצלחה - עובר לעריכת טקסט",
       });
+      if (result.wordTimings?.length > 0) localStorage.setItem('last_word_timings', JSON.stringify(result.wordTimings));
       // Auto-navigate to text editor
       setTimeout(() => {
         navigate('/text-editor', { state: { text: result.text, audioUrl: fileAudioUrl, wordTimings: result.wordTimings } });
@@ -778,6 +798,7 @@ const Index = () => {
         title: "הצלחה!",
         description: `תמלול GPU הושלם ב-${result.processing_time || '?'}s${statsInfo} — עובר לעריכת טקסט`,
       });
+      if (timings.length > 0) localStorage.setItem('last_word_timings', JSON.stringify(timings));
       setTimeout(() => {
         navigate('/text-editor', { state: { text: result.text, audioUrl: fileAudioUrl, wordTimings: timings } });
       }, 1000);
@@ -853,6 +874,7 @@ const Index = () => {
           title: "הצלחה!",
           description: "התמלול הושלם בהצלחה - עובר לעריכת טקסט",
         });
+        if (timings.length > 0) localStorage.setItem('last_word_timings', JSON.stringify(timings));
         setTimeout(() => {
           navigate('/text-editor', { state: { text: data.text, audioUrl: fileAudioUrl, wordTimings: timings } });
         }, 1000);
@@ -928,6 +950,7 @@ const Index = () => {
           title: "הצלחה!",
           description: "התמלול הושלם בהצלחה - עובר לעריכת טקסט",
         });
+        if (timings.length > 0) localStorage.setItem('last_word_timings', JSON.stringify(timings));
         setTimeout(() => {
           navigate('/text-editor', { state: { text: data.text, audioUrl: fileAudioUrl, wordTimings: timings } });
         }, 1000);

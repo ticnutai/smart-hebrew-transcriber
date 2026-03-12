@@ -56,6 +56,27 @@ const TextEditor = () => {
     columnRule: '1px solid hsl(var(--border))',
   } : {};
 
+  /** Recover audio blob from IndexedDB (survives refresh & sidebar nav) */
+  const recoverAudioFromIDB = async () => {
+    try {
+      const idb = await new Promise<IDBDatabase>((resolve, reject) => {
+        const req = indexedDB.open('transcriber_audio', 1);
+        req.onupgradeneeded = () => req.result.createObjectStore('blobs');
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+      const tx = idb.transaction('blobs', 'readonly');
+      const store = tx.objectStore('blobs');
+      const blob: Blob | undefined = await new Promise((res) => { const r = store.get('last_audio'); r.onsuccess = () => res(r.result); r.onerror = () => res(undefined); });
+      idb.close();
+      if (blob && blob.size > 0) {
+        const url = URL.createObjectURL(blob);
+        setAudioUrl(url);
+        debugLog.info('TextEditor', '🔊 Audio recovered from IndexedDB');
+      }
+    } catch { /* IndexedDB not available */ }
+  };
+
   useEffect(() => {
     debugLog.info('TextEditor', '📝 TextEditor mounted');
     return () => debugLog.info('TextEditor', '📝 TextEditor unmounted');
@@ -108,15 +129,29 @@ const TextEditor = () => {
       if (url.startsWith('blob:')) {
         fetch(url, { method: 'HEAD' }).then(() => {
           setAudioUrl(url);
+          // Persist word timings for sidebar navigation / refresh
+          if (location.state?.wordTimings) {
+            localStorage.setItem('last_word_timings', JSON.stringify(location.state.wordTimings));
+          }
         }).catch(() => {
-          // Blob URL expired — ignore silently
+          // Blob URL expired — try IndexedDB recovery
+          recoverAudioFromIDB();
         });
       } else {
         setAudioUrl(url);
       }
+    } else {
+      // No state (sidebar nav or refresh) — recover from IndexedDB
+      recoverAudioFromIDB();
     }
     if (location.state?.wordTimings) {
       setWordTimings(location.state.wordTimings);
+    } else {
+      // Recover word timings from localStorage
+      try {
+        const saved = localStorage.getItem('last_word_timings');
+        if (saved) setWordTimings(JSON.parse(saved));
+      } catch { /* ignore */ }
     }
 
   }, [location.state]);
