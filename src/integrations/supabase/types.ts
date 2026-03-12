@@ -14,6 +14,39 @@ export type Database = {
   }
   public: {
     Tables: {
+      shared_transcripts: {
+        Row: {
+          id: string
+          transcript_id: string
+          share_token: string
+          user_id: string
+          created_at: string
+          expires_at: string | null
+          view_count: number
+          is_active: boolean
+        }
+        Insert: {
+          id?: string
+          transcript_id: string
+          share_token?: string
+          user_id: string
+          created_at?: string
+          expires_at?: string | null
+          view_count?: number
+          is_active?: boolean
+        }
+        Update: {
+          id?: string
+          transcript_id?: string
+          share_token?: string
+          user_id?: string
+          created_at?: string
+          expires_at?: string | null
+          view_count?: number
+          is_active?: boolean
+        }
+        Relationships: []
+      }
       migration_logs: {
         Row: {
           created_at: string

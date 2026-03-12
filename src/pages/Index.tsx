@@ -15,7 +15,7 @@ import { useBackgroundTask } from "@/hooks/useBackgroundTask";
 import { debugLog } from "@/lib/debugLogger";
 import { useCloudTranscripts } from "@/hooks/useCloudTranscripts";
 import { useTranscriptionAnalytics } from "@/hooks/useTranscriptionAnalytics";
-import { Settings, FileEdit, ChevronDown, X, Zap, Globe, Chrome, Mic, Waves, Server, Cpu, Film, Pause, Play, Square, Copy, Check, Keyboard, Activity } from "lucide-react";
+import { Settings, FileEdit, ChevronDown, X, Zap, Globe, Chrome, Mic, Waves, Server, Cpu, Film, Pause, Play, Square, Copy, Check, Keyboard, Activity, Users } from "lucide-react";
 import { usePerfMonitor } from "@/hooks/usePerfMonitor";
 import { PerfMonitorPanel } from "@/components/PerfMonitorPanel";
 import { useTranscriptionJobs } from "@/hooks/useTranscriptionJobs";
@@ -25,6 +25,7 @@ import { isVideoFile, extractAudioFromVideo, VIDEO_NEEDS_EXTRACTION, MAX_VIDEO_S
 import { compressAudio, needsCompression, formatFileSize, CLOUD_API_LIMIT } from "@/lib/audioCompression";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { KeyboardShortcutsDialog } from "@/components/KeyboardShortcutsDialog";
+import { addNotification } from "@/hooks/useNotifications";
 
 // Lazy-loaded heavy components
 const LiveTranscriber = lazy(() => import("@/components/LiveTranscriber").then(m => ({ default: m.LiveTranscriber })));
@@ -72,6 +73,7 @@ const Index = () => {
   const [recoveredPartialInfo, setRecoveredPartialInfo] = useState<{progress: number, wordCount: number, lastSegEnd?: number} | null>(null);
   const [lastStats, setLastStats] = useState<TranscriptionStats | null>(null);
   const [copied, setCopied] = useState(false);
+  const [diarize, setDiarize] = useState(false);
 
   // Save reference to last uploaded file for resume functionality
   const lastFileRef = useRef<File | null>(null);
@@ -161,6 +163,7 @@ const Index = () => {
       return;
     }
     await saveTranscript(text, engineUsed, undefined, currentFileRef.current || undefined, timings);
+    addNotification('success', 'תמלול הושלם', `מנוע: ${engineUsed} — ${text.split(/\s+/).length} מילים`);
   };
 
   // Save text-only to cloud (deferred mode — upload text without audio file)
@@ -847,6 +850,7 @@ const Index = () => {
       form.append('file', file, file.name);
       form.append('apiKey', assemblyKey);
       form.append('language', sourceLanguage);
+      if (diarize) form.append('diarize', 'true');
 
       const { data, error } = await xhrInvoke('transcribe-assemblyai', form, (p) => setUploadProgress(p));
 
@@ -923,6 +927,7 @@ const Index = () => {
       form.append('file', file, file.name);
       form.append('apiKey', deepgramKey);
       form.append('language', sourceLanguage);
+      if (diarize) form.append('diarize', 'true');
 
       const { data, error } = await xhrInvoke('transcribe-deepgram', form, (p) => setUploadProgress(p));
 
@@ -1209,6 +1214,21 @@ const Index = () => {
           sourceLanguage={sourceLanguage}
           onSourceLanguageChange={setSourceLanguage}
         />
+
+        {(engine === 'assemblyai' || engine === 'deepgram') && (
+          <div className="flex items-center gap-2 text-sm" dir="rtl">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={diarize}
+                onChange={e => setDiarize(e.target.checked)}
+                className="rounded border-gray-300"
+              />
+              <Users className="w-4 h-4" />
+              <span>זיהוי דוברים (Speaker Diarization)</span>
+            </label>
+          </div>
+        )}
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <FileUploader 

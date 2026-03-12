@@ -13,6 +13,8 @@ import UserFloatingBadge from "./components/UserFloatingBadge";
 import { SmartConsole } from "./components/SmartConsole";
 import { TranscriptionAnalytics } from "./components/TranscriptionAnalytics";
 import { PWAInstallButton } from "./components/PWAInstallButton";
+import { OnboardingWizard } from "./components/OnboardingWizard";
+import { NotificationCenter } from "./components/NotificationCenter";
 import { useTheme } from "./hooks/useTheme";
 import { debugLog } from "./lib/debugLogger";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -46,6 +48,7 @@ const Setup = lazyWithLog('Setup', () => import("./pages/Setup"));
 const TextEditor = lazyWithLog('TextEditor', () => import("./pages/TextEditor"));
 const Folders = lazyWithLog('Folders', () => import("./pages/Folders"));
 const NotFound = lazyWithLog('NotFound', () => import("./pages/NotFound"));
+const SharedTranscript = lazyWithLog('SharedTranscript', () => import("./pages/SharedTranscript"));
 
 /** Logs route changes */
 const RouteLogger = () => {
@@ -115,6 +118,8 @@ const App = () => {
           <SmartConsole />
           <TranscriptionAnalytics />
           <PWAInstallButton />
+          <NotificationCenter />
+          <OnboardingWizard onComplete={() => {}} />
           <AppSidebar />
           <AppLayout>
             <Suspense fallback={<PageLoader label="suspense" />}>
@@ -126,6 +131,7 @@ const App = () => {
                 <Route path="/setup" element={<ProtectedRoute><Setup /></ProtectedRoute>} />
                 <Route path="/text-editor" element={<ProtectedRoute><TextEditor /></ProtectedRoute>} />
                 <Route path="/folders" element={<ProtectedRoute><Folders /></ProtectedRoute>} />
+                <Route path="/share/:token" element={<SharedTranscript />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </Suspense>

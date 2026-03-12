@@ -1,13 +1,19 @@
+import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Share2, MessageCircle, Mail, Link as LinkIcon } from "lucide-react";
+import { Share2, MessageCircle, Mail, Link as LinkIcon, Globe, Loader2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import { useShareLink } from "@/hooks/useShareLink";
 
 interface ShareTranscriptProps {
   transcript: string;
+  transcriptId?: string;
 }
 
-export const ShareTranscript = ({ transcript }: ShareTranscriptProps) => {
+export const ShareTranscript = ({ transcript, transcriptId }: ShareTranscriptProps) => {
+  const { createShareLink, loading: linkLoading } = useShareLink();
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+
   const handleWhatsApp = () => {
     const text = encodeURIComponent(`תמלול:\n\n${transcript.substring(0, 1000)}...`);
     window.open(`https://wa.me/?text=${text}`, '_blank');
@@ -52,7 +58,27 @@ export const ShareTranscript = ({ transcript }: ShareTranscriptProps) => {
         <h2 className="text-xl font-semibold text-right">שתף תמלול</h2>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-4 gap-3">
+        {transcriptId && (
+          <Button
+            variant="outline"
+            onClick={async () => {
+              const url = await createShareLink(transcriptId);
+              if (url) {
+                setShareUrl(url);
+                await navigator.clipboard.writeText(url);
+                toast({ title: "קישור שיתוף נוצר!", description: "הקישור הועתק ללוח" });
+              } else {
+                toast({ title: "שגיאה", description: "לא ניתן ליצור קישור", variant: "destructive" });
+              }
+            }}
+            disabled={linkLoading}
+            className="flex flex-col items-center gap-2 h-auto py-4"
+          >
+            {linkLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : <Globe className="w-6 h-6 text-teal-600" />}
+            <span className="text-xs">קישור ציבורי</span>
+          </Button>
+        )}
         <Button
           variant="outline"
           onClick={handleWhatsApp}
@@ -80,6 +106,12 @@ export const ShareTranscript = ({ transcript }: ShareTranscriptProps) => {
           <span className="text-xs">העתק</span>
         </Button>
       </div>
+
+      {shareUrl && (
+        <div className="mt-3 p-2 bg-muted rounded text-xs break-all text-center" dir="ltr">
+          {shareUrl}
+        </div>
+      )}
     </Card>
   );
 };

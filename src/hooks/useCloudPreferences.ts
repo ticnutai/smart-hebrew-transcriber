@@ -13,6 +13,7 @@ export interface UserPreferences {
   source_language: string; // source language for transcription
   custom_themes: string;  // JSON string of custom themes array
   editor_columns: number; // 1, 2, or 3 column text display
+  draft_text: string;     // auto-saved editor draft (synced across devices)
 }
 
 const DEFAULT_PREFERENCES: UserPreferences = {
@@ -26,6 +27,7 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   source_language: 'auto',
   custom_themes: '[]',
   editor_columns: 1,
+  draft_text: '',
 };
 
 export const useCloudPreferences = () => {
@@ -92,6 +94,7 @@ export const useCloudPreferences = () => {
             ? (data as any).custom_themes
             : JSON.stringify((data as any).custom_themes ?? []),
           editor_columns: (data as any).editor_columns ?? DEFAULT_PREFERENCES.editor_columns,
+          draft_text: (data as any).draft_text ?? DEFAULT_PREFERENCES.draft_text,
         };
         setPreferences(loaded);
         // Mirror to localStorage so useTheme picks up cloud values
@@ -150,6 +153,7 @@ export const useCloudPreferences = () => {
           source_language: updated.source_language,
           custom_themes: customThemesParsed,
           editor_columns: updated.editor_columns,
+          draft_text: updated.draft_text || null,
           updated_at: new Date().toISOString(),
         } as any, { onConflict: 'user_id' });
 

@@ -121,6 +121,10 @@ const TextEditor = () => {
       
       if (savedText) {
         setText(savedText);
+      } else if (preferences.draft_text) {
+        // Recover from cloud draft (cross-device)
+        setText(preferences.draft_text);
+        debugLog.info('TextEditor', '☁️ Draft recovered from cloud');
       }
     }
 
@@ -169,10 +173,12 @@ const TextEditor = () => {
 
   }, [location.state]);
 
-  // Auto-save text and versions to localStorage
+  // Auto-save text and versions to localStorage + cloud draft
   useEffect(() => {
     if (text) {
       localStorage.setItem('current_editing_text', text);
+      // Debounced cloud draft save (piggybacks on existing cloud preferences)
+      updatePreference('draft_text', text);
     }
     if (versions.length > 0) {
       localStorage.setItem('text_versions', JSON.stringify(versions));

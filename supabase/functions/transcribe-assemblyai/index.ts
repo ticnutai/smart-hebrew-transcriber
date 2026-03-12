@@ -16,6 +16,7 @@ serve(async (req) => {
     const file = formData.get('file') as File;
     const apiKey = formData.get('apiKey') as string;
     const language = formData.get('language') as string || 'auto';
+    const diarize = formData.get('diarize') as string;
 
     if (!file || !apiKey) {
       throw new Error('Missing file or API key');
@@ -46,6 +47,7 @@ serve(async (req) => {
       body: JSON.stringify({
         audio_url: upload_url,
         language_code: language === 'auto' ? null : (language === 'he' ? 'he' : language),
+        speaker_labels: diarize === 'true',
       }),
     });
 
@@ -76,8 +78,24 @@ serve(async (req) => {
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
+    // Build response with optional speaker diarization
+    let responseText = transcript.text;
+    const wordTimings = (transcript.words || []).map((w: any) => ({
+      word: w.text,
+      start: w.start / 1000,
+      end: w.end / 1000,
+      speaker: w.speaker || undefined,
+    }));
+
+    // If diarization was requested, format text with speaker labels
+    if (diarize === 'true' && transcript.utterances?.length) {
+      responseText = transcript.utterances
+        .map((u: any) => `[דובר ${u.speaker}]: ${u.text}`)
+        .join('\n');
+    }
+
     return new Response(
-      JSON.stringify({ text: transcript.text }),
+      JSON.stringify({ text: responseText, wordTimings }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 

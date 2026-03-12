@@ -12,6 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 import DevToolsPanel from "@/components/DevToolsPanel";
 import { OllamaManager } from "@/components/OllamaManager";
 import { ThemeManager } from "@/components/ThemeManager";
+import { EngineSettings } from "@/components/EngineSettings";
 
 const Settings = () => {
   const { isAuthenticated, logout, isLoading, isAdmin, user } = useAuth();
@@ -183,16 +184,24 @@ const Settings = () => {
         )}
 
         <Tabs defaultValue="api-keys" dir="rtl" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="api-keys" className="gap-2">
               <Key className="h-4 w-4" />
               מפתחות API
+            </TabsTrigger>
+            <TabsTrigger value="engine" className="gap-2">
+              <Cpu className="h-4 w-4" />
+              מנוע
             </TabsTrigger>
             <TabsTrigger value="themes" className="gap-2">
               <Palette className="h-4 w-4" />
               ערכות נושא
             </TabsTrigger>
           </TabsList>
+
+          <TabsContent value="engine">
+            <EngineSettings />
+          </TabsContent>
 
           <TabsContent value="themes">
             <Card>
