@@ -1143,7 +1143,7 @@ const Index = () => {
   };
 
   const batchSaveTranscript = async (text: string, engineUsed: string, title: string) => {
-    await saveTranscript(text, engineUsed, title, undefined, undefined);
+    await saveTranscript(text, engineUsed, title, undefined);
   };
 
   return (

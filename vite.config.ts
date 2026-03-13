@@ -98,7 +98,7 @@ export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
     // lovable-tagger only on Lovable cloud, not local dev (causes HTTPS ping errors)
-    mode === "development" && process.env.LOVABLE && componentTagger(),
+    mode === "development" && process.env.LOVABLE ? componentTagger() : null,
     whisperServerLauncher(),
     compression({ algorithm: 'gzip', threshold: 1024 }),
     compression({ algorithm: 'brotliCompress', ext: '.br', threshold: 1024 }),
