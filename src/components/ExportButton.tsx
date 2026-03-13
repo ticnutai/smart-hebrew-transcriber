@@ -152,7 +152,7 @@ export const ExportButton = ({ text, title = "תמלול", disabled, wordTimings
           word: w.word,
           start: w.start,
           end: w.end,
-          ...(w.probability != null ? { probability: w.probability } : {}),
+          ...('probability' in w && w.probability != null ? { probability: (w as any).probability } : {}),
         })),
         audioDuration: wordTimings[wordTimings.length - 1]?.end,
       } : {}),

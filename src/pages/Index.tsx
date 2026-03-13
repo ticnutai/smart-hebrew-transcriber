@@ -159,13 +159,13 @@ const Index = () => {
       localStorage.setItem('transcript_history', JSON.stringify(updated));
       return;
     }
-    await saveTranscript(text, engineUsed, undefined, currentFileRef.current || undefined, timings);
+    await saveTranscript(text, engineUsed, undefined, currentFileRef.current || undefined);
     addNotification({ type: 'success', title: 'תמלול הושלם', description: `מנוע: ${engineUsed} — ${text.split(/\s+/).length} מילים` });
   };
 
   // Save text-only to cloud (deferred mode — upload text without audio file)
   const saveTextOnlyToCloud = async (text: string, engineUsed: string, timings?: Array<{word: string, start: number, end: number, probability?: number}>) => {
-    await saveTranscript(text, engineUsed, undefined, undefined, timings);
+    await saveTranscript(text, engineUsed, undefined, undefined);
   };
 
   // Helper: invoke edge function with real upload progress via XHR and multipart form
@@ -1143,7 +1143,7 @@ const Index = () => {
   };
 
   const batchSaveTranscript = async (text: string, engineUsed: string, title: string) => {
-    await saveTranscript(text, engineUsed, title, undefined, undefined);
+    await saveTranscript(text, engineUsed, title, undefined);
   };
 
   return (

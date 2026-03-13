@@ -205,7 +205,7 @@ async function pushDirtyPreferences(userId: string): Promise<void> {
       custom_themes: customThemesParsed,
       editor_columns: prefs.editor_columns,
       updated_at: new Date().toISOString(),
-    } as Record<string, unknown>, { onConflict: 'user_id' });
+    } as any, { onConflict: 'user_id' });
 
   if (!error) {
     await db.preferences.update('current', { _dirty: false });
