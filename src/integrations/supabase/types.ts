@@ -354,6 +354,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      deploy_edge_fn: {
+        Args: { p_slug: string; p_source_code: string }
+        Returns: Json
+      }
       exec_sql: { Args: { query: string }; Returns: Json }
       exec_sql_return: { Args: { query: string }; Returns: Json }
       execute_sql_admin: { Args: { sql_text: string }; Returns: Json }
