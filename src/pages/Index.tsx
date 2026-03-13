@@ -159,7 +159,7 @@ const Index = () => {
       localStorage.setItem('transcript_history', JSON.stringify(updated));
       return;
     }
-    await saveTranscript(text, engineUsed, undefined, currentFileRef.current || undefined, timings);
+    await saveTranscript(text, engineUsed, undefined, currentFileRef.current || undefined);
     addNotification({ type: 'success', title: 'תמלול הושלם', description: `מנוע: ${engineUsed} — ${text.split(/\s+/).length} מילים` });
   };
 
