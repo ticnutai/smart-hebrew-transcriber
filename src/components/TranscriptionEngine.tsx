@@ -99,7 +99,7 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
           title: "🚀 השרת מופעל!",
           description: data.message === 'already running' ? 'השרת כבר רץ, ממתין לחיבור...' : 'השרת עולה, ממתין לחיבור...',
         });
-        startPolling(5000);
+        startPolling(5000, 120000);
       } else {
         throw new Error(data.error || 'Failed to start');
       }
@@ -113,7 +113,7 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
             title: "🚀 השרת מופעל!",
             description: launcherData.results?.whisper?.message === 'already running' ? 'השרת כבר רץ, ממתין לחיבור...' : 'שרת CUDA + Ollama עולים...',
           });
-          startPolling(5000);
+          startPolling(5000, 120000);
           return;
         }
       } catch {

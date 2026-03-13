@@ -710,12 +710,23 @@ const Index = () => {
     const isUp = await checkConnection();
     if (!isUp) {
       pendingServerFileRef.current = { file, audioUrl: fileAudioUrl || '' };
-      // Aggressive polling while waiting
-      startPolling(2000);
+      // Aggressive polling while waiting — max 60 seconds, then give up
+      startPolling(2000, 60000);
       toast({
         title: "⏳ ממתין לשרת...",
-        description: `${file.name} בתור — התמלול יתחיל אוטומטית כשהשרת יעלה`,
+        description: `${file.name} בתור — התמלול יתחיל אוטומטית כשהשרת יעלה (עד דקה)`,
       });
+      // Auto-clear pending file after 60 seconds if server never came up
+      setTimeout(() => {
+        if (pendingServerFileRef.current) {
+          pendingServerFileRef.current = null;
+          toast({
+            title: "⏰ השרת לא הגיב",
+            description: "הופסקה ההמתנה אחרי דקה. הפעל את השרת ונסה שוב.",
+            variant: "destructive",
+          });
+        }
+      }, 60000);
       return;
     }
 

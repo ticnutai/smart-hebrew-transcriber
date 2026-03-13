@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { debugLog } from "@/lib/debugLogger";
+import { db, isDbAvailable } from '@/lib/localDb';
+import { getLocalApiKeys, saveApiKeysLocally } from '@/lib/syncEngine';
 
 export interface ApiKeys {
   openai_key: string;
@@ -61,6 +63,23 @@ export const useCloudApiKeys = () => {
 
     loadPromise = (async () => {
       try {
+        // 1) Try local DB first (instant)
+        const localKeys = await getLocalApiKeys();
+        if (localKeys) {
+          const { id: _id, user_identifier: _ui, updated_at: _ua, _dirty, ...rest } = localKeys;
+          const loaded: ApiKeys = {
+            openai_key: rest.openai_key || '',
+            google_key: rest.google_key || '',
+            groq_key: rest.groq_key || '',
+            claude_key: rest.claude_key || '',
+            assemblyai_key: rest.assemblyai_key || '',
+            deepgram_key: rest.deepgram_key || '',
+          };
+          cachedKeys = loaded;
+          syncToLocalStorage(loaded);
+        }
+
+        // 2) Then fetch from cloud
         const { data, error } = await supabase
           .from('user_api_keys')
           .select('*')
@@ -78,12 +97,22 @@ export const useCloudApiKeys = () => {
           };
           cachedKeys = loaded;
           syncToLocalStorage(loaded);
+
+          // Save to local DB for next time
+          await saveApiKeysLocally({
+            id: 'current',
+            user_identifier: user.id,
+            ...loaded,
+            updated_at: data.updated_at || new Date().toISOString(),
+          });
+          await db.apiKeys.update('current', { _dirty: false });
+
           return loaded;
         }
       } catch (err) {
         debugLog.error('ApiKeys', 'Error loading API keys from cloud', err instanceof Error ? err.message : String(err));
       }
-      return EMPTY_KEYS;
+      return cachedKeys || EMPTY_KEYS;
     })();
 
     const result = await loadPromise;
@@ -108,12 +137,25 @@ export const useCloudApiKeys = () => {
     cachedKeys = merged;
     syncToLocalStorage(merged);
 
-    await supabase
+    // Save to local DB
+    await saveApiKeysLocally({
+      id: 'current',
+      user_identifier: user.id,
+      ...merged,
+      updated_at: new Date().toISOString(),
+    });
+
+    // Push to cloud
+    const { error } = await supabase
       .from('user_api_keys')
       .upsert({
         user_identifier: user.id,
         ...merged,
       }, { onConflict: 'user_identifier' });
+
+    if (!error) {
+      await db.apiKeys.update('current', { _dirty: false });
+    }
   }, [user, keys, syncToLocalStorage]);
 
   const invalidateCache = useCallback(() => {

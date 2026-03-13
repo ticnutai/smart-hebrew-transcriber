@@ -3,6 +3,15 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { debugLog } from '@/lib/debugLogger';
+import { db, isDbAvailable } from '@/lib/localDb';
+import {
+  getLocalTranscripts,
+  saveTranscriptLocally,
+  updateTranscriptLocally,
+  deleteTranscriptLocally,
+  syncTranscriptsDown,
+  reconcileDeletedTranscripts,
+} from '@/lib/syncEngine';
 
 export interface CloudTranscript {
   id: string;
@@ -29,6 +38,14 @@ export const useCloudTranscripts = () => {
     if (!user) return;
     setIsLoading(true);
     try {
+      // 1) Load from local DB first (instant)
+      const local = await getLocalTranscripts(user.id);
+      if (local.length > 0) {
+        setTranscripts(local as CloudTranscript[]);
+        debugLog.info('Cloud', `Loaded ${local.length} transcripts from local DB`);
+      }
+
+      // 2) Fetch from cloud in background
       const { data, error } = await supabase
         .from('transcripts')
         .select('*')
@@ -36,9 +53,34 @@ export const useCloudTranscripts = () => {
         .limit(100);
 
       if (error) throw error;
-      setTranscripts((data as CloudTranscript[]) || []);
+      const cloud = (data as CloudTranscript[]) || [];
+      setTranscripts(cloud);
+
+      // 3) Write cloud data to local DB for next time
+      if (await isDbAvailable()) {
+        const cloudIds = new Set(cloud.map(t => t.id));
+        for (const t of cloud) {
+          const existing = await db.transcripts.get(t.id);
+          if (!existing?._dirty) {
+            await db.transcripts.put({
+              ...t,
+              tags: t.tags || [],
+              notes: t.notes || '',
+              title: t.title || '',
+              folder: t.folder || '',
+              category: t.category || '',
+              is_favorite: t.is_favorite || false,
+              _dirty: false,
+              _deleted: false,
+            });
+          }
+        }
+        await reconcileDeletedTranscripts(user.id, cloudIds);
+        debugLog.info('Cloud', `Synced ${cloud.length} transcripts to local DB`);
+      }
     } catch (error) {
       debugLog.error('Cloud', 'Error fetching transcripts', error instanceof Error ? error.message : String(error));
+      // On cloud failure, local data is already shown — no need to clear
     } finally {
       setIsLoading(false);
     }
@@ -59,24 +101,47 @@ export const useCloudTranscripts = () => {
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'transcripts' },
-        (payload) => {
+        async (payload) => {
           const newItem = payload.new as CloudTranscript;
           setTranscripts(prev => [newItem, ...prev]);
+          // Sync to local DB
+          if (await isDbAvailable()) {
+            await db.transcripts.put({
+              ...newItem, tags: newItem.tags || [], notes: newItem.notes || '',
+              title: newItem.title || '', folder: newItem.folder || '',
+              category: newItem.category || '', is_favorite: newItem.is_favorite || false,
+              _dirty: false, _deleted: false,
+            });
+          }
         }
       )
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'transcripts' },
-        (payload) => {
+        async (payload) => {
           const updated = payload.new as CloudTranscript;
           setTranscripts(prev => prev.map(t => t.id === updated.id ? updated : t));
+          if (await isDbAvailable()) {
+            const existing = await db.transcripts.get(updated.id);
+            if (!existing?._dirty) {
+              await db.transcripts.put({
+                ...updated, tags: updated.tags || [], notes: updated.notes || '',
+                title: updated.title || '', folder: updated.folder || '',
+                category: updated.category || '', is_favorite: updated.is_favorite || false,
+                _dirty: false, _deleted: false,
+              });
+            }
+          }
         }
       )
       .on(
         'postgres_changes',
         { event: 'DELETE', schema: 'public', table: 'transcripts' },
-        (payload) => {
+        async (payload) => {
           setTranscripts(prev => prev.filter(t => t.id !== payload.old.id));
+          if (await isDbAvailable()) {
+            await db.transcripts.delete(payload.old.id);
+          }
         }
       )
       .subscribe();
@@ -137,6 +202,27 @@ export const useCloudTranscripts = () => {
       }
 
       const autoTitle = title || text.substring(0, 60).replace(/\n/g, ' ') + '...';
+      const now = new Date().toISOString();
+      const localRecord = {
+        id: crypto.randomUUID(),
+        user_id: user.id,
+        text,
+        engine,
+        title: autoTitle,
+        tags: [] as string[],
+        notes: '',
+        folder: '',
+        category: '',
+        is_favorite: false,
+        audio_file_path: audioFilePath,
+        created_at: now,
+        updated_at: now,
+      };
+
+      // Save to local DB first (instant)
+      await saveTranscriptLocally(localRecord);
+
+      // Then save to cloud
       const { data, error } = await supabase
         .from('transcripts')
         .insert({
@@ -153,6 +239,14 @@ export const useCloudTranscripts = () => {
         .single();
 
       if (error) throw error;
+
+      // Update local DB with cloud ID
+      if (data) {
+        await db.transcripts.delete(localRecord.id);
+        await saveTranscriptLocally({ ...data as CloudTranscript, tags: data.tags || [], notes: data.notes || '', title: data.title || '', folder: data.folder || '', category: data.category || '', is_favorite: data.is_favorite || false });
+        // Clear dirty flag since cloud has the data
+        await db.transcripts.update(data.id, { _dirty: false });
+      }
       return data as CloudTranscript;
     } catch (error) {
       debugLog.error('Cloud', 'Error saving transcript', error instanceof Error ? error.message : String(error));
@@ -170,24 +264,29 @@ export const useCloudTranscripts = () => {
     updates: Partial<Pick<CloudTranscript, 'text' | 'tags' | 'notes' | 'title' | 'folder' | 'category' | 'is_favorite'>>
   ) => {
     try {
+      // Update local DB first
+      await updateTranscriptLocally(id, updates);
+
       const { error } = await supabase
         .from('transcripts')
         .update({ ...updates, updated_at: new Date().toISOString() })
         .eq('id', id);
 
+      if (!error) {
+        // Cloud succeeded — clear dirty flag
+        await db.transcripts.update(id, { _dirty: false });
+      }
       if (error) throw error;
     } catch (error) {
-      debugLog.error('Cloud', 'Error updating transcript', error instanceof Error ? error.message : String(error));
-      toast({
-        title: 'שגיאה בעדכון',
-        description: 'לא ניתן לעדכן את התמלול',
-        variant: 'destructive',
-      });
+      debugLog.error('Cloud', 'Error updating transcript (saved locally)', error instanceof Error ? error.message : String(error));
     }
   }, []);
 
   const deleteTranscript = useCallback(async (id: string) => {
     try {
+      // Mark deleted locally first
+      await deleteTranscriptLocally(id);
+
       // Delete associated audio file if exists
       const transcript = transcripts.find(t => t.id === id);
       if (transcript?.audio_file_path) {
@@ -199,6 +298,10 @@ export const useCloudTranscripts = () => {
         .delete()
         .eq('id', id);
 
+      if (!error) {
+        // Cloud delete succeeded — remove from local DB entirely
+        await db.transcripts.delete(id);
+      }
       if (error) throw error;
     } catch (error) {
       debugLog.error('Cloud', 'Error deleting transcript', error instanceof Error ? error.message : String(error));
@@ -228,6 +331,11 @@ export const useCloudTranscripts = () => {
       // Delete audio files from storage
       if (audioPaths.length > 0) {
         await supabase.storage.from('permanent-audio').remove(audioPaths);
+      }
+
+      // Clear local DB too
+      if (await isDbAvailable()) {
+        await db.transcripts.where('user_id').equals(user.id).delete();
       }
 
       setTranscripts([]);

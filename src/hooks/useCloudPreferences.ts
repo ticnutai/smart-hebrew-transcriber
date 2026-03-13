@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { db, isDbAvailable } from '@/lib/localDb';
+import { getLocalPreferences, savePreferencesLocally, syncPreferencesDown } from '@/lib/syncEngine';
 
 export interface UserPreferences {
   font_size: number;
@@ -34,7 +36,7 @@ export const useCloudPreferences = () => {
   const [isLoaded, setIsLoaded] = useState(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Load preferences from cloud
+  // Load preferences: local DB → localStorage → cloud
   useEffect(() => {
     if (!user) {
       // Load from localStorage as fallback
@@ -72,6 +74,15 @@ export const useCloudPreferences = () => {
     }
 
     const load = async () => {
+      // 1) Try local DB first (instant)
+      const localPrefs = await getLocalPreferences();
+      if (localPrefs) {
+        const { id: _id, _dirty, ...rest } = localPrefs;
+        setPreferences({ ...DEFAULT_PREFERENCES, ...rest });
+        setIsLoaded(true);
+      }
+
+      // 2) Then fetch from cloud in background
       const { data, error } = await supabase
         .from('user_preferences')
         .select('*')
@@ -99,6 +110,16 @@ export const useCloudPreferences = () => {
         localStorage.setItem('app_custom_themes', loaded.custom_themes);
         localStorage.setItem('editor_columns', String(loaded.editor_columns));
         window.dispatchEvent(new CustomEvent('cloud-prefs-loaded'));
+
+        // Save to local DB for next time
+        await savePreferencesLocally({
+          id: 'current',
+          user_id: user.id,
+          ...loaded,
+          updated_at: data.updated_at || new Date().toISOString(),
+        });
+        // Mark not dirty since it came from cloud
+        await db.preferences.update('current', { _dirty: false });
       } else if (!error) {
         // Create initial record
         await supabase.from('user_preferences').insert({
@@ -127,6 +148,16 @@ export const useCloudPreferences = () => {
     localStorage.setItem('app_theme_id', updated.theme);
     localStorage.setItem('app_custom_themes', updated.custom_themes);
     localStorage.setItem('editor_columns', String(updated.editor_columns));
+
+    // Save to local DB (instant, offline-capable)
+    if (user) {
+      savePreferencesLocally({
+        id: 'current',
+        user_id: user.id,
+        ...updated,
+        updated_at: new Date().toISOString(),
+      });
+    }
 
     if (!user) return;
 

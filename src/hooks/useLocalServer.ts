@@ -128,15 +128,25 @@ export const useLocalServer = () => {
     return false;
   }, []);
 
-  /** Start polling — call this when the CUDA engine is selected */
-  const startPolling = useCallback((intervalMs = 10000) => {
+  /** Start polling — call this when the CUDA engine is selected.
+   *  @param intervalMs  base polling interval (default 10 000 ms)
+   *  @param maxDurationMs  if > 0, auto-stop polling after this many ms (0 = unlimited) */
+  const startPolling = useCallback((intervalMs = 10000, maxDurationMs = 0) => {
     if (pollRef.current) clearInterval(pollRef.current);
     checkConnection();
     let currentInterval = intervalMs;
     const maxInterval = 60000;
     let consecutiveFails = 0;
+    const startedAt = Date.now();
 
     const poll = async () => {
+      // Auto-stop if maxDuration exceeded
+      if (maxDurationMs > 0 && Date.now() - startedAt >= maxDurationMs) {
+        debugLog.warn('Polling', `Max polling duration reached (${maxDurationMs / 1000}s) — stopping`);
+        if (pollRef.current) { clearTimeout(pollRef.current as unknown as number); pollRef.current = undefined; }
+        if ((pollRef as any)._visCleanup) { (pollRef as any)._visCleanup(); (pollRef as any)._visCleanup = undefined; }
+        return;
+      }
       const ok = await checkConnection();
       if (ok) {
         consecutiveFails = 0;

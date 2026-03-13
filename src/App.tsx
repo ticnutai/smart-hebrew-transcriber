@@ -13,6 +13,7 @@ import UserFloatingBadge from "./components/UserFloatingBadge";
 import { SmartConsole } from "./components/SmartConsole";
 import { TranscriptionAnalytics } from "./components/TranscriptionAnalytics";
 import { PWAInstallButton } from "./components/PWAInstallButton";
+import { BackgroundSync } from "./components/BackgroundSync";
 import { useTheme } from "./hooks/useTheme";
 import { debugLog } from "./lib/debugLogger";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -111,6 +112,7 @@ const App = () => {
         <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <RouteLogger />
           <CloudKeySync />
+          <BackgroundSync />
           <UserFloatingBadge />
           <SmartConsole />
           <TranscriptionAnalytics />
