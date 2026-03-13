@@ -111,7 +111,6 @@ function Get-OllamaInfo {
 }
 
 function Test-Launcher  { return (Test-Endpoint 'http://localhost:8764/health') }
-function Test-Vite      { return (Test-Endpoint 'http://localhost:8080') }
 function Test-AutoStart { return (Test-Path (Get-AutoStartPath)) }
 function Test-Desktop   { return (Test-Path (Get-DesktopPath)) }
 
@@ -180,26 +179,12 @@ function Show-Status {
         }
     }
 
-    # Node
-    $nodeCmd = Get-Command node -ErrorAction SilentlyContinue
-    if ($nodeCmd) {
-        $nv2 = (& node --version 2>&1).ToString().Trim()
-        Write-OK "Node.js: $nv2"
-    } else {
-        Write-Fail 'Node.js: not found'
-    }
-
     # Ollama binary
     if (Get-Command ollama -ErrorAction SilentlyContinue) {
         Write-OK 'Ollama: installed'
     } else {
         Write-Alert 'Ollama: not installed - optional'
     }
-
-    # npm
-    $nm = Join-Path $projectRoot 'node_modules'
-    if (Test-Path $nm) { Write-OK 'npm packages: installed' }
-    else               { Write-Fail 'npm packages: missing' }
 
     Write-Section 'Running Services'
 
@@ -227,10 +212,6 @@ function Show-Status {
         Write-Fail 'Ollama :11434 = OFF'
     }
 
-    # Vite
-    if (Test-Vite) { Write-OK 'Vite Dev :8080 = ON' }
-    else           { Write-Fail 'Vite Dev :8080 = OFF' }
-
     Write-Section 'Shortcuts'
 
     if (Test-Desktop)   { Write-OK 'Desktop shortcut: exists' }
@@ -247,7 +228,7 @@ function Show-Status {
 function Invoke-Install {
     Write-Banner 'Installing Smart Transcriber'
 
-    $total = 6
+    $total = 5
 
     # 1 - Python venv
     Write-Host "  [1/$total] Checking Python venv..." -ForegroundColor Yellow
@@ -290,25 +271,8 @@ function Invoke-Install {
         Write-OK 'PyTorch + faster-whisper present'
     }
 
-    # 3 - npm
-    Write-Host "  [3/$total] Checking npm..." -ForegroundColor Yellow
-    $nm = Join-Path $projectRoot 'node_modules'
-    if (-not (Test-Path $nm)) {
-        if (Get-Command node -ErrorAction SilentlyContinue) {
-            Write-Note 'Running npm install...'
-            Push-Location $projectRoot
-            npm install --silent 2>$null
-            Pop-Location
-            Write-OK 'npm packages installed'
-        } else {
-            Write-Alert 'Node.js not found - skipped'
-        }
-    } else {
-        Write-OK 'npm packages present'
-    }
-
-    # 4 - Desktop shortcut
-    Write-Host "  [4/$total] Creating desktop shortcut..." -ForegroundColor Yellow
+    # 3 - Desktop shortcut
+    Write-Host "  [3/$total] Creating desktop shortcut..." -ForegroundColor Yellow
     $bat  = Join-Path $projectRoot 'start-launcher.bat'
     $ico  = Join-Path $projectRoot 'public\favicon.ico'
     $desk = Get-DesktopPath
@@ -327,8 +291,8 @@ function Invoke-Install {
         Write-Fail 'start-launcher.bat not found'
     }
 
-    # 5 - Auto-start
-    Write-Host "  [5/$total] Registering auto-start..." -ForegroundColor Yellow
+    # 4 - Auto-start
+    Write-Host "  [4/$total] Registering auto-start..." -ForegroundColor Yellow
     if (Test-AutoStart) {
         Write-OK 'Already registered'
     } else {
@@ -348,8 +312,8 @@ function Invoke-Install {
         }
     }
 
-    # 6 - Start tray
-    Write-Host "  [6/$total] Starting Launcher Tray..." -ForegroundColor Yellow
+    # 5 - Start tray
+    Write-Host "  [5/$total] Starting Launcher Tray..." -ForegroundColor Yellow
     if (Test-Launcher) {
         Write-OK 'Launcher Tray already running'
     } else {
@@ -454,16 +418,13 @@ function Show-Menu {
         $lOk = Test-Launcher
         $wh  = Get-WhisperHealth
         $ol  = Get-OllamaInfo
-        $vOk = Test-Vite
 
         $lTag = if ($lOk)          { '[V]' } else { '[X]' }
         $wTag = if ($wh.Running)   { '[V]' } else { '[X]' }
         $oTag = if ($ol.Running)   { '[V]' } else { '[X]' }
-        $vTag = if ($vOk)          { '[V]' } else { '[X]' }
         $lClr = if ($lOk)          { 'Green' } else { 'Red' }
         $wClr = if ($wh.Running)   { 'Green' } else { 'Red' }
         $oClr = if ($ol.Running)   { 'Green' } else { 'Red' }
-        $vClr = if ($vOk)          { 'Green' } else { 'Red' }
 
         Write-Host ''
         Write-Host '  ==============================================' -ForegroundColor Cyan
@@ -476,19 +437,17 @@ function Show-Menu {
         Write-Host $wTag -ForegroundColor $wClr -NoNewline
         Write-Host ' CUDA  ' -NoNewline
         Write-Host $oTag -ForegroundColor $oClr -NoNewline
-        Write-Host ' Ollama  ' -NoNewline
-        Write-Host $vTag -ForegroundColor $vClr -NoNewline
-        Write-Host ' Vite'
+        Write-Host ' Ollama'
         Write-Host ''
         Write-Host '  ----------------------------------------------' -ForegroundColor DarkGray
         Write-Host '   1. Full Install  (deps + shortcut + tray)' -ForegroundColor White
         Write-Host '   2. Status        (detailed check)' -ForegroundColor White
         Write-Host '   3. Start Tray    (launcher only)' -ForegroundColor White
         Write-Host '   4. Start CUDA    (whisper server)' -ForegroundColor White
-        Write-Host '   5. Start ALL     (CUDA + Ollama + Vite)' -ForegroundColor White
+        Write-Host '   5. Start ALL     (CUDA + Ollama)' -ForegroundColor White
         Write-Host '   6. Stop ALL' -ForegroundColor White
         Write-Host '   7. Uninstall     (remove shortcuts)' -ForegroundColor White
-        Write-Host '   8. Open Website' -ForegroundColor White
+        Write-Host '   8. Open Website  (Lovable)' -ForegroundColor White
         Write-Host '   0. Exit' -ForegroundColor DarkGray
         Write-Host '  ----------------------------------------------' -ForegroundColor DarkGray
         Write-Host ''
@@ -552,11 +511,8 @@ function Show-Menu {
             }
             '7' { Invoke-Uninstall }
             '8' {
-                if ($vOk) { Start-Process 'http://localhost:8080' }
-                else {
-                    Write-Alert 'Vite not running - opening Lovable...'
-                    Start-Process 'https://a1add912-bd72-490b-949a-bf5fe8ed03b5.lovable.app'
-                }
+                Start-Process 'https://a1add912-bd72-490b-949a-bf5fe8ed03b5.lovable.app'
+                Write-OK 'Opening Lovable website...'
             }
             '0' { return }
             default { Write-Alert 'Invalid option' }
