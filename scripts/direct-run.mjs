@@ -14,9 +14,9 @@ const __dirname = path.dirname(__filename);
 const SUPABASE_URL = 'https://kjjljpllyjnvitemapox.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtqamxqcGxseWpudml0ZW1hcG94Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxNjM2NDksImV4cCI6MjA4ODczOTY0OX0.V6z69-vY-z5c1yA-fAP_X0PKWCzrS2Es4sfOckAet4I';
 
-// Admin credentials — email is fixed, password auto-filled
+// Admin credentials — email is fixed, password from env or prompt
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'jj1212t@gmail.com';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '543211';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 

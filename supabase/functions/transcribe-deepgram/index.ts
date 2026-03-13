@@ -16,7 +16,6 @@ serve(async (req) => {
     const file = formData.get('file') as File;
     const apiKey = formData.get('apiKey') as string;
     const language = formData.get('language') as string || 'auto';
-    const diarize = formData.get('diarize') as string;
 
     if (!file || !apiKey) {
       throw new Error('Missing file or API key');
@@ -35,10 +34,9 @@ serve(async (req) => {
 
     const deepgramLanguage = languageMap[language] || 'multi';
 
-    // Build Deepgram API URL with optional diarization
-    const diarizeParam = diarize === 'true' ? '&diarize=true' : '';
+    // Call Deepgram API
     const response = await fetch(
-      `https://api.deepgram.com/v1/listen?language=${deepgramLanguage}&model=nova-2&smart_format=true${diarizeParam}`,
+      `https://api.deepgram.com/v1/listen?language=${deepgramLanguage}&model=nova-2&smart_format=true`,
       {
         method: 'POST',
         headers: {
@@ -61,31 +59,15 @@ serve(async (req) => {
       throw new Error('No transcription received from Deepgram');
     }
 
-    // Extract word-level timestamps with optional speaker info
+    // Extract word-level timestamps from Deepgram response
     const wordTimings = (alt?.words || []).map((w: any) => ({
       word: w.punctuated_word || w.word,
       start: w.start,
       end: w.end,
-      speaker: w.speaker !== undefined ? w.speaker : undefined,
     }));
 
-    // If diarization was requested, format text with speaker labels
-    let finalText = text;
-    if (diarize === 'true' && alt?.words?.length) {
-      let currentSpeaker = -1;
-      const parts: string[] = [];
-      for (const w of alt.words) {
-        if (w.speaker !== undefined && w.speaker !== currentSpeaker) {
-          currentSpeaker = w.speaker;
-          parts.push(`\n[דובר ${currentSpeaker}]: `);
-        }
-        parts.push((w.punctuated_word || w.word) + ' ');
-      }
-      finalText = parts.join('').trim();
-    }
-
     return new Response(
-      JSON.stringify({ text: finalText, wordTimings }),
+      JSON.stringify({ text, wordTimings }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
