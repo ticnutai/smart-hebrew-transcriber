@@ -165,7 +165,7 @@ const Index = () => {
 
   // Save text-only to cloud (deferred mode — upload text without audio file)
   const saveTextOnlyToCloud = async (text: string, engineUsed: string, timings?: Array<{word: string, start: number, end: number, probability?: number}>) => {
-    await saveTranscript(text, engineUsed, undefined, undefined, timings);
+    await saveTranscript(text, engineUsed, undefined, undefined);
   };
 
   // Helper: invoke edge function with real upload progress via XHR and multipart form
