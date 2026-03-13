@@ -110,6 +110,11 @@ const AppSidebar = () => {
     if (isPinned) setIsOpen(true);
   }, [isPinned]);
 
+  // Notify AppLayout when sidebar visibility changes
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("sidebar-open-change", { detail: isOpen }));
+  }, [isOpen]);
+
   const handleMouseEnterTrigger = useCallback(() => {
     clearTimeout(closeTimerRef.current);
     setIsOpen(true);

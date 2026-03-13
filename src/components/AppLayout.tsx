@@ -10,19 +10,29 @@ const AppLayout = ({ children }: { children: ReactNode }) => {
       return false;
     }
   });
+  const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
-    const handler = (e: Event) => {
+    const pinHandler = (e: Event) => {
       setIsPinned((e as CustomEvent).detail);
     };
-    window.addEventListener("sidebar-pin-change", handler);
-    return () => window.removeEventListener("sidebar-pin-change", handler);
+    const openHandler = (e: Event) => {
+      setIsOpen((e as CustomEvent).detail);
+    };
+    window.addEventListener("sidebar-pin-change", pinHandler);
+    window.addEventListener("sidebar-open-change", openHandler);
+    return () => {
+      window.removeEventListener("sidebar-pin-change", pinHandler);
+      window.removeEventListener("sidebar-open-change", openHandler);
+    };
   }, []);
+
+  const showMargin = isPinned || isOpen;
 
   return (
     <div
       className="min-h-screen transition-all duration-300"
-      style={{ marginRight: isPinned ? SIDEBAR_WIDTH : 0 }}
+      style={{ marginRight: showMargin ? SIDEBAR_WIDTH : 0 }}
     >
       {children}
     </div>
