@@ -15,7 +15,7 @@ import { useBackgroundTask } from "@/hooks/useBackgroundTask";
 import { debugLog } from "@/lib/debugLogger";
 import { useCloudTranscripts } from "@/hooks/useCloudTranscripts";
 import { useTranscriptionAnalytics } from "@/hooks/useTranscriptionAnalytics";
-import { Settings, FileEdit, ChevronDown, X, Zap, Globe, Chrome, Mic, Waves, Server, Cpu, Film, Pause, Play, Square, Copy, Check, Keyboard, Activity, Users } from "lucide-react";
+import { Settings, FileEdit, ChevronDown, X, Zap, Globe, Chrome, Mic, Waves, Server, Cpu, Film, Pause, Play, Square, Copy, Check, Keyboard, Activity } from "lucide-react";
 import { usePerfMonitor } from "@/hooks/usePerfMonitor";
 import { PerfMonitorPanel } from "@/components/PerfMonitorPanel";
 import { useTranscriptionJobs } from "@/hooks/useTranscriptionJobs";
@@ -25,7 +25,6 @@ import { isVideoFile, extractAudioFromVideo, VIDEO_NEEDS_EXTRACTION, MAX_VIDEO_S
 import { compressAudio, needsCompression, formatFileSize, CLOUD_API_LIMIT } from "@/lib/audioCompression";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { KeyboardShortcutsDialog } from "@/components/KeyboardShortcutsDialog";
-import { addNotification } from "@/hooks/useNotifications";
 
 // Lazy-loaded heavy components
 const LiveTranscriber = lazy(() => import("@/components/LiveTranscriber").then(m => ({ default: m.LiveTranscriber })));
@@ -73,7 +72,6 @@ const Index = () => {
   const [recoveredPartialInfo, setRecoveredPartialInfo] = useState<{progress: number, wordCount: number, lastSegEnd?: number} | null>(null);
   const [lastStats, setLastStats] = useState<TranscriptionStats | null>(null);
   const [copied, setCopied] = useState(false);
-  const [diarize, setDiarize] = useState(false);
 
   // Save reference to last uploaded file for resume functionality
   const lastFileRef = useRef<File | null>(null);
@@ -95,19 +93,14 @@ const Index = () => {
   const transcriptionStartRef = useRef<number>(0);
 
   // Start/stop health polling when CUDA engine is selected
-  // Skip polling when on cloud (non-localhost) with default server URL
-  const isCloudWithDefaultUrl = typeof window !== 'undefined'
-    && !['localhost', '127.0.0.1'].includes(window.location.hostname)
-    && !localStorage.getItem('whisper_server_url');
-
   useEffect(() => {
-    if (engine === 'local-server' && !isCloudWithDefaultUrl) {
+    if (engine === 'local-server') {
       startPolling(serverConnected ? 10000 : 5000);
       return () => stopPolling();
     } else {
       stopPolling();
     }
-  }, [engine, serverConnected, startPolling, stopPolling, isCloudWithDefaultUrl]);
+  }, [engine, serverConnected, startPolling, stopPolling]);
 
   // Cleanup audio Object URL on unmount
   useEffect(() => {
@@ -152,7 +145,7 @@ const Index = () => {
   const currentFileRef = useRef<File | null>(null);
 
   // Save to cloud history (respects cloud save mode for CUDA engine)
-  const saveToHistory = async (text: string, engineUsed: string, skipCloud?: boolean, timings?: Array<{word: string, start: number, end: number, probability?: number}>) => {
+  const saveToHistory = async (text: string, engineUsed: string, skipCloud?: boolean) => {
     if (skipCloud) {
       // Save only to localStorage, skip cloud upload entirely
       let history: any[] = [];
@@ -162,13 +155,12 @@ const Index = () => {
       localStorage.setItem('transcript_history', JSON.stringify(updated));
       return;
     }
-    await saveTranscript(text, engineUsed, undefined, currentFileRef.current || undefined, timings);
-    addNotification({ type: 'success', title: 'תמלול הושלם', description: `מנוע: ${engineUsed} — ${text.split(/\s+/).length} מילים` });
+    await saveTranscript(text, engineUsed, undefined, currentFileRef.current || undefined);
   };
 
   // Save text-only to cloud (deferred mode — upload text without audio file)
-  const saveTextOnlyToCloud = async (text: string, engineUsed: string, timings?: Array<{word: string, start: number, end: number, probability?: number}>) => {
-    await saveTranscript(text, engineUsed, undefined, undefined, timings);
+  const saveTextOnlyToCloud = async (text: string, engineUsed: string) => {
+    await saveTranscript(text, engineUsed, undefined, undefined);
   };
 
   // Helper: invoke edge function with real upload progress via XHR and multipart form
@@ -252,21 +244,6 @@ const Index = () => {
     if (audioUrl) URL.revokeObjectURL(audioUrl);
     const url = URL.createObjectURL(file);
     setAudioUrl(url);
-
-    // Persist audio blob to IndexedDB for text-editor recovery
-    try {
-      const idb = await new Promise<IDBDatabase>((resolve, reject) => {
-        const req = indexedDB.open('transcriber_audio', 1);
-        req.onupgradeneeded = () => req.result.createObjectStore('blobs');
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error);
-      });
-      const tx = idb.transaction('blobs', 'readwrite');
-      tx.objectStore('blobs').put(file, 'last_audio');
-      tx.objectStore('blobs').put(file.type, 'last_audio_type');
-      tx.objectStore('blobs').put(file.name, 'last_audio_name');
-      idb.close();
-    } catch { /* IndexedDB not available — ok */ }
 
     // Show audio/video duration after file select
     try {
@@ -419,7 +396,7 @@ const Index = () => {
         const timings = data.wordTimings || [];
         setTranscript(data.text);
         setWordTimings(timings);
-        saveToHistory(data.text, 'OpenAI Whisper', undefined, timings);
+        saveToHistory(data.text, 'OpenAI Whisper');
         addAnalyticsRecord({
           engine: 'OpenAI Whisper', status: 'success',
           fileName: file.name, fileSize: file.size,
@@ -437,8 +414,6 @@ const Index = () => {
           title: "הצלחה!",
           description: "התמלול הושלם בהצלחה - עובר לעריכת טקסט",
         });
-        // Persist word timings for text-editor recovery
-        if (timings.length > 0) localStorage.setItem('last_word_timings', JSON.stringify(timings));
         // Auto-navigate to text editor
         setTimeout(() => {
           navigate('/text-editor', { state: { text: data.text, audioUrl: fileAudioUrl, wordTimings: timings } });
@@ -513,7 +488,7 @@ const Index = () => {
         const timings = data.wordTimings || [];
         setTranscript(data.text);
         setWordTimings(timings);
-        saveToHistory(data.text, 'Groq Whisper', undefined, timings);
+        saveToHistory(data.text, 'Groq Whisper');
         addAnalyticsRecord({
           engine: 'Groq Whisper', status: 'success',
           fileName: file.name, fileSize: file.size,
@@ -531,7 +506,6 @@ const Index = () => {
           title: "הצלחה!", 
           description: "התמלול עם Groq הושלם בהצלחה - עובר לעריכת טקסט" 
         });
-        if (timings.length > 0) localStorage.setItem('last_word_timings', JSON.stringify(timings));
         // Auto-navigate to text editor
         setTimeout(() => {
           navigate('/text-editor', { state: { text: data.text, audioUrl: fileAudioUrl, wordTimings: timings } });
@@ -620,7 +594,7 @@ const Index = () => {
         const timings = data.wordTimings || [];
         setTranscript(data.text);
         setWordTimings(timings);
-        saveToHistory(data.text, 'Google Speech-to-Text', undefined, timings);
+        saveToHistory(data.text, 'Google Speech-to-Text');
         addAnalyticsRecord({
           engine: 'Google Speech-to-Text', status: 'success',
           fileName: file.name, fileSize: file.size,
@@ -638,7 +612,6 @@ const Index = () => {
           title: "הצלחה!",
           description: "התמלול עם Google הושלם בהצלחה - עובר לעריכת טקסט"
         });
-        if (timings.length > 0) localStorage.setItem('last_word_timings', JSON.stringify(timings));
         // Auto-navigate to text editor
         setTimeout(() => {
           navigate('/text-editor', { state: { text: data.text, audioUrl: fileAudioUrl, wordTimings: timings } });
@@ -669,7 +642,7 @@ const Index = () => {
       const result = await localTranscribe(file);
       setTranscript(result.text);
       setWordTimings(result.wordTimings);
-      saveToHistory(result.text, 'Local (Browser)', undefined, result.wordTimings);
+      saveToHistory(result.text, 'Local (Browser)');
       addAnalyticsRecord({
         engine: 'Local (Browser)', status: 'success',
         fileName: file.name, fileSize: file.size,
@@ -687,7 +660,6 @@ const Index = () => {
         title: "הצלחה!",
         description: "התמלול המקומי הושלם בהצלחה - עובר לעריכת טקסט",
       });
-      if (result.wordTimings?.length > 0) localStorage.setItem('last_word_timings', JSON.stringify(result.wordTimings));
       // Auto-navigate to text editor
       setTimeout(() => {
         navigate('/text-editor', { state: { text: result.text, audioUrl: fileAudioUrl, wordTimings: result.wordTimings } });
@@ -764,11 +736,11 @@ const Index = () => {
       const cloudSaveMode = localStorage.getItem('cuda_cloud_save') || 'immediate';
       const engineLabel = `Local CUDA (${result.model || 'server'})`;
       if (cloudSaveMode === 'skip') {
-        saveToHistory(result.text, engineLabel, true, timings);  // localStorage only
+        saveToHistory(result.text, engineLabel, true);  // localStorage only
       } else if (cloudSaveMode === 'text-only') {
-        saveTextOnlyToCloud(result.text, engineLabel, timings);  // text to cloud, no audio upload
+        saveTextOnlyToCloud(result.text, engineLabel);  // text to cloud, no audio upload
       } else {
-        saveToHistory(result.text, engineLabel, undefined, timings);  // full: text + audio to cloud
+        saveToHistory(result.text, engineLabel);  // full: text + audio to cloud
       }
 
       clearPartial();
@@ -801,7 +773,6 @@ const Index = () => {
         title: "הצלחה!",
         description: `תמלול GPU הושלם ב-${result.processing_time || '?'}s${statsInfo} — עובר לעריכת טקסט`,
       });
-      if (timings.length > 0) localStorage.setItem('last_word_timings', JSON.stringify(timings));
       setTimeout(() => {
         navigate('/text-editor', { state: { text: result.text, audioUrl: fileAudioUrl, wordTimings: timings } });
       }, 1000);
@@ -850,7 +821,6 @@ const Index = () => {
       form.append('file', file, file.name);
       form.append('apiKey', assemblyKey);
       form.append('language', sourceLanguage);
-      if (diarize) form.append('diarize', 'true');
 
       const { data, error } = await xhrInvoke('transcribe-assemblyai', form, (p) => setUploadProgress(p));
 
@@ -860,7 +830,7 @@ const Index = () => {
         const timings = data.wordTimings || [];
         setTranscript(data.text);
         setWordTimings(timings);
-        saveToHistory(data.text, 'AssemblyAI', undefined, timings);
+        saveToHistory(data.text, 'AssemblyAI');
         addAnalyticsRecord({
           engine: 'AssemblyAI', status: 'success',
           fileName: file.name, fileSize: file.size,
@@ -878,7 +848,6 @@ const Index = () => {
           title: "הצלחה!",
           description: "התמלול הושלם בהצלחה - עובר לעריכת טקסט",
         });
-        if (timings.length > 0) localStorage.setItem('last_word_timings', JSON.stringify(timings));
         setTimeout(() => {
           navigate('/text-editor', { state: { text: data.text, audioUrl: fileAudioUrl, wordTimings: timings } });
         }, 1000);
@@ -927,7 +896,6 @@ const Index = () => {
       form.append('file', file, file.name);
       form.append('apiKey', deepgramKey);
       form.append('language', sourceLanguage);
-      if (diarize) form.append('diarize', 'true');
 
       const { data, error } = await xhrInvoke('transcribe-deepgram', form, (p) => setUploadProgress(p));
 
@@ -937,7 +905,7 @@ const Index = () => {
         const timings = data.wordTimings || [];
         setTranscript(data.text);
         setWordTimings(timings);
-        saveToHistory(data.text, 'Deepgram', undefined, timings);
+        saveToHistory(data.text, 'Deepgram');
         addAnalyticsRecord({
           engine: 'Deepgram', status: 'success',
           fileName: file.name, fileSize: file.size,
@@ -955,7 +923,6 @@ const Index = () => {
           title: "הצלחה!",
           description: "התמלול הושלם בהצלחה - עובר לעריכת טקסט",
         });
-        if (timings.length > 0) localStorage.setItem('last_word_timings', JSON.stringify(timings));
         setTimeout(() => {
           navigate('/text-editor', { state: { text: data.text, audioUrl: fileAudioUrl, wordTimings: timings } });
         }, 1000);
@@ -1135,7 +1102,7 @@ const Index = () => {
   };
 
   const batchSaveTranscript = async (text: string, engineUsed: string, title: string) => {
-    await saveTranscript(text, engineUsed, title, undefined, undefined);
+    await saveTranscript(text, engineUsed, title);
   };
 
   return (
@@ -1214,21 +1181,6 @@ const Index = () => {
           sourceLanguage={sourceLanguage}
           onSourceLanguageChange={setSourceLanguage}
         />
-
-        {(engine === 'assemblyai' || engine === 'deepgram') && (
-          <div className="flex items-center gap-2 text-sm" dir="rtl">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={diarize}
-                onChange={e => setDiarize(e.target.checked)}
-                className="rounded border-gray-300"
-              />
-              <Users className="w-4 h-4" />
-              <span>זיהוי דוברים (Speaker Diarization)</span>
-            </label>
-          </div>
-        )}
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <FileUploader 

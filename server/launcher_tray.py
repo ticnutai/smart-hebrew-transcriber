@@ -3,10 +3,9 @@ Launcher Tray Service for Smart Hebrew Transcriber
 System tray icon with right-click menu + Flask API on port 8764.
 
 Features:
-  - Color-coded icon: green=all running, yellow=partial, red=all off
-  - Right-click menu: individual Start/Stop for CUDA, Ollama, Vite
-  - "Start All" / "Stop All" shortcuts
-  - Flask API on port 8764
+  - Green/red icon based on CUDA server status
+  - Right-click menu: Start/Stop CUDA, Open browser, Toggle auto-start, Quit
+  - Flask API on port 8764 (same as launcher_service.py)
   - Minimal resources (~20MB RAM, 0 GPU)
 
 Usage:
@@ -20,7 +19,6 @@ import json
 import subprocess
 import threading
 import time
-import shutil
 from pathlib import Path
 
 # Ensure UTF-8 output on Windows
@@ -40,7 +38,7 @@ except ImportError:
 
 try:
     import pystray
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image, ImageDraw
 except ImportError:
     print("Missing: pip install pystray Pillow")
     sys.exit(1)
@@ -50,17 +48,14 @@ except ImportError:
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 WHISPER_SERVER_SCRIPT = PROJECT_ROOT / "server" / "transcribe_server.py"
 WHISPER_PORT = 8765
-VITE_PORT = 8080
 LAUNCHER_PORT = 8764
 TASK_NAME = "SmartTranscriberLauncher"
 LOVABLE_URL = "https://a1add912-bd72-490b-949a-bf5fe8ed03b5.lovable.app"
 
 # ─── State ──────────────────────────────────────────────
 whisper_process = None
-vite_process = None
 whisper_running = False
 ollama_running = False
-vite_running = False
 
 
 # ─── Helpers ────────────────────────────────────────────
@@ -98,19 +93,9 @@ def check_ollama():
         return False, 0
 
 
-def check_vite():
-    """Check if Vite dev server is responding."""
-    import urllib.request
-    try:
-        req = urllib.request.Request(f"http://localhost:{VITE_PORT}/", method="GET")
-        with urllib.request.urlopen(req, timeout=3) as resp:
-            return True
-    except Exception:
-        return False
-
-
 def start_ollama():
     """Start Ollama in background if available."""
+    import shutil
     ollama_path = shutil.which("ollama")
     if not ollama_path:
         return False, "not installed"
@@ -125,22 +110,6 @@ def start_ollama():
             creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
         )
         return True, "started"
-    except Exception as e:
-        return False, str(e)
-
-
-def stop_ollama():
-    """Stop Ollama."""
-    ollama_path = shutil.which("ollama")
-    if not ollama_path:
-        return False, "not installed"
-    try:
-        subprocess.run(
-            ["taskkill", "/f", "/im", "ollama.exe"],
-            capture_output=True,
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
-        )
-        return True, "stopped"
     except Exception as e:
         return False, str(e)
 
@@ -185,45 +154,6 @@ def stop_whisper():
     return False, "no process"
 
 
-def start_vite():
-    """Start Vite dev server."""
-    global vite_process
-    if check_vite():
-        return True, "already running"
-    npx = shutil.which("npx")
-    if not npx:
-        return False, "npx not found"
-    try:
-        vite_process = subprocess.Popen(
-            [npx, "vite", "--port", str(VITE_PORT)],
-            cwd=str(PROJECT_ROOT),
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
-        )
-        return True, "started"
-    except Exception as e:
-        return False, str(e)
-
-
-def stop_vite():
-    """Stop the Vite dev server."""
-    global vite_process
-    if vite_process and vite_process.poll() is None:
-        vite_process.terminate()
-        vite_process = None
-        return True, "terminated"
-    # Fallback: kill node on vite port
-    try:
-        result = subprocess.run(
-            ["powershell", "-Command", f"Get-NetTCPConnection -LocalPort {VITE_PORT} -ErrorAction SilentlyContinue | ForEach-Object {{ Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }}"],
-            capture_output=True,
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
-        )
-        return True, "port cleared"
-    except Exception:
-        return False, "no process"
-
-
 def is_autostart_enabled():
     """Check if the scheduled task exists."""
     try:
@@ -240,6 +170,7 @@ def is_autostart_enabled():
 def toggle_autostart():
     """Toggle Windows startup scheduled task."""
     if is_autostart_enabled():
+        # Remove
         subprocess.run(
             ["schtasks", "/Delete", "/TN", TASK_NAME, "/F"],
             capture_output=True,
@@ -247,6 +178,7 @@ def toggle_autostart():
         )
         return False
     else:
+        # Add - find pythonw
         pythonw = None
         for venv_dir in [".venv", "venv-whisper"]:
             p = PROJECT_ROOT / venv_dir / "Scripts" / "pythonw.exe"
@@ -276,139 +208,78 @@ def toggle_autostart():
 
 # ─── Tray Icon ──────────────────────────────────────────
 
-def create_icon_image(cuda_on=False, ollama_on=False, vite_on=False):
-    """Create icon with 3 colored dots for each service status."""
+def create_icon_image(color="green"):
+    """Create a simple circle icon."""
     size = 64
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-
-    # Background circle
-    running_count = sum([cuda_on, ollama_on, vite_on])
-    if running_count == 3:
-        bg = (76, 175, 80, 255)    # green — all running
-    elif running_count > 0:
-        bg = (255, 193, 7, 255)    # yellow — partial
-    else:
-        bg = (244, 67, 54, 255)    # red — all off
-
-    draw.ellipse([2, 2, size - 2, size - 2], fill=bg)
-
-    # "T" letter
-    draw.text((size // 2 - 6, 6), "T", fill=(255, 255, 255, 255))
-
-    # 3 small status dots at bottom
-    dot_y = size - 16
-    dot_r = 5
-    dots = [
-        (14, dot_y, cuda_on),     # CUDA
-        (32, dot_y, ollama_on),   # Ollama
-        (50, dot_y, vite_on),     # Vite
-    ]
-    for cx, cy, on in dots:
-        color = (255, 255, 255, 255) if on else (80, 80, 80, 200)
-        draw.ellipse([cx - dot_r, cy - dot_r, cx + dot_r, cy + dot_r], fill=color)
-
+    fill = (76, 175, 80, 255) if color == "green" else (244, 67, 54, 255)
+    draw.ellipse([4, 4, size - 4, size - 4], fill=fill)
+    # Draw "T" letter in white
+    draw.text((size // 2 - 6, size // 2 - 10), "T", fill=(255, 255, 255, 255))
     return img
 
 
-_tray_icon = None
-
-
-def refresh_status():
-    """Update all service statuses and refresh icon."""
-    global whisper_running, ollama_running, vite_running
-    whisper_running, _ = check_whisper()
-    ollama_running, _ = check_ollama()
-    vite_running = check_vite()
-    if _tray_icon:
-        _tray_icon.icon = create_icon_image(whisper_running, ollama_running, vite_running)
-        parts = []
-        parts.append(f"CUDA: {'ON' if whisper_running else 'OFF'}")
-        parts.append(f"Ollama: {'ON' if ollama_running else 'OFF'}")
-        parts.append(f"Vite: {'ON' if vite_running else 'OFF'}")
-        _tray_icon.title = f"Smart Transcriber — {' | '.join(parts)}"
-
-
-# ─── Menu Actions ───────────────────────────────────────
-
-def on_start_all(icon, item):
+def on_start_cuda(icon, item):
+    ok, msg, _ = start_whisper()
     start_ollama()
-    start_whisper()
-    start_vite()
-    time.sleep(2)
-    refresh_status()
+    update_icon(icon)
 
-def on_stop_all(icon, item):
+
+def on_stop_cuda(icon, item):
     stop_whisper()
-    stop_ollama()
-    stop_vite()
-    time.sleep(1)
-    refresh_status()
+    update_icon(icon)
 
-def on_toggle_cuda(icon, item):
-    if whisper_running:
-        stop_whisper()
-    else:
-        start_whisper()
-    time.sleep(2)
-    refresh_status()
-
-def on_toggle_ollama(icon, item):
-    if ollama_running:
-        stop_ollama()
-    else:
-        start_ollama()
-    time.sleep(2)
-    refresh_status()
-
-def on_toggle_vite(icon, item):
-    if vite_running:
-        stop_vite()
-    else:
-        start_vite()
-    time.sleep(2)
-    refresh_status()
 
 def on_open_lovable(icon, item):
     os.startfile(LOVABLE_URL)
 
+
 def on_open_local(icon, item):
-    os.startfile(f"http://localhost:{VITE_PORT}")
+    os.startfile("http://localhost:8080")
+
 
 def on_toggle_autostart(icon, item):
     toggle_autostart()
+    update_menu(icon)
+
 
 def on_quit(icon, item):
     icon.stop()
 
-def cuda_label(item):
-    return f"{'🟢' if whisper_running else '🔴'} שרת CUDA (:{WHISPER_PORT})"
-
-def ollama_label(item):
-    return f"{'🟢' if ollama_running else '🔴'} Ollama (:{11434})"
-
-def vite_label(item):
-    return f"{'🟢' if vite_running else '🔴'} Vite Dev (:{VITE_PORT})"
 
 def autostart_checked(item):
     return is_autostart_enabled()
 
 
+def update_icon(icon):
+    """Update icon color based on whisper status."""
+    global whisper_running, ollama_running
+    whisper_running, _ = check_whisper()
+    ollama_running, _ = check_ollama()
+    color = "green" if whisper_running else "red"
+    icon.icon = create_icon_image(color)
+    status = "CUDA: " + ("ON" if whisper_running else "OFF")
+    status += " | Ollama: " + ("ON" if ollama_running else "OFF")
+    icon.title = f"Smart Transcriber - {status}"
+
+
+def update_menu(icon):
+    """Rebuild the menu (for checkbox state refresh)."""
+    icon.menu = build_menu()
+
+
 def build_menu():
     return pystray.Menu(
-        pystray.MenuItem("🚀 הפעל הכל", on_start_all),
-        pystray.MenuItem("⏹ עצור הכל", on_stop_all),
+        pystray.MenuItem("הפעל שרת CUDA", on_start_cuda),
+        pystray.MenuItem("עצור שרת CUDA", on_stop_cuda),
         pystray.Menu.SEPARATOR,
-        pystray.MenuItem(cuda_label, on_toggle_cuda),
-        pystray.MenuItem(ollama_label, on_toggle_ollama),
-        pystray.MenuItem(vite_label, on_toggle_vite),
-        pystray.Menu.SEPARATOR,
-        pystray.MenuItem("🌐 פתח Lovable", on_open_lovable),
-        pystray.MenuItem("💻 פתח localhost", on_open_local),
+        pystray.MenuItem("פתח Lovable", on_open_lovable),
+        pystray.MenuItem("פתח localhost:8080", on_open_local),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("הפעלה אוטומטית עם Windows", on_toggle_autostart, checked=autostart_checked),
         pystray.Menu.SEPARATOR,
-        pystray.MenuItem("❌ יציאה", on_quit),
+        pystray.MenuItem("יציאה", on_quit),
     )
 
 
@@ -416,13 +287,13 @@ def status_updater(icon):
     """Background thread: update icon every 15 seconds."""
     while icon.visible:
         try:
-            refresh_status()
+            update_icon(icon)
         except Exception:
             pass
         time.sleep(15)
 
 
-# ─── Flask API ──────────────────────────────────────────
+# ─── Flask API (same as launcher_service.py) ────────────
 
 app = Flask(__name__)
 CORS(app)
@@ -432,61 +303,41 @@ CORS(app)
 def health():
     w_ok, w_data = check_whisper()
     o_ok, o_models = check_ollama()
-    v_ok = check_vite()
     return jsonify({
         "status": "ok",
         "launcher": True,
         "tray": True,
         "whisper": {"running": w_ok, "port": WHISPER_PORT, "gpu": w_data.get("gpu") if w_data else None},
         "ollama": {"running": o_ok, "models": o_models},
-        "vite": {"running": v_ok, "port": VITE_PORT},
     })
 
 
 @app.route("/start", methods=["POST"])
 def api_start():
-    target = request.json.get("target", "all") if request.is_json else "all"
-    results = {}
-    if target in ("all", "ollama"):
-        ok_o, msg_o = start_ollama()
-        results["ollama"] = {"ok": ok_o, "message": msg_o}
-    if target in ("all", "whisper", "cuda"):
-        ok_w, msg_w, data_w = start_whisper()
-        results["whisper"] = {"ok": ok_w, "message": msg_w}
-        if data_w:
-            results["whisper"]["gpu"] = data_w.get("gpu")
-    if target in ("all", "vite"):
-        ok_v, msg_v = start_vite()
-        results["vite"] = {"ok": ok_v, "message": msg_v}
-    return jsonify({"ok": True, "results": results})
+    results = {"whisper": None, "ollama": None}
+    ok_o, msg_o = start_ollama()
+    results["ollama"] = {"ok": ok_o, "message": msg_o}
+    ok_w, msg_w, data_w = start_whisper()
+    results["whisper"] = {"ok": ok_w, "message": msg_w}
+    if data_w:
+        results["whisper"]["gpu"] = data_w.get("gpu")
+    return jsonify({"ok": ok_w, "results": results})
 
 
 @app.route("/stop", methods=["POST"])
 def api_stop():
-    target = request.json.get("target", "all") if request.is_json else "all"
-    results = {}
-    if target in ("all", "whisper", "cuda"):
-        ok, msg = stop_whisper()
-        results["whisper"] = {"ok": ok, "message": msg}
-    if target in ("all", "ollama"):
-        ok, msg = stop_ollama()
-        results["ollama"] = {"ok": ok, "message": msg}
-    if target in ("all", "vite"):
-        ok, msg = stop_vite()
-        results["vite"] = {"ok": ok, "message": msg}
-    return jsonify({"ok": True, "results": results})
+    ok, msg = stop_whisper()
+    return jsonify({"ok": ok, "message": msg})
 
 
 @app.route("/status", methods=["GET"])
 def api_status():
     w_ok, w_data = check_whisper()
     o_ok, o_models = check_ollama()
-    v_ok = check_vite()
     return jsonify({
         "whisper": {"running": w_ok, "data": w_data,
                      "process_alive": whisper_process is not None and whisper_process.poll() is None if whisper_process else False},
         "ollama": {"running": o_ok, "models": o_models},
-        "vite": {"running": v_ok, "port": VITE_PORT},
     })
 
 
@@ -498,7 +349,6 @@ def run_flask():
 # ─── Main ───────────────────────────────────────────────
 
 def main():
-    global _tray_icon
     print(f"Starting Smart Transcriber Tray (API on port {LAUNCHER_PORT})...")
 
     # Start Flask in background thread
@@ -506,19 +356,19 @@ def main():
     flask_thread.start()
 
     # Create tray icon
-    _tray_icon = pystray.Icon(
+    icon = pystray.Icon(
         "smart_transcriber",
-        create_icon_image(False, False, False),
-        "Smart Transcriber — Starting...",
+        create_icon_image("red"),
+        "Smart Transcriber - Starting...",
         menu=build_menu(),
     )
 
     # Start status updater
-    updater = threading.Thread(target=status_updater, args=(_tray_icon,), daemon=True)
+    updater = threading.Thread(target=status_updater, args=(icon,), daemon=True)
     updater.start()
 
     # Run tray (blocks)
-    _tray_icon.run()
+    icon.run()
 
 
 if __name__ == "__main__":

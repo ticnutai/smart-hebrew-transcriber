@@ -23,7 +23,6 @@ import { ArrowRight, Home, Wand2, SplitSquareVertical, SpellCheck, Loader2, Colu
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { useCloudPreferences } from "@/hooks/useCloudPreferences";
-import { useCloudTranscripts } from "@/hooks/useCloudTranscripts";
 
 const TextEditor = () => {
   const navigate = useNavigate();
@@ -38,7 +37,6 @@ const TextEditor = () => {
   
   // Cloud-synced style settings
   const { preferences, updatePreference } = useCloudPreferences();
-  const { getAudioUrl, getTranscriptById } = useCloudTranscripts();
   const fontSize = preferences.font_size;
   const fontFamily = preferences.font_family;
   const textColor = preferences.text_color;
@@ -57,27 +55,6 @@ const TextEditor = () => {
     columnGap: '2rem',
     columnRule: '1px solid hsl(var(--border))',
   } : {};
-
-  /** Recover audio blob from IndexedDB (survives refresh & sidebar nav) */
-  const recoverAudioFromIDB = async () => {
-    try {
-      const idb = await new Promise<IDBDatabase>((resolve, reject) => {
-        const req = indexedDB.open('transcriber_audio', 1);
-        req.onupgradeneeded = () => req.result.createObjectStore('blobs');
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error);
-      });
-      const tx = idb.transaction('blobs', 'readonly');
-      const store = tx.objectStore('blobs');
-      const blob: Blob | undefined = await new Promise((res) => { const r = store.get('last_audio'); r.onsuccess = () => res(r.result); r.onerror = () => res(undefined); });
-      idb.close();
-      if (blob && blob.size > 0) {
-        const url = URL.createObjectURL(blob);
-        setAudioUrl(url);
-        debugLog.info('TextEditor', '🔊 Audio recovered from IndexedDB');
-      }
-    } catch { /* IndexedDB not available */ }
-  };
 
   useEffect(() => {
     debugLog.info('TextEditor', '📝 TextEditor mounted');
@@ -121,10 +98,6 @@ const TextEditor = () => {
       
       if (savedText) {
         setText(savedText);
-      } else if (preferences.draft_text) {
-        // Recover from cloud draft (cross-device)
-        setText(preferences.draft_text);
-        debugLog.info('TextEditor', '☁️ Draft recovered from cloud');
       }
     }
 
@@ -135,50 +108,23 @@ const TextEditor = () => {
       if (url.startsWith('blob:')) {
         fetch(url, { method: 'HEAD' }).then(() => {
           setAudioUrl(url);
-          // Persist word timings for sidebar navigation / refresh
-          if (location.state?.wordTimings) {
-            localStorage.setItem('last_word_timings', JSON.stringify(location.state.wordTimings));
-          }
         }).catch(() => {
-          // Blob URL expired — try IndexedDB recovery
-          recoverAudioFromIDB();
+          // Blob URL expired — ignore silently
         });
       } else {
         setAudioUrl(url);
       }
-    } else if (location.state?.cloudTranscriptId) {
-      // Recover audio from Supabase Storage via cloud transcript
-      (async () => {
-        try {
-          const transcript = await getTranscriptById(location.state.cloudTranscriptId);
-          if (transcript?.audio_file_path) {
-            const signedUrl = await getAudioUrl(transcript.audio_file_path);
-            if (signedUrl) setAudioUrl(signedUrl);
-          }
-        } catch { /* cloud unavailable */ }
-      })();
-    } else {
-      // No state (sidebar nav or refresh) — recover from IndexedDB
-      recoverAudioFromIDB();
     }
     if (location.state?.wordTimings) {
       setWordTimings(location.state.wordTimings);
-    } else {
-      // Recover word timings from localStorage
-      try {
-        const saved = localStorage.getItem('last_word_timings');
-        if (saved) setWordTimings(JSON.parse(saved));
-      } catch { /* ignore */ }
     }
 
   }, [location.state]);
 
-  // Auto-save text and versions to localStorage + cloud draft
+  // Auto-save text and versions to localStorage
   useEffect(() => {
     if (text) {
       localStorage.setItem('current_editing_text', text);
-      // Debounced cloud draft save (piggybacks on existing cloud preferences)
-      updatePreference('draft_text', text);
     }
     if (versions.length > 0) {
       localStorage.setItem('text_versions', JSON.stringify(versions));

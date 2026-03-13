@@ -25,13 +25,7 @@ import {
   Database,
   Code2,
   ScrollText,
-  Zap,
-  Send,
-  Loader2,
 } from "lucide-react";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useAuth } from "@/contexts/AuthContext";
 
 interface MigrationLog {
   id: string;
@@ -95,19 +89,6 @@ ORDER BY tablename, policyname;`,
   },
 ];
 
-const EDGE_FUNCTIONS = [
-  "deploy-edge-function",
-  "edit-transcript",
-  "process-transcription",
-  "run-migration",
-  "summarize-transcript",
-  "transcribe-assemblyai",
-  "transcribe-deepgram",
-  "transcribe-google",
-  "transcribe-groq",
-  "transcribe-openai",
-];
-
 const DevToolsPanel = () => {
   const [sqlContent, setSqlContent] = useState("");
   const [isRunning, setIsRunning] = useState(false);
@@ -121,19 +102,6 @@ const DevToolsPanel = () => {
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  // Edge function state
-  const [edgeFnName, setEdgeFnName] = useState(EDGE_FUNCTIONS[0]);
-  const [edgeFnMethod, setEdgeFnMethod] = useState<"GET" | "POST">("POST");
-  const [edgeFnBody, setEdgeFnBody] = useState("{}");
-  const [edgeFnHeaders, setEdgeFnHeaders] = useState<Array<{ key: string; value: string }>>([]);
-  const [edgeFnRunning, setEdgeFnRunning] = useState(false);
-  const [edgeFnResult, setEdgeFnResult] = useState<{
-    status: number;
-    body: string;
-    time: number;
-  } | null>(null);
-  const { session } = useAuth();
 
   useEffect(() => {
     loadLogs();
@@ -269,67 +237,13 @@ const DevToolsPanel = () => {
     }
   };
 
-  const runEdgeFunction = async () => {
-    if (!session?.access_token) {
-      toast.error("יש להתחבר כדי להריץ פונקציות");
-      return;
-    }
-
-    setEdgeFnRunning(true);
-    setEdgeFnResult(null);
-    const start = Date.now();
-
-    try {
-      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${edgeFnName}`;
-      const headers: Record<string, string> = {
-        'Authorization': `Bearer ${session.access_token}`,
-        'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-      };
-
-      // Add custom headers
-      for (const h of edgeFnHeaders) {
-        if (h.key.trim()) {
-          headers[h.key.trim()] = h.value;
-        }
-      }
-
-      const fetchOptions: RequestInit = { method: edgeFnMethod, headers };
-
-      if (edgeFnMethod === 'POST') {
-        headers['Content-Type'] = 'application/json';
-        fetchOptions.body = edgeFnBody;
-      }
-
-      const res = await fetch(url, fetchOptions);
-      const text = await res.text();
-      let formatted = text;
-      try { formatted = JSON.stringify(JSON.parse(text), null, 2); } catch { /* not json */ }
-
-      setEdgeFnResult({ status: res.status, body: formatted, time: Date.now() - start });
-      if (res.ok) {
-        toast.success(`פונקציה ${edgeFnName} הורצה בהצלחה`);
-      } else {
-        toast.error(`שגיאה ${res.status} מהפונקציה`);
-      }
-    } catch (err: any) {
-      setEdgeFnResult({ status: 0, body: err.message, time: Date.now() - start });
-      toast.error(err.message || "שגיאה בהרצת הפונקציה");
-    } finally {
-      setEdgeFnRunning(false);
-    }
-  };
-
   return (
     <div className="space-y-4" dir="rtl">
       <Tabs defaultValue="editor" className="w-full">
-        <TabsList className="grid w-full grid-cols-4 h-12">
+        <TabsList className="grid w-full grid-cols-3 h-12">
           <TabsTrigger value="editor" className="gap-2 text-sm">
             <Code2 className="w-4 h-4" />
             עורך SQL
-          </TabsTrigger>
-          <TabsTrigger value="edge" className="gap-2 text-sm">
-            <Zap className="w-4 h-4" />
-            Edge Functions
           </TabsTrigger>
           <TabsTrigger value="logs" className="gap-2 text-sm">
             <ScrollText className="w-4 h-4" />
@@ -477,153 +391,6 @@ const DevToolsPanel = () => {
               </CardContent>
             </Card>
           )}
-        </TabsContent>
-        {/* Edge Functions Tab */}
-        <TabsContent value="edge" className="space-y-4 mt-4">
-          <div className="space-y-3">
-            <div className="flex flex-wrap gap-2 items-end">
-              <div className="flex-1 min-w-[200px]">
-                <label className="text-sm font-medium mb-1 block">פונקציה</label>
-                <Select value={edgeFnName} onValueChange={setEdgeFnName}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {EDGE_FUNCTIONS.map(fn => (
-                      <SelectItem key={fn} value={fn}>{fn}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="w-[100px]">
-                <label className="text-sm font-medium mb-1 block">Method</label>
-                <Select value={edgeFnMethod} onValueChange={(v) => setEdgeFnMethod(v as "GET" | "POST")}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="GET">GET</SelectItem>
-                    <SelectItem value="POST">POST</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <Button
-                onClick={runEdgeFunction}
-                disabled={edgeFnRunning}
-                className="gap-2"
-              >
-                {edgeFnRunning ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Send className="w-4 h-4" />
-                )}
-                הרץ
-              </Button>
-            </div>
-
-            {edgeFnMethod === "POST" && (
-              <div>
-                <label className="text-sm font-medium mb-1 block">Body (JSON)</label>
-                <textarea
-                  value={edgeFnBody}
-                  onChange={(e) => setEdgeFnBody(e.target.value)}
-                  placeholder='{"key": "value"}'
-                  className="w-full min-h-[150px] p-4 font-mono text-sm bg-foreground/5 border border-border rounded-lg resize-y focus:outline-none focus:ring-2 focus:ring-ring"
-                  dir="ltr"
-                  spellCheck={false}
-                />
-              </div>
-            )}
-
-            {/* Custom Headers */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-sm font-medium">Headers מותאמים</label>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 text-xs gap-1"
-                  onClick={() => setEdgeFnHeaders([...edgeFnHeaders, { key: "", value: "" }])}
-                >
-                  <span>+</span> הוסף Header
-                </Button>
-              </div>
-              {edgeFnHeaders.length === 0 && (
-                <p className="text-xs text-muted-foreground">Authorization ו-apikey נשלחים אוטומטית</p>
-              )}
-              <div className="space-y-2">
-                {edgeFnHeaders.map((h, i) => (
-                  <div key={i} className="flex gap-2 items-center">
-                    <Input
-                      value={h.key}
-                      onChange={(e) => {
-                        const updated = [...edgeFnHeaders];
-                        updated[i] = { ...updated[i], key: e.target.value };
-                        setEdgeFnHeaders(updated);
-                      }}
-                      placeholder="Header name"
-                      className="flex-1 font-mono text-xs h-8"
-                      dir="ltr"
-                    />
-                    <Input
-                      value={h.value}
-                      onChange={(e) => {
-                        const updated = [...edgeFnHeaders];
-                        updated[i] = { ...updated[i], value: e.target.value };
-                        setEdgeFnHeaders(updated);
-                      }}
-                      placeholder="Value"
-                      className="flex-1 font-mono text-xs h-8"
-                      dir="ltr"
-                    />
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 w-8 p-0 text-destructive hover:text-destructive"
-                      onClick={() => setEdgeFnHeaders(edgeFnHeaders.filter((_, idx) => idx !== i))}
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {edgeFnResult && (
-              <Card className={`border-2 ${edgeFnResult.status >= 200 && edgeFnResult.status < 300 ? "border-green-500/30 bg-green-500/5" : "border-destructive/30 bg-destructive/5"}`}>
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      {edgeFnResult.status >= 200 && edgeFnResult.status < 300 ? (
-                        <CheckCircle className="w-4 h-4 text-green-500" />
-                      ) : (
-                        <XCircle className="w-4 h-4 text-destructive" />
-                      )}
-                      <CardTitle className="text-base">
-                        Status: {edgeFnResult.status}
-                      </CardTitle>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline" className="gap-1">
-                        <Clock className="w-3 h-3" />
-                        {edgeFnResult.time}ms
-                      </Badge>
-                      <Button variant="ghost" size="sm" onClick={() => copyToClipboard(edgeFnResult.body)}>
-                        <Copy className="w-3 h-3" />
-                      </Button>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <ScrollArea className="max-h-[300px]">
-                    <pre className="text-xs font-mono whitespace-pre-wrap break-all p-3 bg-foreground/5 rounded" dir="ltr">
-                      {edgeFnResult.body}
-                    </pre>
-                  </ScrollArea>
-                </CardContent>
-              </Card>
-            )}
-          </div>
         </TabsContent>
 
         {/* Logs Tab */}

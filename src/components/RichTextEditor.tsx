@@ -61,7 +61,6 @@ export const RichTextEditor = ({ text, onChange, columnStyle }: RichTextEditorPr
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
-  const [replaceTerm, setReplaceTerm] = useState("");
   const [htmlContent, setHtmlContent] = useState(() => prepareHtml(text));
   const isInternalUpdate = useRef(false);
 
@@ -144,36 +143,6 @@ export const RichTextEditor = ({ text, onChange, columnStyle }: RichTextEditorPr
 
     // Use window.find for highlight
     (window as any).find?.(searchTerm, false, false, true);
-  };
-
-  const handleReplace = () => {
-    if (!searchTerm || !editorRef.current) return;
-    const sel = window.getSelection();
-    if (sel && sel.toString().toLowerCase() === searchTerm.toLowerCase()) {
-      document.execCommand('insertText', false, replaceTerm);
-      syncContent();
-      // Find next occurrence
-      (window as any).find?.(searchTerm, false, false, true);
-    } else {
-      // Select first occurrence then replace
-      (window as any).find?.(searchTerm, false, false, true);
-    }
-  };
-
-  const handleReplaceAll = () => {
-    if (!searchTerm || !editorRef.current) return;
-    const content = editorRef.current.innerHTML;
-    const escaped = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(escaped, 'gi');
-    const newContent = content.replace(regex, replaceTerm);
-    if (newContent !== content) {
-      editorRef.current.innerHTML = newContent;
-      syncContent();
-      const count = (content.match(regex) || []).length;
-      toast({ title: `הוחלפו ${count} מופעים` });
-    } else {
-      toast({ title: "לא נמצא", description: `"${searchTerm}" לא נמצא בטקסט` });
-    }
   };
 
   const plainText = stripHtml(htmlContent);
@@ -456,39 +425,23 @@ export const RichTextEditor = ({ text, onChange, columnStyle }: RichTextEditorPr
           </Popover>
         </div>
 
-        {/* === חיפוש והחלפה === */}
+        {/* === חיפוש === */}
         {searchOpen && (
-          <div className="flex flex-col gap-2 pb-2 border-b">
-            <div className="flex items-center gap-2">
-              <Input
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="חפש בטקסט..."
-                className="h-8 text-sm max-w-xs"
-                dir="rtl"
-                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-              />
-              <Input
-                value={replaceTerm}
-                onChange={(e) => setReplaceTerm(e.target.value)}
-                placeholder="החלף ב..."
-                className="h-8 text-sm max-w-xs"
-                dir="rtl"
-                onKeyDown={(e) => e.key === 'Enter' && handleReplace()}
-              />
-              <Button variant="ghost" size="sm" onClick={handleSearch} className="h-8" title="חפש">
-                <Search className="w-4 h-4" />
-              </Button>
-              <Button variant="ghost" size="sm" onClick={handleReplace} className="h-8 text-xs" title="החלף">
-                החלף
-              </Button>
-              <Button variant="ghost" size="sm" onClick={handleReplaceAll} className="h-8 text-xs" title="החלף הכל">
-                הכל
-              </Button>
-              <Button variant="ghost" size="sm" onClick={() => { setSearchOpen(false); setSearchTerm(""); setReplaceTerm(""); }} className="h-8">
-                <X className="w-4 h-4" />
-              </Button>
-            </div>
+          <div className="flex items-center gap-2 pb-2 border-b">
+            <Input
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="חפש בטקסט..."
+              className="h-8 text-sm max-w-xs"
+              dir="rtl"
+              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+            />
+            <Button variant="ghost" size="sm" onClick={handleSearch} className="h-8">
+              <Search className="w-4 h-4" />
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => { setSearchOpen(false); setSearchTerm(""); }} className="h-8">
+              <X className="w-4 h-4" />
+            </Button>
           </div>
         )}
 

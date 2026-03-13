@@ -364,7 +364,7 @@ export const CloudTranscriptHistory = ({
                     size="sm"
                     variant="outline"
                     className="h-7 w-7 p-0"
-                    onClick={() => navigate('/text-editor', { state: { text: entry.text, cloudTranscriptId: entry.id, wordTimings: entry.word_timings } })}
+                    onClick={() => navigate('/text-editor', { state: { text: entry.text } })}
                     title="ערוך"
                   >
                     <Edit className="w-3.5 h-3.5" />
