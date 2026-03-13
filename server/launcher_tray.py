@@ -527,6 +527,17 @@ def api_status():
     })
 
 
+def is_port_in_use(port: int) -> bool:
+    """Check if a port is already in use."""
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind(("127.0.0.1", port))
+            return False
+        except OSError:
+            return True
+
+
 def run_flask():
     """Run Flask in a background thread."""
     app.run(host="127.0.0.1", port=LAUNCHER_PORT, debug=False, use_reloader=False)
@@ -536,6 +547,12 @@ def run_flask():
 
 def main():
     global _tray_icon
+
+    # Prevent duplicate instances
+    if is_port_in_use(LAUNCHER_PORT):
+        print(f"Port {LAUNCHER_PORT} already in use — another launcher is running. Exiting.")
+        sys.exit(0)
+
     print(f"Starting Smart Transcriber Tray (API on port {LAUNCHER_PORT})...")
 
     # Start Flask in background thread

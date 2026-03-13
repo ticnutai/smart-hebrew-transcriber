@@ -76,6 +76,13 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
     }
   }, [selected, checkConnection, startPolling, stopPolling]);
 
+  // Clear isStarting when connection succeeds
+  useEffect(() => {
+    if (isConnected && isStarting) {
+      setIsStarting(false);
+    }
+  }, [isConnected, isStarting]);
+
   // Auto-preload model when connected + preload mode
   useEffect(() => {
     if (selected === 'local-server' && isConnected && preloadMode === 'preload' && !modelReady && !modelLoading) {
@@ -328,7 +335,8 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
                             ? 'השרת כבר רץ, ממתין לחיבור...'
                             : 'השרת עולה, ממתין לחיבור...',
                         });
-                        return; // polling will pick it up
+                        startPolling(5000, 120000);
+                        return;
                       }
                     } catch {
                       // Launcher not running — try direct connection check
@@ -377,10 +385,23 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
                 size="sm"
                 variant="outline"
                 className="gap-1.5 text-xs h-7 text-destructive border-destructive/40 hover:bg-destructive/10"
-                onClick={(e) => {
+                onClick={async (e) => {
                   e.preventDefault();
-                  shutdownServer();
-                  toast({ title: "השרת נכבה", description: "שרת ה-CUDA כובה בהצלחה" });
+                  // Try tray stop + direct shutdown for state reset
+                  try {
+                    await fetch('http://localhost:8764/stop', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ target: 'whisper' }),
+                      signal: AbortSignal.timeout(5000),
+                    });
+                  } catch {
+                    // Tray not available — that's ok
+                  }
+                  await shutdownServer();
+                  setIsStarting(false);
+                  stopPolling();
+                  toast({ title: "השרת נכבה", description: "שרת ה-CUDA כובה" });
                 }}
               >
                 <PowerOff className="w-3.5 h-3.5" />
