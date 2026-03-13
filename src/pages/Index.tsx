@@ -147,6 +147,7 @@ const Index = () => {
 
   // Keep reference to current file for saving with transcript
   const currentFileRef = useRef<File | null>(null);
+  const lastSavedTranscriptIdRef = useRef<string | null>(null);
 
   // Save to cloud history (respects cloud save mode for CUDA engine)
   const saveToHistory = async (text: string, engineUsed: string, skipCloud?: boolean, timings?: Array<{word: string, start: number, end: number, probability?: number}>) => {
@@ -154,18 +155,21 @@ const Index = () => {
       // Save only to localStorage, skip cloud upload entirely
       let history: any[] = [];
       try { history = JSON.parse(localStorage.getItem('transcript_history') || '[]'); } catch { /* corrupted */ }
-      const entry = { text, timestamp: Date.now(), engine: engineUsed, tags: [], notes: '' };
+      const entry = { text, timestamp: Date.now(), engine: engineUsed, tags: [], notes: '', word_timings: timings || null };
       const updated = [entry, ...history].slice(0, 50);
       localStorage.setItem('transcript_history', JSON.stringify(updated));
+      lastSavedTranscriptIdRef.current = null;
       return;
     }
-    await saveTranscript(text, engineUsed, undefined, currentFileRef.current || undefined);
+    const saved = await saveTranscript(text, engineUsed, undefined, currentFileRef.current || undefined, timings || null);
+    lastSavedTranscriptIdRef.current = saved?.id || null;
     addNotification({ type: 'success', title: 'תמלול הושלם', description: `מנוע: ${engineUsed} — ${text.split(/\s+/).length} מילים` });
   };
 
   // Save text-only to cloud (deferred mode — upload text without audio file)
   const saveTextOnlyToCloud = async (text: string, engineUsed: string, timings?: Array<{word: string, start: number, end: number, probability?: number}>) => {
-    await saveTranscript(text, engineUsed, undefined, undefined);
+    const saved = await saveTranscript(text, engineUsed, undefined, undefined, timings || null);
+    lastSavedTranscriptIdRef.current = saved?.id || null;
   };
 
   // Helper: invoke edge function with real upload progress via XHR and multipart form
@@ -416,7 +420,7 @@ const Index = () => {
         const timings = data.wordTimings || [];
         setTranscript(data.text);
         setWordTimings(timings);
-        saveToHistory(data.text, 'OpenAI Whisper', undefined, timings);
+        await saveToHistory(data.text, 'OpenAI Whisper', undefined, timings);
         addAnalyticsRecord({
           engine: 'OpenAI Whisper', status: 'success',
           fileName: file.name, fileSize: file.size,
@@ -438,7 +442,7 @@ const Index = () => {
         if (timings.length > 0) localStorage.setItem('last_word_timings', JSON.stringify(timings));
         // Auto-navigate to text editor
         setTimeout(() => {
-          navigate('/text-editor', { state: { text: data.text, audioUrl: fileAudioUrl, wordTimings: timings } });
+          navigate('/text-editor', { state: { text: data.text, audioUrl: fileAudioUrl, wordTimings: timings, transcriptId: lastSavedTranscriptIdRef.current } });
         }, 1000);
       } else {
         throw new Error('No transcription received');
@@ -510,7 +514,7 @@ const Index = () => {
         const timings = data.wordTimings || [];
         setTranscript(data.text);
         setWordTimings(timings);
-        saveToHistory(data.text, 'Groq Whisper', undefined, timings);
+        await saveToHistory(data.text, 'Groq Whisper', undefined, timings);
         addAnalyticsRecord({
           engine: 'Groq Whisper', status: 'success',
           fileName: file.name, fileSize: file.size,
@@ -531,7 +535,7 @@ const Index = () => {
         if (timings.length > 0) localStorage.setItem('last_word_timings', JSON.stringify(timings));
         // Auto-navigate to text editor
         setTimeout(() => {
-          navigate('/text-editor', { state: { text: data.text, audioUrl: fileAudioUrl, wordTimings: timings } });
+          navigate('/text-editor', { state: { text: data.text, audioUrl: fileAudioUrl, wordTimings: timings, transcriptId: lastSavedTranscriptIdRef.current } });
         }, 1000);
       } else {
         debugLog.error('Groq', 'No text in response data', data);
@@ -617,7 +621,7 @@ const Index = () => {
         const timings = data.wordTimings || [];
         setTranscript(data.text);
         setWordTimings(timings);
-        saveToHistory(data.text, 'Google Speech-to-Text', undefined, timings);
+        await saveToHistory(data.text, 'Google Speech-to-Text', undefined, timings);
         addAnalyticsRecord({
           engine: 'Google Speech-to-Text', status: 'success',
           fileName: file.name, fileSize: file.size,
@@ -638,7 +642,7 @@ const Index = () => {
         if (timings.length > 0) localStorage.setItem('last_word_timings', JSON.stringify(timings));
         // Auto-navigate to text editor
         setTimeout(() => {
-          navigate('/text-editor', { state: { text: data.text, audioUrl: fileAudioUrl, wordTimings: timings } });
+          navigate('/text-editor', { state: { text: data.text, audioUrl: fileAudioUrl, wordTimings: timings, transcriptId: lastSavedTranscriptIdRef.current } });
         }, 1000);
       } else {
         throw new Error('No transcription received from Google');
@@ -666,7 +670,7 @@ const Index = () => {
       const result = await localTranscribe(file);
       setTranscript(result.text);
       setWordTimings(result.wordTimings);
-      saveToHistory(result.text, 'Local (Browser)', undefined, result.wordTimings);
+      await saveToHistory(result.text, 'Local (Browser)', undefined, result.wordTimings);
       addAnalyticsRecord({
         engine: 'Local (Browser)', status: 'success',
         fileName: file.name, fileSize: file.size,
@@ -687,7 +691,7 @@ const Index = () => {
       if (result.wordTimings?.length > 0) localStorage.setItem('last_word_timings', JSON.stringify(result.wordTimings));
       // Auto-navigate to text editor
       setTimeout(() => {
-        navigate('/text-editor', { state: { text: result.text, audioUrl: fileAudioUrl, wordTimings: result.wordTimings } });
+        navigate('/text-editor', { state: { text: result.text, audioUrl: fileAudioUrl, wordTimings: result.wordTimings, transcriptId: lastSavedTranscriptIdRef.current } });
       }, 1000);
     } catch (error) {
       debugLog.error('Local', 'Browser transcription failed', error instanceof Error ? error.message : error);
@@ -772,11 +776,11 @@ const Index = () => {
       const cloudSaveMode = localStorage.getItem('cuda_cloud_save') || 'immediate';
       const engineLabel = `Local CUDA (${result.model || 'server'})`;
       if (cloudSaveMode === 'skip') {
-        saveToHistory(result.text, engineLabel, true, timings);  // localStorage only
+        await saveToHistory(result.text, engineLabel, true, timings);  // localStorage only
       } else if (cloudSaveMode === 'text-only') {
-        saveTextOnlyToCloud(result.text, engineLabel, timings);  // text to cloud, no audio upload
+        await saveTextOnlyToCloud(result.text, engineLabel, timings);  // text to cloud, no audio upload
       } else {
-        saveToHistory(result.text, engineLabel, undefined, timings);  // full: text + audio to cloud
+        await saveToHistory(result.text, engineLabel, undefined, timings);  // full: text + audio to cloud
       }
 
       clearPartial();
@@ -811,7 +815,7 @@ const Index = () => {
       });
       if (timings.length > 0) localStorage.setItem('last_word_timings', JSON.stringify(timings));
       setTimeout(() => {
-        navigate('/text-editor', { state: { text: result.text, audioUrl: fileAudioUrl, wordTimings: timings } });
+        navigate('/text-editor', { state: { text: result.text, audioUrl: fileAudioUrl, wordTimings: timings, transcriptId: lastSavedTranscriptIdRef.current } });
       }, 1000);
     } catch (error) {
       if (error instanceof Error && error.message === 'CANCELLED') {
@@ -868,7 +872,7 @@ const Index = () => {
         const timings = data.wordTimings || [];
         setTranscript(data.text);
         setWordTimings(timings);
-        saveToHistory(data.text, 'AssemblyAI', undefined, timings);
+        await saveToHistory(data.text, 'AssemblyAI', undefined, timings);
         addAnalyticsRecord({
           engine: 'AssemblyAI', status: 'success',
           fileName: file.name, fileSize: file.size,
@@ -888,7 +892,7 @@ const Index = () => {
         });
         if (timings.length > 0) localStorage.setItem('last_word_timings', JSON.stringify(timings));
         setTimeout(() => {
-          navigate('/text-editor', { state: { text: data.text, audioUrl: fileAudioUrl, wordTimings: timings } });
+          navigate('/text-editor', { state: { text: data.text, audioUrl: fileAudioUrl, wordTimings: timings, transcriptId: lastSavedTranscriptIdRef.current } });
         }, 1000);
       } else {
         throw new Error('No transcription received');
@@ -945,7 +949,7 @@ const Index = () => {
         const timings = data.wordTimings || [];
         setTranscript(data.text);
         setWordTimings(timings);
-        saveToHistory(data.text, 'Deepgram', undefined, timings);
+        await saveToHistory(data.text, 'Deepgram', undefined, timings);
         addAnalyticsRecord({
           engine: 'Deepgram', status: 'success',
           fileName: file.name, fileSize: file.size,
@@ -965,7 +969,7 @@ const Index = () => {
         });
         if (timings.length > 0) localStorage.setItem('last_word_timings', JSON.stringify(timings));
         setTimeout(() => {
-          navigate('/text-editor', { state: { text: data.text, audioUrl: fileAudioUrl, wordTimings: timings } });
+          navigate('/text-editor', { state: { text: data.text, audioUrl: fileAudioUrl, wordTimings: timings, transcriptId: lastSavedTranscriptIdRef.current } });
         }, 1000);
       } else {
         throw new Error('No transcription received');
@@ -1460,13 +1464,14 @@ const Index = () => {
           serverConnected={serverConnected}
           onTranscriptComplete={(text) => {
             setTranscript(text);
-            saveToHistory(text, 'Live (Web Speech API)');
+            saveToHistory(text, 'Live (Web Speech API)').then(() => {
+              setTimeout(() => navigate('/text-editor', { state: { text, transcriptId: lastSavedTranscriptIdRef.current } }), 1000);
+            });
             addAnalyticsRecord({
               engine: 'Live (Web Speech API)', status: 'success',
               charCount: text.length, wordCount: text.split(/\s+/).length,
             });
             toast({ title: "תמלול חי הושלם!" });
-            setTimeout(() => navigate('/text-editor', { state: { text } }), 1000);
           }}
         />
 
@@ -1552,13 +1557,14 @@ const Index = () => {
           <YouTubeTranscriber
             onTranscriptComplete={(text) => {
               setTranscript(text);
-              saveToHistory(text, 'YouTube (Whisper GPU)');
+              saveToHistory(text, 'YouTube (Whisper GPU)').then(() => {
+                setTimeout(() => navigate('/text-editor', { state: { text, transcriptId: lastSavedTranscriptIdRef.current } }), 1000);
+              });
               addAnalyticsRecord({
                 engine: 'YouTube (Whisper GPU)', status: 'success',
                 charCount: text.length, wordCount: text.split(/\s+/).length,
               });
               toast({ title: "תמלול YouTube הושלם!" });
-              setTimeout(() => navigate('/text-editor', { state: { text } }), 1000);
             }}
           />
         )}

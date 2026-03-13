@@ -13,6 +13,10 @@ export interface LocalTranscript {
   category: string;
   is_favorite: boolean;
   audio_file_path: string | null;
+  /** Word-level timings for audio-sync player [{word, start, end, probability?}] */
+  word_timings?: Array<{word: string; start: number; end: number; probability?: number}> | null;
+  /** User-edited text (original kept in `text`) */
+  edited_text?: string | null;
   created_at: string;
   updated_at: string;
   /** Audio blob cached locally for offline use */
@@ -95,6 +99,9 @@ class SmartTranscriberDB extends Dexie {
       jobs: 'id, user_id, status, created_at',
       syncMeta: 'id',
     });
+
+    // v2: word_timings + edited_text columns (no index changes needed, stored inline)
+    this.version(2).stores({});
   }
 }
 

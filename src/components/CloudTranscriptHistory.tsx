@@ -364,7 +364,12 @@ export const CloudTranscriptHistory = ({
                     size="sm"
                     variant="outline"
                     className="h-7 w-7 p-0"
-                    onClick={() => navigate('/text-editor', { state: { text: entry.text } })}
+                    onClick={() => navigate('/text-editor', { state: { 
+                      text: entry.edited_text || entry.text,
+                      wordTimings: entry.word_timings || undefined,
+                      transcriptId: entry.id,
+                      audioFilePath: entry.audio_file_path || undefined,
+                    } })}
                     title="ערוך"
                   >
                     <Edit className="w-3.5 h-3.5" />

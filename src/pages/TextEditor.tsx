@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense } from "react";
+import { useState, useEffect, useRef, lazy, Suspense, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -23,6 +23,8 @@ import { ArrowRight, Home, Wand2, SplitSquareVertical, SpellCheck, Loader2, Colu
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { useCloudPreferences } from "@/hooks/useCloudPreferences";
+import { useCloudTranscripts } from "@/hooks/useCloudTranscripts";
+import { debugLog } from "@/lib/debugLogger";
 
 const TextEditor = () => {
   const navigate = useNavigate();
@@ -33,6 +35,8 @@ const TextEditor = () => {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [wordTimings, setWordTimings] = useState<WordTiming[]>([]);
   const [playerTime, setPlayerTime] = useState(0);
+  const transcriptIdRef = useRef<string | null>(null);
+  const { updateTranscript, getAudioUrl } = useCloudTranscripts();
   const [syncEnabled, setSyncEnabled] = useState(true);
   
   // Cloud-synced style settings
@@ -101,27 +105,42 @@ const TextEditor = () => {
       }
     }
 
-    // Load audio URL and word timings from navigation state
+    // Track transcript ID for cloud saves
+    if (location.state?.transcriptId) {
+      transcriptIdRef.current = location.state.transcriptId;
+    }
+
+    // Load audio URL from navigation state or resolve from Supabase Storage
     if (location.state?.audioUrl) {
       const url = location.state.audioUrl as string;
-      // Validate blob URL is still accessible (blob URLs expire on refresh)
       if (url.startsWith('blob:')) {
         fetch(url, { method: 'HEAD' }).then(() => {
           setAudioUrl(url);
-        }).catch(() => {
-          // Blob URL expired — ignore silently
-        });
+        }).catch(() => {});
       } else {
         setAudioUrl(url);
       }
+    } else if (location.state?.audioFilePath) {
+      // Load audio from Supabase Storage (when opening from history)
+      getAudioUrl(location.state.audioFilePath).then((url) => {
+        if (url) setAudioUrl(url);
+      });
     }
+
+    // Load word timings from state, or fallback to localStorage
     if (location.state?.wordTimings) {
       setWordTimings(location.state.wordTimings);
+    } else {
+      try {
+        const saved = localStorage.getItem('last_word_timings');
+        if (saved) setWordTimings(JSON.parse(saved));
+      } catch { /* corrupted */ }
     }
 
   }, [location.state]);
 
-  // Auto-save text and versions to localStorage
+  // Auto-save text and versions to localStorage + debounce cloud save
+  const cloudSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (text) {
       localStorage.setItem('current_editing_text', text);
@@ -129,6 +148,17 @@ const TextEditor = () => {
     if (versions.length > 0) {
       localStorage.setItem('text_versions', JSON.stringify(versions));
     }
+    // Debounce save edited_text to cloud (3s after last change)
+    if (transcriptIdRef.current && text) {
+      if (cloudSaveTimerRef.current) clearTimeout(cloudSaveTimerRef.current);
+      cloudSaveTimerRef.current = setTimeout(() => {
+        if (transcriptIdRef.current) {
+          updateTranscript(transcriptIdRef.current, { edited_text: text });
+          debugLog.info('TextEditor', 'Auto-saved edited_text to cloud');
+        }
+      }, 3000);
+    }
+    return () => { if (cloudSaveTimerRef.current) clearTimeout(cloudSaveTimerRef.current); };
   }, [text, versions]);
 
   const addVersion = (newText: string, source: TextVersion['source'], customPrompt?: string) => {
