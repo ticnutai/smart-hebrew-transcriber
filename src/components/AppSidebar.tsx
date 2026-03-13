@@ -150,10 +150,10 @@ const AppSidebar = () => {
         />
       )}
 
-      {/* Overlay when open and not pinned */}
+      {/* Overlay when open and not pinned — transparent click-catcher, no visual blocking */}
       {isOpen && !isPinned && (
         <div
-          className="fixed inset-0 z-[59] bg-black/20 backdrop-blur-[1px] transition-opacity duration-300"
+          className="fixed inset-0 z-[59] transition-opacity duration-300"
           onClick={() => setIsOpen(false)}
         />
       )}

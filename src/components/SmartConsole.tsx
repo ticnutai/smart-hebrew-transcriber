@@ -305,17 +305,17 @@ function AlertsTab({ alerts, onDismiss, onClearAll }: { alerts: ConsoleAlert[]; 
                   <div className={`mt-0.5 ${severityColor[alert.severity]?.split(' ')[0] || 'text-muted-foreground'}`}>
                     <Icon className="w-4 h-4" />
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <span className="text-sm font-medium">{alert.title}</span>
+                  <div className="flex-1 min-w-0 overflow-hidden">
+                    <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                      <span className="text-sm font-medium break-words">{alert.title}</span>
                       <Badge
                         variant="outline"
-                        className={`text-[10px] ${severityColor[alert.severity] || ''}`}
+                        className={`text-[10px] shrink-0 ${severityColor[alert.severity] || ''}`}
                       >
                         {alertTypeLabels[alert.type] || alert.type}
                       </Badge>
                     </div>
-                    <p className="text-xs text-muted-foreground">{alert.description}</p>
+                    <p className="text-xs text-muted-foreground break-words">{alert.description}</p>
                     <span className="text-[10px] text-muted-foreground mt-1 block">
                       {formatTime(alert.timestamp)} — לפני {timeAgo(alert.timestamp)}
                     </span>
@@ -616,9 +616,9 @@ export function SmartConsole() {
           )}
         </button>
       </SheetTrigger>
-      <SheetContent side="left" className="!w-[min(50vw,480px)] !max-w-none p-0 overflow-hidden shadow-2xl" dir="rtl" hideOverlay onInteractOutside={(e) => e.preventDefault()} onPointerDownOutside={(e) => e.preventDefault()}>
-        <SheetHeader className="px-6 pt-6 pb-3 border-b">
-          <SheetTitle className="text-xl flex items-center gap-2">
+      <SheetContent side="left" className="!w-[min(85vw,520px)] !max-w-none p-0 overflow-hidden shadow-2xl" dir="rtl" hideOverlay onInteractOutside={(e) => e.preventDefault()} onPointerDownOutside={(e) => e.preventDefault()}>
+        <SheetHeader className="px-4 pt-4 pb-3 border-b">
+          <SheetTitle className="text-lg flex items-center gap-2 flex-wrap">
             <Terminal className="w-5 h-5 text-primary" />
             קונסול חכם
             <div className="flex items-center gap-1.5 mr-auto">
@@ -638,7 +638,7 @@ export function SmartConsole() {
         {health && <HealthBar health={health} />}
 
         <ScrollArea className="h-[calc(100vh-140px)]">
-          <div className="p-6">
+          <div className="p-4">
             <Tabs defaultValue="alerts" dir="rtl">
               <TabsList className="w-full justify-start mb-4">
                 <TabsTrigger value="alerts" className="gap-1.5 relative">
