@@ -455,14 +455,16 @@ def status_updater(icon):
 # ─── Flask API ──────────────────────────────────────────
 
 app = Flask(__name__)
-CORS(app)
 
-
+# Register our PNA handler BEFORE CORS(app) so it runs AFTER flask-cors
+# (Flask calls after_request in reverse registration order)
 @app.after_request
 def add_private_network_headers(response):
     """Allow Chrome Private Network Access (PNA) so Lovable HTTPS can reach localhost."""
     response.headers["Access-Control-Allow-Private-Network"] = "true"
     return response
+
+CORS(app)
 
 
 @app.route("/health", methods=["GET"])
