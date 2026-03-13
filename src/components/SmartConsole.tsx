@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
@@ -90,22 +90,22 @@ function timeAgo(ts: number): string {
 function HealthBar({ health }: { health: SystemHealth }) {
   const Icon = healthIcons[health.status] || ShieldCheck;
   return (
-    <div className="flex items-center gap-4 px-4 py-2.5 border-b bg-muted/30">
+    <div className="flex items-center gap-4 px-4 py-2.5 border-b bg-muted/30 flex-wrap">
       <div className={`flex items-center gap-1.5 ${healthColors[health.status]}`}>
-        <Icon className="w-4 h-4" />
-        <span className="text-sm font-semibold">{healthLabels[health.status]}</span>
+        <Icon className="w-4 h-4 shrink-0" />
+        <span className="text-sm font-semibold whitespace-nowrap">{healthLabels[health.status]}</span>
       </div>
-      <div className="flex items-center gap-3 text-xs text-muted-foreground">
-        <span className="flex items-center gap-1">
-          <Server className="w-3 h-3" />
+      <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
+        <span className="flex items-center gap-1 whitespace-nowrap">
+          <Server className="w-3 h-3 shrink-0" />
           שרת: {health.serverUp ? <span className="text-green-500">פעיל</span> : <span className="text-red-500">מנותק</span>}
         </span>
-        <span className="flex items-center gap-1">
-          <AlertCircle className="w-3 h-3" />
+        <span className="flex items-center gap-1 whitespace-nowrap">
+          <AlertCircle className="w-3 h-3 shrink-0" />
           שגיאות/דק׳: <span className={health.errorRate > 2 ? 'text-red-500 font-bold' : ''}>{health.errorRate.toFixed(1)}</span>
         </span>
-        <span className="flex items-center gap-1">
-          <AlertTriangle className="w-3 h-3" />
+        <span className="flex items-center gap-1 whitespace-nowrap">
+          <AlertTriangle className="w-3 h-3 shrink-0" />
           התראות: {health.activeAlerts}
         </span>
       </div>
@@ -493,7 +493,7 @@ function SpinnerTab() {
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-sm font-medium">🔍 זיהוי ספינרים והשהויות</h3>
-            <p className="text-xs text-muted-foreground mt-0.5">
+            <p className="text-xs text-muted-foreground mt-0.5 break-words">
               מזהה ספינרים ב-DOM, עוקב אחרי משך הצגה, ומנטר בקשות רשת איטיות
             </p>
           </div>
@@ -514,7 +514,7 @@ function SpinnerTab() {
           {/* What it monitors */}
           <Card className="p-3 bg-muted/30">
             <p className="text-xs font-medium mb-1.5">מה נבדק:</p>
-            <div className="grid grid-cols-2 gap-1.5 text-xs text-muted-foreground">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-xs text-muted-foreground">
               <div className="flex items-center gap-1.5">
                 <Activity className="w-3 h-3 text-blue-500" />
                 <span>ספינרים (animate-spin)</span>
@@ -533,7 +533,7 @@ function SpinnerTab() {
               </div>
             </div>
             <Separator className="my-2" />
-            <div className="text-[10px] text-muted-foreground space-y-0.5">
+            <div className="text-[10px] text-muted-foreground space-y-0.5 break-words">
               <div>⚠ אזהרה אחרי 5 שניות ספינר</div>
               <div>🚨 שגיאה אחרי 15 שניות ספינר</div>
               <div>🐌 בקשת רשת מעל 3 שניות מדווחת</div>
@@ -597,7 +597,7 @@ export function SmartConsole() {
   const hasCritical = alerts.some(a => !a.dismissed && a.severity === 'critical');
 
   return (
-    <Sheet open={open} onOpenChange={setOpen}>
+    <Sheet open={open} onOpenChange={setOpen} modal={false}>
       <SheetTrigger asChild>
         <button
           className={`fixed bottom-16 left-4 z-50 w-11 h-11 rounded-full bg-card border border-border shadow-lg flex items-center justify-center hover:bg-accent transition-all group ${
@@ -616,7 +616,7 @@ export function SmartConsole() {
           )}
         </button>
       </SheetTrigger>
-      <SheetContent side="left" className="w-full sm:w-[650px] md:w-[750px] lg:w-[850px] p-0 overflow-hidden" dir="rtl">
+      <SheetContent side="left" className="!w-[min(50vw,480px)] !max-w-none p-0 overflow-hidden shadow-2xl" dir="rtl" hideOverlay onInteractOutside={(e) => e.preventDefault()} onPointerDownOutside={(e) => e.preventDefault()}>
         <SheetHeader className="px-6 pt-6 pb-3 border-b">
           <SheetTitle className="text-xl flex items-center gap-2">
             <Terminal className="w-5 h-5 text-primary" />
@@ -631,6 +631,7 @@ export function SmartConsole() {
               <Badge variant="secondary" className="text-xs">{entries.length} לוגים</Badge>
             </div>
           </SheetTitle>
+          <SheetDescription className="sr-only">מעקב שגיאות, התראות וביצועים</SheetDescription>
         </SheetHeader>
 
         {/* Health Bar */}
