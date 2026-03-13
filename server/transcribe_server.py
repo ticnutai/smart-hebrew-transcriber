@@ -67,7 +67,14 @@ except Exception:
     _has_torch = False
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=[
+    "http://localhost:8080",
+    "http://localhost:5173",
+    "http://127.0.0.1:8080",
+    "http://127.0.0.1:5173",
+    "https://*.lovable.app",
+    "https://*.trycloudflare.com",
+])
 Compress(app)  # gzip/deflate all JSON responses (60-70% size reduction)
 
 # ════════════════════════════════════════════════════════════════════
@@ -95,12 +102,38 @@ def _check_rate_limit(ip: str) -> bool:
     timestamps.append(now)
     return True
 
+def _cleanup_rate_limit_store():
+    """Periodically remove stale IP entries from rate limiter."""
+    while True:
+        time.sleep(3600)  # every hour
+        try:
+            now = time.time()
+            stale = [ip for ip, ts in _rate_limit_store.items() if all(now - t > _rate_limit_window for t in ts)]
+            for ip in stale:
+                _rate_limit_store.pop(ip, None)
+        except Exception:
+            pass
+
+threading.Thread(target=_cleanup_rate_limit_store, daemon=True, name="rate-limit-cleanup").start()
+
 @app.before_request
 def _auth_and_rate_limit():
     """Check API key (if configured) and rate limit on mutation endpoints."""
     # Exempt endpoints — always accessible for server discovery
-    exempt = {"/health", "/status", "/debug", "/diagnostics", "/models"}
+    exempt = {"/health", "/status", "/models"}
     if request.path in exempt or request.method == "OPTIONS":
+        return None
+
+    # Sensitive endpoints require API key even if global key is not set
+    sensitive = {"/debug", "/diagnostics", "/shutdown"}
+    if request.path in sensitive:
+        if _api_key:
+            provided = request.headers.get("X-API-Key", "")
+            if provided != _api_key:
+                return jsonify({"error": "Unauthorized"}), 401
+        # When no API key configured, only allow from localhost
+        elif request.remote_addr not in ("127.0.0.1", "::1", "localhost"):
+            return jsonify({"error": "Unauthorized — sensitive endpoints are localhost-only"}), 403
         return None
 
     # API key check

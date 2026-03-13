@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, memo } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -104,7 +104,7 @@ interface SyncAudioPlayerProps {
 
 const SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
-export const SyncAudioPlayer = ({
+export const SyncAudioPlayer = memo(({
   audioUrl,
   wordTimings,
   currentTime: externalTime,
@@ -119,6 +119,7 @@ export const SyncAudioPlayer = ({
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const lastDrawTimeRef = useRef<number>(0);
 
   // Audio graph nodes
   const gainNodeRef = useRef<GainNode | null>(null);
@@ -375,7 +376,15 @@ export const SyncAudioPlayer = ({
       ctx.stroke();
     }
 
-    animFrameRef.current = requestAnimationFrame(drawWaveform);
+    animFrameRef.current = requestAnimationFrame((timestamp) => {
+      // Throttle to ~15fps (66ms between frames)
+      if (timestamp - lastDrawTimeRef.current < 66) {
+        animFrameRef.current = requestAnimationFrame(drawWaveform);
+        return;
+      }
+      lastDrawTimeRef.current = timestamp;
+      drawWaveform();
+    });
   }, [isPlaying, currentTime, duration, presetId]);
 
   useEffect(() => {
@@ -386,6 +395,16 @@ export const SyncAudioPlayer = ({
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
   }, [isPlaying, drawWaveform]);
+
+  // ─── Cleanup AudioContext on unmount ─────────────────────────
+  useEffect(() => {
+    return () => {
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+        audioContextRef.current = null;
+      }
+    };
+  }, []);
 
   // ─── External time sync ──────────────────────────────────────
   useEffect(() => {
@@ -854,4 +873,4 @@ export const SyncAudioPlayer = ({
       </Card>
     </TooltipProvider>
   );
-};
+});

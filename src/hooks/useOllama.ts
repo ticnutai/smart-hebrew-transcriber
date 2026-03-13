@@ -97,6 +97,8 @@ export function useOllama() {
       } else {
         consecutiveFails++;
       }
+      // Stop polling after 5 consecutive failures (Ollama not running)
+      if (consecutiveFails >= 5) return;
       const nextInterval = ok
         ? BASE_INTERVAL
         : Math.min(BASE_INTERVAL * Math.pow(2, consecutiveFails), MAX_INTERVAL);

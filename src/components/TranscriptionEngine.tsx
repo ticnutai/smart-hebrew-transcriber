@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, memo } from "react";
 import { Card } from "@/components/ui/card";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
@@ -37,7 +37,7 @@ const hasCustomServerUrl = () => {
   return url !== '' && !url.includes('localhost') && !url.includes('127.0.0.1');
 };
 
-export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSourceLanguageChange }: TranscriptionEngineProps) => {
+export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, onSourceLanguageChange }: TranscriptionEngineProps) => {
   const { isConnected, serverStatus, checkConnection, startPolling, stopPolling, shutdownServer, warmupServer, preloadModelStream, cancelPreload, modelReady, modelLoading, getBaseUrl } = useLocalServer();
   const [isStarting, setIsStarting] = useState(false);
   const [fastMode, setFastMode] = useState(() => localStorage.getItem('cuda_fast_mode') === '1');
@@ -771,4 +771,4 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
       </div>
     </Card>
   );
-};
+});

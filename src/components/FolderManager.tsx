@@ -18,8 +18,6 @@ import {
   StickyNote, Briefcase, GraduationCap, Users, MessageSquare, MoreHorizontal,
   Download, Loader2, Play, Pause, Volume2
 } from "lucide-react";
-import JSZip from "jszip";
-import { saveAs } from "file-saver";
 import { toast } from "@/hooks/use-toast";
 import type { CloudTranscript } from "@/hooks/useCloudTranscripts";
 
@@ -205,6 +203,8 @@ export const FolderManager = ({ transcripts, onUpdate, onDelete, onGetAudioUrl }
     }
     setIsExportingZip(true);
     try {
+      const JSZip = (await import("jszip")).default;
+      const { saveAs } = await import("file-saver");
       const zip = new JSZip();
       const label = folderName || "כל_התמלולים";
       const folder = zip.folder(label)!;

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, memo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,8 +8,6 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { History, Trash2, FileText, Search, Tag, X, Edit, Cloud, HardDrive, Loader2, Calendar, Filter, FolderOpen, FolderPlus, Folder, Download } from "lucide-react";
 import type { CloudTranscript } from "@/hooks/useCloudTranscripts";
-import JSZip from "jszip";
-import { saveAs } from "file-saver";
 
 interface CloudTranscriptHistoryProps {
   transcripts: CloudTranscript[];
@@ -22,7 +20,7 @@ interface CloudTranscriptHistoryProps {
   initialFolderFilter?: string;
 }
 
-export const CloudTranscriptHistory = ({
+export const CloudTranscriptHistory = memo(({
   transcripts,
   isCloud,
   isLoading,
@@ -191,6 +189,8 @@ export const CloudTranscriptHistory = ({
         </Button>
         <Button variant="outline" size="sm" onClick={async () => {
           if (filtered.length === 0) return;
+          const JSZip = (await import("jszip")).default;
+          const { saveAs } = await import("file-saver");
           const zip = new JSZip();
           for (const t of filtered) {
             const safeName = (t.title || 'תמלול').replace(/[/\\?%*:|"<>]/g, '_');
@@ -529,4 +529,4 @@ export const CloudTranscriptHistory = ({
       )}
     </Card>
   );
-};
+});

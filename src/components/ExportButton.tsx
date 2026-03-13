@@ -9,9 +9,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Download, FileText, File, Loader2, Braces } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
-import { jsPDF } from "jspdf";
-import { Document, Packer, Paragraph, TextRun, HeadingLevel } from "docx";
-import { saveAs } from "file-saver";
+
 
 interface ExportButtonProps {
   text: string;
@@ -26,6 +24,7 @@ export const ExportButton = ({ text, title = "תמלול", disabled, wordTimings
   const exportToPDF = async () => {
     setIsExporting(true);
     try {
+      const { jsPDF } = await import("jspdf");
       const doc = new jsPDF({
         orientation: "portrait",
         unit: "mm",
@@ -76,8 +75,8 @@ export const ExportButton = ({ text, title = "תמלול", disabled, wordTimings
 
   const exportToDOCX = async () => {
     setIsExporting(true);
-    try {
-      const paragraphs = text.split('\n').map(line =>
+    try {      const { Document, Packer, Paragraph, TextRun, HeadingLevel } = await import("docx");
+      const { saveAs } = await import("file-saver");      const paragraphs = text.split('\n').map(line =>
         new Paragraph({
           children: [
             new TextRun({
@@ -134,13 +133,15 @@ export const ExportButton = ({ text, title = "תמלול", disabled, wordTimings
     }
   };
 
-  const exportToTXT = () => {
+  const exportToTXT = async () => {
+    const { saveAs } = await import("file-saver");
     const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
     saveAs(blob, `${title}-${Date.now()}.txt`);
     toast({ title: "TXT הורד בהצלחה" });
   };
 
-  const exportToJSON = () => {
+  const exportToJSON = async () => {
+    const { saveAs } = await import("file-saver");
     const data = {
       title,
       text,
@@ -196,12 +197,13 @@ export const ExportButton = ({ text, title = "תמלול", disabled, wordTimings
     return segments;
   };
 
-  const exportToSRT = () => {
+  const exportToSRT = async () => {
     const segments = buildSubtitleSegments();
     if (segments.length === 0) {
       toast({ title: "אין חותמות זמן", description: "SRT דורש חותמות זמן — תמלל עם שרת CUDA", variant: "destructive" });
       return;
     }
+    const { saveAs } = await import("file-saver");
     const srt = segments.map((seg, i) =>
       `${i + 1}\n${formatTimeSRT(seg.start)} --> ${formatTimeSRT(seg.end)}\n${seg.text}\n`
     ).join('\n');
@@ -210,12 +212,13 @@ export const ExportButton = ({ text, title = "תמלול", disabled, wordTimings
     toast({ title: "SRT הורד בהצלחה" });
   };
 
-  const exportToVTT = () => {
+  const exportToVTT = async () => {
     const segments = buildSubtitleSegments();
     if (segments.length === 0) {
       toast({ title: "אין חותמות זמן", description: "VTT דורש חותמות זמן — תמלל עם שרת CUDA", variant: "destructive" });
       return;
     }
+    const { saveAs } = await import("file-saver");
     const vtt = 'WEBVTT\n\n' + segments.map((seg, i) =>
       `${i + 1}\n${formatTimeVTT(seg.start)} --> ${formatTimeVTT(seg.end)}\n${seg.text}\n`
     ).join('\n');

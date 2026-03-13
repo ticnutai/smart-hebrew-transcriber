@@ -4,6 +4,7 @@ import path from "path";
 import { componentTagger } from "lovable-tagger";
 import { spawn, type ChildProcess } from "child_process";
 import compression from "vite-plugin-compression";
+import fs from "fs";
 
 /**
  * Vite plugin: exposes /__api/start-server and /__api/stop-server
@@ -82,6 +83,28 @@ function whisperServerLauncher(): Plugin {
   };
 }
 
+/**
+ * Vite plugin: auto-version the service worker cache name using the build timestamp.
+ */
+function swAutoVersion(): Plugin {
+  return {
+    name: 'sw-auto-version',
+    apply: 'build',
+    closeBundle() {
+      const swPath = path.resolve(__dirname, 'dist', 'sw.js');
+      if (fs.existsSync(swPath)) {
+        const buildHash = Date.now().toString(36);
+        let content = fs.readFileSync(swPath, 'utf-8');
+        content = content.replace(
+          /const CACHE_NAME = '[^']+'/,
+          `const CACHE_NAME = 'transcriber-${buildHash}'`
+        );
+        fs.writeFileSync(swPath, content, 'utf-8');
+      }
+    },
+  };
+}
+
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
   server: {
@@ -102,6 +125,7 @@ export default defineConfig(({ mode }) => ({
     whisperServerLauncher(),
     compression({ algorithm: 'gzip', threshold: 1024 }),
     compression({ algorithm: 'brotliCompress', ext: '.br', threshold: 1024 }),
+    swAutoVersion(),
   ].filter(Boolean),
   resolve: {
     alias: {

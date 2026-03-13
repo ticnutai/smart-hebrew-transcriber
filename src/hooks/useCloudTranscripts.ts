@@ -63,21 +63,26 @@ export const useCloudTranscripts = () => {
       // 3) Write cloud data to local DB for next time
       if (await isDbAvailable()) {
         const cloudIds = new Set(cloud.map(t => t.id));
-        for (const t of cloud) {
-          const existing = await db.transcripts.get(t.id);
-          if (!existing?._dirty) {
-            await db.transcripts.put({
-              ...t,
-              tags: t.tags || [],
-              notes: t.notes || '',
-              title: t.title || '',
-              folder: t.folder || '',
-              category: t.category || '',
-              is_favorite: t.is_favorite || false,
-              _dirty: false,
-              _deleted: false,
-            });
-          }
+        // Get dirty local records to skip overwriting
+        const dirtyIds = new Set(
+          (await db.transcripts.where('_dirty').equals(1).primaryKeys())
+            .map(String)
+        );
+        const toSync = cloud
+          .filter(t => !dirtyIds.has(t.id))
+          .map(t => ({
+            ...t,
+            tags: t.tags || [],
+            notes: t.notes || '',
+            title: t.title || '',
+            folder: t.folder || '',
+            category: t.category || '',
+            is_favorite: t.is_favorite || false,
+            _dirty: false,
+            _deleted: false,
+          }));
+        if (toSync.length > 0) {
+          await db.transcripts.bulkPut(toSync);
         }
         await reconcileDeletedTranscripts(user.id, cloudIds);
         debugLog.info('Cloud', `Synced ${cloud.length} transcripts to local DB`);

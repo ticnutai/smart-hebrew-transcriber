@@ -36,6 +36,7 @@ const TextEditor = () => {
   const [wordTimings, setWordTimings] = useState<WordTiming[]>([]);
   const [playerTime, setPlayerTime] = useState(0);
   const transcriptIdRef = useRef<string | null>(null);
+  const manualVersionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { updateTranscript, getAudioUrl } = useCloudTranscripts();
   const [syncEnabled, setSyncEnabled] = useState(true);
   
@@ -348,7 +349,11 @@ const TextEditor = () => {
                 text={text} 
                 onChange={(newText) => {
                   setText(newText);
-                  addVersion(newText, 'manual');
+                  // Debounce manual version creation (2s)
+                  if (manualVersionTimerRef.current) clearTimeout(manualVersionTimerRef.current);
+                  manualVersionTimerRef.current = setTimeout(() => {
+                    addVersion(newText, 'manual');
+                  }, 2000);
                 }}
                 columnStyle={columnStyle}
               />
