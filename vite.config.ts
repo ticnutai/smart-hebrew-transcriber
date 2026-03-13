@@ -25,7 +25,18 @@ function whisperServerLauncher(): Plugin {
           }
 
           const projectRoot = process.cwd();
-          const pythonExe = path.join(projectRoot, 'venv-whisper', 'Scripts', 'python.exe');
+          // Check .venv first, then venv-whisper (same order as launcher_tray.py)
+          const venvDirs = ['.venv', 'venv-whisper'];
+          let pythonExe = '';
+          for (const dir of venvDirs) {
+            const candidate = path.join(projectRoot, dir, 'Scripts', 'python.exe');
+            if (fs.existsSync(candidate)) { pythonExe = candidate; break; }
+          }
+          if (!pythonExe) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'Python venv not found (.venv or venv-whisper)' }));
+            return;
+          }
           const scriptPath = path.join(projectRoot, 'server', 'transcribe_server.py');
 
           try {

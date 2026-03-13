@@ -19,6 +19,7 @@ import { Settings, FileEdit, ChevronDown, X, Zap, Globe, Chrome, Mic, Waves, Ser
 import { usePerfMonitor } from "@/hooks/usePerfMonitor";
 import { PerfMonitorPanel } from "@/components/PerfMonitorPanel";
 import { useTranscriptionJobs } from "@/hooks/useTranscriptionJobs";
+import { useLocalTranscriptionQueue } from "@/hooks/useLocalTranscriptionQueue";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCloudPreferences } from "@/hooks/useCloudPreferences";
 import { isVideoFile, extractAudioFromVideo, VIDEO_NEEDS_EXTRACTION, MAX_VIDEO_SIZE_MB, MAX_AUDIO_SIZE_MB } from "@/lib/videoUtils";
@@ -87,6 +88,7 @@ const Index = () => {
   const bgTask = useBackgroundTask();
   const { transcripts, isLoading: isCloudLoading, saveTranscript, updateTranscript, deleteTranscript, deleteAll, isCloud, getAudioUrl } = useCloudTranscripts();
   const { jobs, submitJob, submitBatchJobs, retryJob, deleteJob } = useTranscriptionJobs();
+  const localQueue = useLocalTranscriptionQueue();
   const { addRecord: addAnalyticsRecord } = useTranscriptionAnalytics();
   const perfMonitor = usePerfMonitor();
   const [showPerfPanel, setShowPerfPanel] = useState(false);
@@ -131,19 +133,54 @@ const Index = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-start transcription when server comes up and there's a pending file
+  // Auto-process persistent queue when server comes up
   useEffect(() => {
-    if (serverConnected && pendingServerFileRef.current && engine === 'local-server') {
+    if (!serverConnected || engine !== 'local-server') return;
+
+    // Also handle legacy in-memory pending file
+    if (pendingServerFileRef.current) {
       const { file, audioUrl } = pendingServerFileRef.current;
       pendingServerFileRef.current = null;
       toast({ title: "\u2705 \u05d4\u05e9\u05e8\u05ea \u05e2\u05dc\u05d4!", description: `\u05de\u05ea\u05d7\u05d9\u05dc \u05ea\u05de\u05dc\u05d5\u05dc: ${file.name}` });
       currentFileRef.current = file;
-      debugLog.info('Transcription', `\u05e9\u05e8\u05ea \u05e2\u05dc\u05d4 \u2014 \u05de\u05ea\u05d7\u05d9\u05dc \u05ea\u05de\u05dc\u05d5\u05dc \u05de\u05de\u05ea\u05d9\u05df: ${file.name}`);
       bgTask.run(`local-server \u2014 ${file.name}`, async () => {
         await transcribeWithLocalServer(file, audioUrl);
       }).catch(() => {});
+      return;
     }
-  }, [serverConnected]);
+
+    // Process next item from persistent queue
+    const processNextQueueItem = async () => {
+      if (localQueue.processingRef.current) return;
+      const next = localQueue.getNextPending();
+      if (!next) return;
+
+      localQueue.processingRef.current = true;
+      await localQueue.updateItemStatus(next.id, 'processing');
+      toast({ title: "\u2705 \u05d4\u05e9\u05e8\u05ea \u05e2\u05dc\u05d4!", description: `\u05de\u05ea\u05d7\u05d9\u05dc \u05ea\u05de\u05dc\u05d5\u05dc \u05de\u05d4\u05ea\u05d5\u05e8: ${next.fileName}` });
+
+      const file = await localQueue.getFile(next.id);
+      if (!file) {
+        await localQueue.updateItemStatus(next.id, 'failed', 'הקובץ לא נמצא');
+        localQueue.processingRef.current = false;
+        return;
+      }
+
+      currentFileRef.current = file;
+      try {
+        await bgTask.run(`local-server \u2014 ${next.fileName}`, async () => {
+          await transcribeWithLocalServer(file, next.audioUrl);
+        });
+        await localQueue.updateItemStatus(next.id, 'completed');
+      } catch {
+        await localQueue.updateItemStatus(next.id, 'failed', 'שגיאה בתמלול');
+      } finally {
+        localQueue.processingRef.current = false;
+      }
+    };
+
+    processNextQueueItem();
+  }, [serverConnected, engine, localQueue.queue]);
 
   // Keep reference to current file for saving with transcript
   const currentFileRef = useRef<File | null>(null);
@@ -713,24 +750,14 @@ const Index = () => {
     // Fresh connection check before transcription (serverConnected state may be stale)
     const isUp = await checkConnection();
     if (!isUp) {
-      pendingServerFileRef.current = { file, audioUrl: fileAudioUrl || '' };
-      // Aggressive polling while waiting — max 60 seconds, then give up
-      startPolling(2000, 60000);
+      // Add to persistent queue (survives refresh)
+      const queueId = await localQueue.addToQueue(file, fileAudioUrl || '');
+      startPolling(2000);
       toast({
-        title: "⏳ ממתין לשרת...",
-        description: `${file.name} בתור — התמלול יתחיל אוטומטית כשהשרת יעלה (עד דקה)`,
+        title: "📋 נוסף לתור התמלולים",
+        description: `${file.name} ממתין — התמלול יתחיל אוטומטית כשהשרת יעלה`,
       });
-      // Auto-clear pending file after 60 seconds if server never came up
-      setTimeout(() => {
-        if (pendingServerFileRef.current) {
-          pendingServerFileRef.current = null;
-          toast({
-            title: "⏰ השרת לא הגיב",
-            description: "הופסקה ההמתנה אחרי דקה. הפעל את השרת ונסה שוב.",
-            variant: "destructive",
-          });
-        }
-      }, 60000);
+      debugLog.info('Queue', `File queued for CUDA transcription: ${file.name} (${queueId})`);
       return;
     }
 
@@ -1457,6 +1484,43 @@ const Index = () => {
               saveToHistory(text, eng);
             }}
           />
+        )}
+
+        {/* Local CUDA Queue Panel */}
+        {localQueue.queue.length > 0 && (
+          <Card className="p-4 space-y-3" dir="rtl">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold flex items-center gap-2">
+                <Server className="w-4 h-4" />
+                תור תמלולים מקומי ({localQueue.pendingCount} ממתינים)
+              </h3>
+              <Button variant="ghost" size="sm" className="text-xs h-6" onClick={localQueue.clearCompleted}>
+                נקה הושלמו
+              </Button>
+            </div>
+            {localQueue.queue.map(item => (
+              <div key={item.id} className="flex items-center justify-between text-sm border rounded-md p-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  {item.status === 'pending' && <span className="h-2 w-2 rounded-full bg-amber-400 shrink-0" />}
+                  {item.status === 'processing' && <span className="h-2 w-2 rounded-full bg-blue-400 animate-pulse shrink-0" />}
+                  {item.status === 'completed' && <span className="h-2 w-2 rounded-full bg-green-400 shrink-0" />}
+                  {item.status === 'failed' && <span className="h-2 w-2 rounded-full bg-red-400 shrink-0" />}
+                  <span className="truncate">{item.fileName}</span>
+                  <span className="text-xs text-muted-foreground shrink-0">
+                    {item.status === 'pending' && 'ממתין לשרת'}
+                    {item.status === 'processing' && 'מתמלל...'}
+                    {item.status === 'completed' && 'הושלם'}
+                    {item.status === 'failed' && (item.error || 'נכשל')}
+                  </span>
+                </div>
+                {(item.status === 'pending' || item.status === 'failed') && (
+                  <Button variant="ghost" size="sm" className="text-xs h-6 text-destructive" onClick={() => localQueue.removeFromQueue(item.id)}>
+                    <X className="w-3 h-3" />
+                  </Button>
+                )}
+              </div>
+            ))}
+          </Card>
         )}
 
         {/* Live Transcription */}

@@ -113,7 +113,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
     } catch (err: any) {
       // Fallback: try launcher service on 8764
       try {
-        const launcherRes = await fetch('http://localhost:8764/start', { method: 'POST', signal: AbortSignal.timeout(5000) });
+        const launcherRes = await fetch('http://localhost:8764/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target: 'whisper' }), signal: AbortSignal.timeout(5000) });
         const launcherData = await launcherRes.json();
         if (launcherData.ok) {
           toast({
@@ -326,7 +326,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
                     setIsStarting(true);
                     // Step 1: Try launcher service to start everything
                     try {
-                      const res = await fetch('http://localhost:8764/start', { method: 'POST', signal: AbortSignal.timeout(5000) });
+                      const res = await fetch('http://localhost:8764/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target: 'whisper' }), signal: AbortSignal.timeout(5000) });
                       const data = await res.json();
                       if (data.ok) {
                         toast({
