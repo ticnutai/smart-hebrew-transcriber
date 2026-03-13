@@ -118,6 +118,24 @@ export type Database = {
           },
         ]
       }
+      system_secrets: {
+        Row: {
+          created_at: string | null
+          key: string
+          value: string
+        }
+        Insert: {
+          created_at?: string | null
+          key: string
+          value: string
+        }
+        Update: {
+          created_at?: string | null
+          key?: string
+          value?: string
+        }
+        Relationships: []
+      }
       transcription_jobs: {
         Row: {
           completed_chunks: number | null
@@ -337,6 +355,7 @@ export type Database = {
     }
     Functions: {
       exec_sql: { Args: { query: string }; Returns: Json }
+      exec_sql_return: { Args: { query: string }; Returns: Json }
       execute_sql_admin: { Args: { sql_text: string }; Returns: Json }
       has_role: {
         Args: {
