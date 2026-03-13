@@ -108,36 +108,6 @@ const EDGE_FUNCTIONS = [
   "transcribe-openai",
 ];
 
-type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
-
-const BODY_TEMPLATES: Record<string, { method: HttpMethod; body: string; description: string }> = {
-  "deploy-edge-function": {
-    method: "POST",
-    body: JSON.stringify({ slug: "function-name", sourceCode: "// your code here" }, null, 2),
-    description: "דיפלוי פונקציה חדשה או עדכון קיימת",
-  },
-  "edit-transcript": {
-    method: "POST",
-    body: JSON.stringify({ text: "הטקסט לעריכה", instruction: "תקן שגיאות כתיב" }, null, 2),
-    description: "עריכת טקסט באמצעות AI",
-  },
-  "summarize-transcript": {
-    method: "POST",
-    body: JSON.stringify({ text: "הטקסט לסיכום" }, null, 2),
-    description: "סיכום טקסט באמצעות AI",
-  },
-  "run-migration": {
-    method: "POST",
-    body: JSON.stringify({ sql: "SELECT 1;" }, null, 2),
-    description: "הרצת מיגרציית SQL",
-  },
-  "process-transcription": {
-    method: "POST",
-    body: JSON.stringify({ jobId: "", engine: "groq" }, null, 2),
-    description: "עיבוד תמלול מקובץ אודיו",
-  },
-};
-
 const DevToolsPanel = () => {
   const [sqlContent, setSqlContent] = useState("");
   const [isRunning, setIsRunning] = useState(false);
@@ -154,10 +124,7 @@ const DevToolsPanel = () => {
 
   // Edge function state
   const [edgeFnName, setEdgeFnName] = useState(EDGE_FUNCTIONS[0]);
-  const [useCustomFn, setUseCustomFn] = useState(false);
-  const [customFnName, setCustomFnName] = useState("");
-  const activeFnName = useCustomFn ? customFnName : edgeFnName;
-  const [edgeFnMethod, setEdgeFnMethod] = useState<HttpMethod>("POST");
+  const [edgeFnMethod, setEdgeFnMethod] = useState<"GET" | "POST">("POST");
   const [edgeFnBody, setEdgeFnBody] = useState("{}");
   const [edgeFnHeaders, setEdgeFnHeaders] = useState<Array<{ key: string; value: string }>>([]);
   const [edgeFnRunning, setEdgeFnRunning] = useState(false);
@@ -166,16 +133,6 @@ const DevToolsPanel = () => {
     body: string;
     time: number;
   } | null>(null);
-  const [edgeFnHistory, setEdgeFnHistory] = useState<Array<{
-    id: string;
-    fn: string;
-    method: HttpMethod;
-    status: number;
-    time: number;
-    timestamp: Date;
-    body?: string;
-    response?: string;
-  }>>([]);
   const { session } = useAuth();
 
   useEffect(() => {
@@ -312,34 +269,9 @@ const DevToolsPanel = () => {
     }
   };
 
-  const loadTemplate = (fnName: string) => {
-    const template = BODY_TEMPLATES[fnName];
-    if (template) {
-      setEdgeFnBody(template.body);
-      setEdgeFnMethod(template.method);
-      toast.success(`תבנית "${fnName}" נטענה`);
-    }
-  };
-
-  const replayFromHistory = (entry: typeof edgeFnHistory[0]) => {
-    if (EDGE_FUNCTIONS.includes(entry.fn)) {
-      setUseCustomFn(false);
-      setEdgeFnName(entry.fn);
-    } else {
-      setUseCustomFn(true);
-      setCustomFnName(entry.fn);
-    }
-    setEdgeFnMethod(entry.method);
-    if (entry.body) setEdgeFnBody(entry.body);
-  };
-
   const runEdgeFunction = async () => {
     if (!session?.access_token) {
       toast.error("יש להתחבר כדי להריץ פונקציות");
-      return;
-    }
-    if (!activeFnName.trim()) {
-      toast.error("יש להזין שם פונקציה");
       return;
     }
 
@@ -348,7 +280,7 @@ const DevToolsPanel = () => {
     const start = Date.now();
 
     try {
-      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${activeFnName}`;
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${edgeFnName}`;
       const headers: Record<string, string> = {
         'Authorization': `Bearer ${session.access_token}`,
         'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
@@ -363,7 +295,7 @@ const DevToolsPanel = () => {
 
       const fetchOptions: RequestInit = { method: edgeFnMethod, headers };
 
-      if (edgeFnMethod !== 'GET' && edgeFnMethod !== 'DELETE') {
+      if (edgeFnMethod === 'POST') {
         headers['Content-Type'] = 'application/json';
         fetchOptions.body = edgeFnBody;
       }
@@ -373,23 +305,9 @@ const DevToolsPanel = () => {
       let formatted = text;
       try { formatted = JSON.stringify(JSON.parse(text), null, 2); } catch { /* not json */ }
 
-      const elapsed = Date.now() - start;
-      setEdgeFnResult({ status: res.status, body: formatted, time: elapsed });
-
-      // Save to history
-      setEdgeFnHistory(prev => [{
-        id: crypto.randomUUID(),
-        fn: activeFnName,
-        method: edgeFnMethod,
-        status: res.status,
-        time: elapsed,
-        timestamp: new Date(),
-        body: edgeFnMethod !== 'GET' ? edgeFnBody : undefined,
-        response: formatted.slice(0, 500),
-      }, ...prev].slice(0, 50));
-
+      setEdgeFnResult({ status: res.status, body: formatted, time: Date.now() - start });
       if (res.ok) {
-        toast.success(`פונקציה ${activeFnName} הורצה בהצלחה`);
+        toast.success(`פונקציה ${edgeFnName} הורצה בהצלחה`);
       } else {
         toast.error(`שגיאה ${res.status} מהפונקציה`);
       }
@@ -563,66 +481,35 @@ const DevToolsPanel = () => {
         {/* Edge Functions Tab */}
         <TabsContent value="edge" className="space-y-4 mt-4">
           <div className="space-y-3">
-            {/* Function selector + method + run */}
             <div className="flex flex-wrap gap-2 items-end">
               <div className="flex-1 min-w-[200px]">
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-sm font-medium">פונקציה</label>
-                  <button
-                    type="button"
-                    onClick={() => setUseCustomFn(!useCustomFn)}
-                    className="text-xs text-muted-foreground hover:text-foreground underline"
-                  >
-                    {useCustomFn ? "בחר מהרשימה" : "הזן ידנית"}
-                  </button>
-                </div>
-                {useCustomFn ? (
-                  <Input
-                    value={customFnName}
-                    onChange={(e) => setCustomFnName(e.target.value)}
-                    placeholder="שם הפונקציה..."
-                    className="font-mono text-sm"
-                  />
-                ) : (
-                  <Select value={edgeFnName} onValueChange={(v) => {
-                    setEdgeFnName(v);
-                    if (BODY_TEMPLATES[v]) {
-                      setEdgeFnBody(BODY_TEMPLATES[v].body);
-                      setEdgeFnMethod(BODY_TEMPLATES[v].method);
-                    }
-                  }}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {EDGE_FUNCTIONS.map(fn => (
-                        <SelectItem key={fn} value={fn}>
-                          <span className="flex items-center gap-2">
-                            {fn}
-                            {BODY_TEMPLATES[fn] && <Sparkles className="w-3 h-3 text-muted-foreground" />}
-                          </span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              </div>
-              <div className="w-[120px]">
-                <label className="text-sm font-medium mb-1 block">Method</label>
-                <Select value={edgeFnMethod} onValueChange={(v) => setEdgeFnMethod(v as HttpMethod)}>
+                <label className="text-sm font-medium mb-1 block">פונקציה</label>
+                <Select value={edgeFnName} onValueChange={setEdgeFnName}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {(["GET", "POST", "PUT", "PATCH", "DELETE"] as HttpMethod[]).map(m => (
-                      <SelectItem key={m} value={m}>{m}</SelectItem>
+                    {EDGE_FUNCTIONS.map(fn => (
+                      <SelectItem key={fn} value={fn}>{fn}</SelectItem>
                     ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="w-[100px]">
+                <label className="text-sm font-medium mb-1 block">Method</label>
+                <Select value={edgeFnMethod} onValueChange={(v) => setEdgeFnMethod(v as "GET" | "POST")}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="GET">GET</SelectItem>
+                    <SelectItem value="POST">POST</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <Button
                 onClick={runEdgeFunction}
-                disabled={edgeFnRunning || !activeFnName.trim()}
+                disabled={edgeFnRunning}
                 className="gap-2"
               >
                 {edgeFnRunning ? (
@@ -634,54 +521,9 @@ const DevToolsPanel = () => {
               </Button>
             </div>
 
-            {/* Template description */}
-            {!useCustomFn && BODY_TEMPLATES[edgeFnName] && (
-              <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2">
-                <Sparkles className="w-3 h-3 shrink-0" />
-                <span>{BODY_TEMPLATES[edgeFnName].description}</span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 text-xs mr-auto"
-                  onClick={() => loadTemplate(edgeFnName)}
-                >
-                  <RotateCcw className="w-3 h-3 ml-1" />
-                  אפס תבנית
-                </Button>
-              </div>
-            )}
-
-            {/* Body editor */}
-            {edgeFnMethod !== "GET" && edgeFnMethod !== "DELETE" && (
+            {edgeFnMethod === "POST" && (
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-sm font-medium">Body (JSON)</label>
-                  <div className="flex gap-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 text-xs"
-                      onClick={() => {
-                        try {
-                          setEdgeFnBody(JSON.stringify(JSON.parse(edgeFnBody), null, 2));
-                          toast.success("JSON פורמט");
-                        } catch { toast.error("JSON לא תקין"); }
-                      }}
-                    >
-                      <Code2 className="w-3 h-3 ml-1" />
-                      פרמט
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 text-xs"
-                      onClick={() => setEdgeFnBody("{}")}
-                    >
-                      <Trash2 className="w-3 h-3 ml-1" />
-                      נקה
-                    </Button>
-                  </div>
-                </div>
+                <label className="text-sm font-medium mb-1 block">Body (JSON)</label>
                 <textarea
                   value={edgeFnBody}
                   onChange={(e) => setEdgeFnBody(e.target.value)}
@@ -747,7 +589,6 @@ const DevToolsPanel = () => {
               </div>
             </div>
 
-            {/* Result */}
             {edgeFnResult && (
               <Card className={`border-2 ${edgeFnResult.status >= 200 && edgeFnResult.status < 300 ? "border-green-500/30 bg-green-500/5" : "border-destructive/30 bg-destructive/5"}`}>
                 <CardHeader className="pb-2">
@@ -770,9 +611,6 @@ const DevToolsPanel = () => {
                       <Button variant="ghost" size="sm" onClick={() => copyToClipboard(edgeFnResult.body)}>
                         <Copy className="w-3 h-3" />
                       </Button>
-                      <Button variant="ghost" size="sm" onClick={() => setEdgeFnResult(null)}>
-                        <Trash2 className="w-3 h-3" />
-                      </Button>
                     </div>
                   </div>
                 </CardHeader>
@@ -784,54 +622,6 @@ const DevToolsPanel = () => {
                   </ScrollArea>
                 </CardContent>
               </Card>
-            )}
-
-            {/* History */}
-            {edgeFnHistory.length > 0 && (
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm font-medium flex items-center gap-1">
-                    <Clock className="w-3 h-3" />
-                    היסטוריית הרצות ({edgeFnHistory.length})
-                  </label>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 text-xs"
-                    onClick={() => setEdgeFnHistory([])}
-                  >
-                    נקה היסטוריה
-                  </Button>
-                </div>
-                <ScrollArea className="max-h-[200px]">
-                  <div className="space-y-1">
-                    {edgeFnHistory.map((entry) => (
-                      <div
-                        key={entry.id}
-                        className="flex items-center gap-2 text-xs p-2 rounded-md hover:bg-muted/50 cursor-pointer group"
-                        onClick={() => replayFromHistory(entry)}
-                        title="לחץ לטעינה מחדש"
-                      >
-                        {entry.status >= 200 && entry.status < 300 ? (
-                          <CheckCircle className="w-3 h-3 text-green-500 shrink-0" />
-                        ) : (
-                          <XCircle className="w-3 h-3 text-destructive shrink-0" />
-                        )}
-                        <Badge variant="outline" className="text-[10px] px-1 py-0 font-mono">
-                          {entry.method}
-                        </Badge>
-                        <span className="font-mono truncate flex-1">{entry.fn}</span>
-                        <span className="text-muted-foreground">{entry.status}</span>
-                        <span className="text-muted-foreground">{entry.time}ms</span>
-                        <span className="text-muted-foreground">
-                          {entry.timestamp.toLocaleTimeString("he-IL")}
-                        </span>
-                        <RotateCcw className="w-3 h-3 opacity-0 group-hover:opacity-100 text-muted-foreground shrink-0" />
-                      </div>
-                    ))}
-                  </div>
-                </ScrollArea>
-              </div>
             )}
           </div>
         </TabsContent>

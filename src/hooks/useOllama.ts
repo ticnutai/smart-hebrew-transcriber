@@ -82,19 +82,11 @@ export function useOllama() {
     }
   }, []);
 
-  // Check on mount, then with backoff when disconnected
+  // Check on mount and every 30s
   useEffect(() => {
     checkConnection();
-    let delay = 30000;
-    let timeout: ReturnType<typeof setTimeout>;
-    const poll = async () => {
-      const ok = await checkConnection();
-      // If disconnected, slow down to 60s to reduce console noise
-      delay = ok ? 30000 : 60000;
-      timeout = setTimeout(poll, delay);
-    };
-    timeout = setTimeout(poll, delay);
-    return () => clearTimeout(timeout);
+    const interval = setInterval(checkConnection, 30000);
+    return () => clearInterval(interval);
   }, [checkConnection]);
 
   const pullModel = useCallback(async (modelName: string, onProgress?: (p: OllamaPullProgress) => void) => {
