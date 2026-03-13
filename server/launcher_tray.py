@@ -224,29 +224,26 @@ def stop_vite():
         return False, "no process"
 
 
+STARTUP_FOLDER = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+STARTUP_SHORTCUT = STARTUP_FOLDER / "SmartTranscriber.lnk"
+
+
 def is_autostart_enabled():
-    """Check if the scheduled task exists."""
-    try:
-        result = subprocess.run(
-            ["schtasks", "/Query", "/TN", TASK_NAME],
-            capture_output=True, text=True,
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
-        )
-        return result.returncode == 0
-    except Exception:
-        return False
+    """Check if startup shortcut exists."""
+    return STARTUP_SHORTCUT.exists()
 
 
 def toggle_autostart():
-    """Toggle Windows startup scheduled task."""
+    """Toggle Windows startup shortcut."""
     if is_autostart_enabled():
-        subprocess.run(
-            ["schtasks", "/Delete", "/TN", TASK_NAME, "/F"],
-            capture_output=True,
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
-        )
+        # Remove shortcut
+        try:
+            STARTUP_SHORTCUT.unlink()
+        except Exception:
+            pass
         return False
     else:
+        # Create shortcut via PowerShell
         pythonw = None
         for venv_dir in [".venv", "venv-whisper"]:
             p = PROJECT_ROOT / venv_dir / "Scripts" / "pythonw.exe"
@@ -259,19 +256,24 @@ def toggle_autostart():
             return False
 
         tray_script = str(PROJECT_ROOT / "server" / "launcher_tray.py")
-        subprocess.run(
-            [
-                "schtasks", "/Create",
-                "/TN", TASK_NAME,
-                "/TR", f'"{pythonw}" "{tray_script}"',
-                "/SC", "ONLOGON",
-                "/RL", "LIMITED",
-                "/F",
-            ],
-            capture_output=True,
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
-        )
-        return True
+        ps_cmd = f'''
+$ws = New-Object -ComObject WScript.Shell
+$sc = $ws.CreateShortcut("{STARTUP_SHORTCUT}")
+$sc.TargetPath = "{pythonw}"
+$sc.Arguments = '"{tray_script}"'
+$sc.WorkingDirectory = "{PROJECT_ROOT}"
+$sc.Description = "Smart Hebrew Transcriber"
+$sc.Save()
+'''
+        try:
+            subprocess.run(
+                ["powershell", "-Command", ps_cmd],
+                capture_output=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+            )
+            return True
+        except Exception:
+            return False
 
 
 # ─── Tray Icon ──────────────────────────────────────────
@@ -296,17 +298,19 @@ def create_icon_image(cuda_on=False, ollama_on=False, vite_on=False):
     # "T" letter
     draw.text((size // 2 - 6, 6), "T", fill=(255, 255, 255, 255))
 
-    # 3 small status dots at bottom
+    # 3 small status dots at bottom — green=on, red=off
     dot_y = size - 16
-    dot_r = 5
+    dot_r = 6
     dots = [
         (14, dot_y, cuda_on),     # CUDA
         (32, dot_y, ollama_on),   # Ollama
         (50, dot_y, vite_on),     # Vite
     ]
     for cx, cy, on in dots:
-        color = (255, 255, 255, 255) if on else (80, 80, 80, 200)
+        color = (0, 200, 0, 255) if on else (200, 0, 0, 255)
         draw.ellipse([cx - dot_r, cy - dot_r, cx + dot_r, cy + dot_r], fill=color)
+        # White border for visibility
+        draw.ellipse([cx - dot_r, cy - dot_r, cx + dot_r, cy + dot_r], outline=(255, 255, 255, 200))
 
     return img
 
@@ -322,11 +326,14 @@ def refresh_status():
     vite_running = check_vite()
     if _tray_icon:
         _tray_icon.icon = create_icon_image(whisper_running, ollama_running, vite_running)
+        running_count = sum([whisper_running, ollama_running, vite_running])
         parts = []
         parts.append(f"CUDA: {'ON' if whisper_running else 'OFF'}")
         parts.append(f"Ollama: {'ON' if ollama_running else 'OFF'}")
         parts.append(f"Vite: {'ON' if vite_running else 'OFF'}")
-        _tray_icon.title = f"Smart Transcriber — {' | '.join(parts)}"
+        _tray_icon.title = f"Smart Transcriber ({running_count}/3) — {' | '.join(parts)}"
+        # Force menu update so checked states refresh
+        _tray_icon.update_menu()
 
 
 # ─── Menu Actions ───────────────────────────────────────
@@ -381,51 +388,81 @@ def on_toggle_autostart(icon, item):
 def on_quit(icon, item):
     icon.stop()
 
-def cuda_label(item):
-    return f"{'🟢' if whisper_running else '🔴'} שרת CUDA (:{WHISPER_PORT})"
+def cuda_checked(item):
+    return whisper_running
 
-def ollama_label(item):
-    return f"{'🟢' if ollama_running else '🔴'} Ollama (:{11434})"
+def ollama_checked(item):
+    return ollama_running
 
-def vite_label(item):
-    return f"{'🟢' if vite_running else '🔴'} Vite Dev (:{VITE_PORT})"
+def vite_checked(item):
+    return vite_running
 
 def autostart_checked(item):
     return is_autostart_enabled()
 
+def cuda_checked(item):
+    return whisper_running
+
+def ollama_checked(item):
+    return ollama_running
+
+def vite_checked(item):
+    return vite_running
+
+def cuda_label(item):
+    return f"CUDA server (:{WHISPER_PORT})"
+
+def ollama_label(item):
+    return f"Ollama (:{11434})"
+
+def vite_label(item):
+    return f"Vite Dev (:{VITE_PORT})"
+
 
 def build_menu():
     return pystray.Menu(
-        pystray.MenuItem("🚀 הפעל הכל", on_start_all),
-        pystray.MenuItem("⏹ עצור הכל", on_stop_all),
+        pystray.MenuItem("Start All", on_start_all),
+        pystray.MenuItem("Stop All", on_stop_all),
         pystray.Menu.SEPARATOR,
-        pystray.MenuItem(cuda_label, on_toggle_cuda),
-        pystray.MenuItem(ollama_label, on_toggle_ollama),
-        pystray.MenuItem(vite_label, on_toggle_vite),
+        pystray.MenuItem(cuda_label, on_toggle_cuda, checked=cuda_checked, radio=True),
+        pystray.MenuItem(ollama_label, on_toggle_ollama, checked=ollama_checked, radio=True),
+        pystray.MenuItem(vite_label, on_toggle_vite, checked=vite_checked, radio=True),
         pystray.Menu.SEPARATOR,
-        pystray.MenuItem("🌐 פתח Lovable", on_open_lovable),
-        pystray.MenuItem("💻 פתח localhost", on_open_local),
+        pystray.MenuItem("Open Lovable", on_open_lovable),
+        pystray.MenuItem("Open localhost", on_open_local),
         pystray.Menu.SEPARATOR,
-        pystray.MenuItem("הפעלה אוטומטית עם Windows", on_toggle_autostart, checked=autostart_checked),
+        pystray.MenuItem("Auto-start with Windows", on_toggle_autostart, checked=autostart_checked),
         pystray.Menu.SEPARATOR,
-        pystray.MenuItem("❌ יציאה", on_quit),
+        pystray.MenuItem("Exit", on_quit),
     )
 
 
 def status_updater(icon):
-    """Background thread: update icon every 15 seconds."""
+    """Background thread: update icon every 5 seconds."""
+    # Do first check immediately
+    try:
+        refresh_status()
+    except Exception:
+        pass
     while icon.visible:
         try:
             refresh_status()
         except Exception:
             pass
-        time.sleep(15)
+        time.sleep(5)
 
 
 # ─── Flask API ──────────────────────────────────────────
 
 app = Flask(__name__)
 CORS(app)
+
+
+@app.after_request
+def add_private_network_headers(response):
+    """Allow Chrome Private Network Access (PNA) so Lovable HTTPS can reach localhost."""
+    response.headers["Access-Control-Allow-Private-Network"] = "true"
+    return response
 
 
 @app.route("/health", methods=["GET"])
@@ -505,11 +542,17 @@ def main():
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
 
-    # Create tray icon
+    # Do initial status check before creating icon
+    global whisper_running, ollama_running, vite_running
+    whisper_running, _ = check_whisper()
+    ollama_running, _ = check_ollama()
+    vite_running = check_vite()
+
+    # Create tray icon with actual status
     _tray_icon = pystray.Icon(
         "smart_transcriber",
-        create_icon_image(False, False, False),
-        "Smart Transcriber — Starting...",
+        create_icon_image(whisper_running, ollama_running, vite_running),
+        f"Smart Transcriber ({sum([whisper_running, ollama_running, vite_running])}/3)",
         menu=build_menu(),
     )
 

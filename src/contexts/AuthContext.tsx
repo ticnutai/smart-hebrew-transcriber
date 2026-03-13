@@ -64,7 +64,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     );
 
     // Trigger initial session check (will flow through onAuthStateChange)
-    supabase.auth.getSession();
+    // If refresh token is stale, clear it silently instead of spamming console errors
+    supabase.auth.getSession().then(({ error }) => {
+      if (error?.message?.includes('Refresh Token')) {
+        debugLog.warn('Auth', '🧹 Refresh token פג תוקף — מנקה session');
+        supabase.auth.signOut({ scope: 'local' });
+      }
+    });
 
     // Fallback: if auth never responds, stop loading after 5 seconds
     timeoutId = setTimeout(() => {

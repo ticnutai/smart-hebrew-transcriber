@@ -121,24 +121,56 @@ if ($Run) {
     Start-Process -FilePath $exePath -ArgumentList "`"$launcherScript`"" -WorkingDirectory $projectRoot
     Write-Host "[V] Tray launcher started! Look for the icon in the system tray." -ForegroundColor Green
 }
-Write-Host ""
 
-# Start it now
-Write-Host "Starting launcher now..." -ForegroundColor Yellow
-Start-ScheduledTask -TaskName $taskName
+# Start scheduled task only if it exists
+if ($AutoStart) {
+    Write-Host ""
+    Write-Host "Starting launcher now..." -ForegroundColor Yellow
+    try {
+        Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+        Start-Sleep -Seconds 2
+        try {
+            $r = Invoke-RestMethod -Uri "http://localhost:8764/health" -TimeoutSec 3
+            Write-Host "[V] Launcher running! Status:" -ForegroundColor Green
+            Write-Host "    Whisper: $($r.whisper.running)" -ForegroundColor Gray
+            Write-Host "    Ollama:  $($r.ollama.running)" -ForegroundColor Gray
+        } catch {
+            Write-Host "[!] Launcher starting... may take a moment" -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Host "[!] Could not start task: $_" -ForegroundColor Yellow
+    }
+}
 
-Start-Sleep -Seconds 2
-try {
-    $r = Invoke-RestMethod -Uri "http://localhost:8764/health" -TimeoutSec 3
-    Write-Host "[V] Launcher running! Status:" -ForegroundColor Green
-    Write-Host "    Whisper: $($r.whisper.running)" -ForegroundColor Gray
-    Write-Host "    Ollama:  $($r.ollama.running)" -ForegroundColor Gray
-} catch {
-    Write-Host "[!] Launcher starting... may take a moment" -ForegroundColor Yellow
+# --- Create startup shortcut (.bat in shell:startup) ---
+$startupFolder = [Environment]::GetFolderPath('Startup')
+$batSource = Join-Path $projectRoot "start-launcher.bat"
+$shortcutPath = Join-Path $startupFolder "SmartTranscriber.lnk"
+
+if ($AutoStart -and (Test-Path $batSource)) {
+    $shell = New-Object -ComObject WScript.Shell
+    $shortcut = $shell.CreateShortcut($shortcutPath)
+    $shortcut.TargetPath = $batSource
+    $shortcut.WorkingDirectory = $projectRoot
+    $shortcut.WindowStyle = 7  # Minimized
+    $shortcut.Description = "Smart Hebrew Transcriber - Tray Launcher"
+    $shortcut.Save()
+    Write-Host "[V] Startup shortcut created: $shortcutPath" -ForegroundColor Green
+}
+
+if ($Remove) {
+    if (Test-Path $shortcutPath) {
+        Remove-Item $shortcutPath -Force
+        Write-Host "[V] Startup shortcut removed" -ForegroundColor Green
+    }
 }
 
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Green
-Write-Host "  Done! Launcher will auto-start on boot" -ForegroundColor Green
+if ($AutoStart) {
+    Write-Host "  Done! Launcher will auto-start on boot" -ForegroundColor Green
+} else {
+    Write-Host "  Done!" -ForegroundColor Green
+}
 Write-Host "  To remove: .\scripts\install-launcher.ps1 -Remove" -ForegroundColor Gray
 Write-Host "========================================" -ForegroundColor Green

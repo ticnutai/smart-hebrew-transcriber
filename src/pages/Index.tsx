@@ -101,13 +101,10 @@ const Index = () => {
     && !localStorage.getItem('whisper_server_url');
 
   useEffect(() => {
-    if (engine === 'local-server' && !isCloudWithDefaultUrl) {
-      startPolling(serverConnected ? 10000 : 5000);
-      return () => stopPolling();
-    } else {
-      stopPolling();
-    }
-  }, [engine, serverConnected, startPolling, stopPolling, isCloudWithDefaultUrl]);
+    // TranscriptionEngine handles initial check + polling for the CUDA engine.
+    // Index only starts polling on-demand (see transcribeWithLocalServer).
+    return () => stopPolling();
+  }, [engine, stopPolling]);
 
   // Cleanup audio Object URL on unmount
   useEffect(() => {

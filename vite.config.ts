@@ -88,6 +88,7 @@ export default defineConfig(({ mode }) => ({
     host: "::",
     port: 8080,
     hmr: {
+      protocol: "ws",
       host: "localhost",
       port: 8080,
     },
@@ -96,7 +97,8 @@ export default defineConfig(({ mode }) => ({
   },
   plugins: [
     react(),
-    mode === "development" && componentTagger(),
+    // lovable-tagger only on Lovable cloud, not local dev (causes HTTPS ping errors)
+    mode === "development" && process.env.LOVABLE && componentTagger(),
     whisperServerLauncher(),
     compression({ algorithm: 'gzip', threshold: 1024 }),
     compression({ algorithm: 'brotliCompress', ext: '.br', threshold: 1024 }),

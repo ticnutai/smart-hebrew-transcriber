@@ -60,18 +60,21 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
   // If on Lovable but targeting localhost:8765, that's local-via-web, NOT remote
   const isRemoteAccess = isNonLocalHost && hasCustomServerUrl();
 
-  // When user selects CUDA server, start polling; otherwise stop
+  // When user selects CUDA server — single check first, poll only if server responds
   useEffect(() => {
     if (selected === 'local-server') {
-      // Poll (5s) while waiting, normal (10s) once connected
-      startPolling(isConnected ? 10000 : 5000);
-      if (isConnected) setIsStarting(false);
+      checkConnection().then(ok => {
+        if (ok) {
+          setIsStarting(false);
+          startPolling(10000);
+        }
+      });
       return () => stopPolling();
     } else {
       stopPolling();
       setIsStarting(false);
     }
-  }, [selected, isConnected, startPolling, stopPolling]);
+  }, [selected, checkConnection, startPolling, stopPolling]);
 
   // Auto-preload model when connected + preload mode
   useEffect(() => {
@@ -96,6 +99,7 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
           title: "🚀 השרת מופעל!",
           description: data.message === 'already running' ? 'השרת כבר רץ, ממתין לחיבור...' : 'השרת עולה, ממתין לחיבור...',
         });
+        startPolling(5000);
       } else {
         throw new Error(data.error || 'Failed to start');
       }
@@ -109,6 +113,7 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
             title: "🚀 השרת מופעל!",
             description: launcherData.results?.whisper?.message === 'already running' ? 'השרת כבר רץ, ממתין לחיבור...' : 'שרת CUDA + Ollama עולים...',
           });
+          startPolling(5000);
           return;
         }
       } catch {
@@ -121,7 +126,7 @@ export const TranscriptionEngine = ({ selected, onChange, sourceLanguage, onSour
       });
       setIsStarting(false);
     }
-  }, []);
+  }, [startPolling]);
 
   return (
     <Card className="p-6" dir="rtl">

@@ -82,11 +82,44 @@ export function useOllama() {
     }
   }, []);
 
-  // Check on mount and every 30s
+  // Smart polling: fast when connected, exponential backoff when disconnected,
+  // pauses when tab is hidden
   useEffect(() => {
-    checkConnection();
-    const interval = setInterval(checkConnection, 30000);
-    return () => clearInterval(interval);
+    let timeoutId: ReturnType<typeof setTimeout>;
+    let consecutiveFails = 0;
+    const BASE_INTERVAL = 30_000;
+    const MAX_INTERVAL = 120_000;
+
+    const poll = async () => {
+      const ok = await checkConnection();
+      if (ok) {
+        consecutiveFails = 0;
+      } else {
+        consecutiveFails++;
+      }
+      const nextInterval = ok
+        ? BASE_INTERVAL
+        : Math.min(BASE_INTERVAL * Math.pow(2, consecutiveFails), MAX_INTERVAL);
+      timeoutId = setTimeout(poll, nextInterval);
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        clearTimeout(timeoutId);
+      } else {
+        // Immediate check on tab focus, then resume schedule
+        poll();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    // Initial check
+    poll();
+
+    return () => {
+      clearTimeout(timeoutId);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, [checkConnection]);
 
   const pullModel = useCallback(async (modelName: string, onProgress?: (p: OllamaPullProgress) => void) => {
