@@ -124,16 +124,10 @@ export default defineConfig(({ mode }) => {
   server: {
     host: "::",
     port: 8080,
-    hmr: isLovableCloud
-      ? {
-          protocol: "wss",
-          clientPort: 443,
-        }
-      : {
-          protocol: "ws",
-          host: "localhost",
-          port: 8080,
-        },
+    hmr: {
+      protocol: isLovableCloud ? "wss" : "ws",
+      ...(isLovableCloud ? { clientPort: 443 } : {}),
+    },
     // Allow Cloudflare Tunnel and external preview origins
     allowedHosts: ['localhost', '.trycloudflare.com', '.lovable.app', '.lovableproject.com'],
   },
