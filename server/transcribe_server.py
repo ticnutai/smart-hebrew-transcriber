@@ -334,18 +334,7 @@ MODEL_REGISTRY = {
     "large-v3-turbo": "large-v3-turbo",
     # Ivrit.ai Hebrew-optimized models (pre-converted CT2 available)
     "ivrit-ai/faster-whisper-v2-d4": "ivrit-ai/faster-whisper-v2-d4",
-    "ivrit-ai/whisper-large-v3-turbo-ct2": "ivrit-ai/whisper-large-v3-turbo-ct2",
-    # Ivrit.ai Hebrew models (need HF→CT2 conversion)
-    "ivrit-ai/whisper-large-v3-turbo": "ivrit-ai/whisper-large-v3-turbo",
-}
-
-DEFAULT_MODEL = "ivrit-ai/whisper-large-v3-turbo-ct2"
-
-
-_cached_device = None
-_cached_gpu_name = None
-
-def get_device():
+    "ivrit-ai/faster-whisper-v3-d4": "ivrit-ai/faster-whisper-v3-d4",  # newest Hebrew model
     """Detect best available device using CTranslate2 (cached)."""
     global _cached_device
     if _cached_device is not None:
@@ -460,11 +449,23 @@ def load_model(model_id: str, compute_type_override: str | None = None) -> faste
     start = time.time()
 
     def _load(dev, ct):
+        # Flash Attention 2: ~50% faster on CUDA (CTranslate2 4.x+), zero quality loss
+        use_flash = False
+        if dev == "cuda":
+            try:
+                import ctranslate2
+                major = int(ctranslate2.__version__.split('.')[0])
+                use_flash = major >= 4
+            except Exception:
+                pass
+        if use_flash:
+            print(f"  ⚡ Flash Attention enabled (CTranslate2 {ctranslate2.__version__})")
         return faster_whisper.WhisperModel(
             actual_path,
             device=dev,
             compute_type=ct,
             download_root=str(Path.home() / ".cache" / "whisper-models"),
+            flash_attention=use_flash,
         )
 
     try:

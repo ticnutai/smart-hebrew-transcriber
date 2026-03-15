@@ -81,6 +81,15 @@ export interface SyncMeta {
   last_cloud_updated_at: string;
 }
 
+export interface LocalAudioBlob {
+  /** Unique key, e.g. 'last_audio' */
+  id: string;
+  blob: Blob;
+  type: string;
+  name: string;
+  saved_at: number; // Date.now()
+}
+
 // ─── Database ────────────────────────────────────────────────────
 class SmartTranscriberDB extends Dexie {
   transcripts!: Table<LocalTranscript, string>;
@@ -88,6 +97,7 @@ class SmartTranscriberDB extends Dexie {
   apiKeys!: Table<LocalApiKeys, string>;
   jobs!: Table<LocalTranscriptionJob, string>;
   syncMeta!: Table<SyncMeta, string>;
+  audioBlobs!: Table<LocalAudioBlob, string>;
 
   constructor() {
     super('SmartTranscriberDB');
@@ -102,6 +112,11 @@ class SmartTranscriberDB extends Dexie {
 
     // v2: word_timings + edited_text columns (no index changes needed, stored inline)
     this.version(2).stores({});
+
+    // v3: audioBlobs table for audio recovery (replaces raw indexedDB usage)
+    this.version(3).stores({
+      audioBlobs: 'id, saved_at',
+    });
   }
 }
 

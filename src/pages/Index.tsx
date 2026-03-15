@@ -18,6 +18,7 @@ import { useTranscriptionAnalytics } from "@/hooks/useTranscriptionAnalytics";
 import { Settings, FileEdit, ChevronDown, X, Zap, Globe, Chrome, Mic, Waves, Server, Cpu, Film, Pause, Play, Square, Copy, Check, Keyboard, Activity, Users } from "lucide-react";
 import { usePerfMonitor } from "@/hooks/usePerfMonitor";
 import { PerfMonitorPanel } from "@/components/PerfMonitorPanel";
+import { db } from "@/lib/localDb";
 import { useTranscriptionJobs } from "@/hooks/useTranscriptionJobs";
 import { useLocalTranscriptionQueue } from "@/hooks/useLocalTranscriptionQueue";
 import { useAuth } from "@/contexts/AuthContext";
@@ -291,19 +292,15 @@ const Index = () => {
     const url = URL.createObjectURL(file);
     setAudioUrl(url);
 
-    // Persist audio blob to IndexedDB for text-editor recovery
+    // Persist audio blob to IndexedDB (Dexie) for text-editor recovery
     try {
-      const idb = await new Promise<IDBDatabase>((resolve, reject) => {
-        const req = indexedDB.open('transcriber_audio', 1);
-        req.onupgradeneeded = () => req.result.createObjectStore('blobs');
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error);
+      await db.audioBlobs.put({
+        id: 'last_audio',
+        blob: file,
+        type: file.type,
+        name: file.name,
+        saved_at: Date.now(),
       });
-      const tx = idb.transaction('blobs', 'readwrite');
-      tx.objectStore('blobs').put(file, 'last_audio');
-      tx.objectStore('blobs').put(file.type, 'last_audio_type');
-      tx.objectStore('blobs').put(file.name, 'last_audio_name');
-      idb.close();
     } catch { /* IndexedDB not available — ok */ }
 
     // Show audio/video duration after file select

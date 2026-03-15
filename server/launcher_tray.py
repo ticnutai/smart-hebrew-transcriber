@@ -58,9 +58,16 @@ LOVABLE_URL = "https://a1add912-bd72-490b-949a-bf5fe8ed03b5.lovable.app"
 # ─── State ──────────────────────────────────────────────
 whisper_process = None
 vite_process = None
+cloudflare_process = None
 whisper_running = False
 ollama_running = False
 vite_running = False
+cloudflare_running = False
+cloudflare_url: str | None = None  # public trycloudflare.com URL
+
+# ─── Cloudflare constants ─────────────────────────────────
+CLOUDFLARED_EXE = Path(os.environ.get("LOCALAPPDATA", "")) / "cloudflared" / "cloudflared.exe"
+CLOUDFLARED_URL = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
 
 
 # ─── Helpers ────────────────────────────────────────────
@@ -224,6 +231,76 @@ def stop_vite():
         return False, "no process"
 
 
+def _download_cloudflared() -> bool:
+    """Download cloudflared.exe if not present."""
+    if CLOUDFLARED_EXE.exists():
+        return True
+    try:
+        import urllib.request as ur
+        CLOUDFLARED_EXE.parent.mkdir(parents=True, exist_ok=True)
+        ur.urlretrieve(CLOUDFLARED_URL, str(CLOUDFLARED_EXE))
+        print(f"  Cloudflared downloaded: {CLOUDFLARED_EXE}")
+        return True
+    except Exception as e:
+        print(f"  Cloudflared download failed: {e}")
+        return False
+
+
+def start_cloudflare():
+    """Start Cloudflare Tunnel → localhost:WHISPER_PORT."""
+    global cloudflare_process, cloudflare_running, cloudflare_url
+    if cloudflare_running:
+        return True, "already running", cloudflare_url
+    if not _download_cloudflared():
+        return False, "cloudflared download failed", None
+    try:
+        import re
+        cloudflare_process = subprocess.Popen(
+            [str(CLOUDFLARED_EXE), "tunnel", "--url", f"http://localhost:{WHISPER_PORT}"],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, encoding="utf-8", errors="replace",
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+        )
+        cloudflare_running = True
+        cloudflare_url = None
+
+        def _capture_url():
+            global cloudflare_url
+            for line in cloudflare_process.stdout:
+                m = re.search(r'https://[\w-]+\.trycloudflare\.com', line)
+                if m:
+                    cloudflare_url = m.group(0)
+                    print(f"  \u2601 Cloudflare Tunnel: {cloudflare_url}")
+                    if _tray_icon:
+                        _tray_icon.update_menu()
+                    break
+            # Process ended — update state
+            global cloudflare_running
+            cloudflare_running = False
+
+        threading.Thread(target=_capture_url, daemon=True, name="cf-url-capture").start()
+        return True, "starting", None
+    except Exception as e:
+        cloudflare_running = False
+        return False, str(e), None
+
+
+def stop_cloudflare():
+    """Stop Cloudflare Tunnel."""
+    global cloudflare_process, cloudflare_running, cloudflare_url
+    if cloudflare_process and cloudflare_process.poll() is None:
+        cloudflare_process.terminate()
+    cloudflare_process = None
+    cloudflare_running = False
+    cloudflare_url = None
+    return True, "stopped"
+
+
+def check_cloudflare():
+    """Check if cloudflare tunnel process is alive."""
+    return cloudflare_running and cloudflare_process is not None and cloudflare_process.poll() is None
+
+
 STARTUP_FOLDER = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
 STARTUP_SHORTCUT = STARTUP_FOLDER / "SmartTranscriber.lnk"
 
@@ -278,16 +355,16 @@ $sc.Save()
 
 # ─── Tray Icon ──────────────────────────────────────────
 
-def create_icon_image(cuda_on=False, ollama_on=False, vite_on=False):
-    """Create icon with 3 colored dots for each service status."""
+def create_icon_image(cuda_on=False, ollama_on=False, vite_on=False, cf_on=False):
+    """Create icon with 4 colored dots for each service status."""
     size = 64
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
     # Background circle
-    running_count = sum([cuda_on, ollama_on, vite_on])
-    if running_count == 3:
-        bg = (76, 175, 80, 255)    # green — all running
+    running_count = sum([cuda_on, ollama_on, vite_on, cf_on])
+    if running_count >= 3:
+        bg = (76, 175, 80, 255)    # green — most running
     elif running_count > 0:
         bg = (255, 193, 7, 255)    # yellow — partial
     else:
@@ -298,18 +375,18 @@ def create_icon_image(cuda_on=False, ollama_on=False, vite_on=False):
     # "T" letter
     draw.text((size // 2 - 6, 6), "T", fill=(255, 255, 255, 255))
 
-    # 3 small status dots at bottom — green=on, red=off
-    dot_y = size - 16
-    dot_r = 6
+    # 4 small status dots at bottom — green=on, red=off
+    dot_y = size - 14
+    dot_r = 5
     dots = [
-        (14, dot_y, cuda_on),     # CUDA
-        (32, dot_y, ollama_on),   # Ollama
-        (50, dot_y, vite_on),     # Vite
+        (9,  dot_y, cuda_on),     # CUDA
+        (23, dot_y, ollama_on),   # Ollama
+        (41, dot_y, vite_on),     # Vite
+        (55, dot_y, cf_on),       # Cloudflare
     ]
     for cx, cy, on in dots:
         color = (0, 200, 0, 255) if on else (200, 0, 0, 255)
         draw.ellipse([cx - dot_r, cy - dot_r, cx + dot_r, cy + dot_r], fill=color)
-        # White border for visibility
         draw.ellipse([cx - dot_r, cy - dot_r, cx + dot_r, cy + dot_r], outline=(255, 255, 255, 200))
 
     return img
@@ -320,19 +397,21 @@ _tray_icon = None
 
 def refresh_status():
     """Update all service statuses and refresh icon."""
-    global whisper_running, ollama_running, vite_running
+    global whisper_running, ollama_running, vite_running, cloudflare_running
     whisper_running, _ = check_whisper()
     ollama_running, _ = check_ollama()
     vite_running = check_vite()
+    cloudflare_running = check_cloudflare()
     if _tray_icon:
-        _tray_icon.icon = create_icon_image(whisper_running, ollama_running, vite_running)
-        running_count = sum([whisper_running, ollama_running, vite_running])
-        parts = []
-        parts.append(f"CUDA: {'ON' if whisper_running else 'OFF'}")
-        parts.append(f"Ollama: {'ON' if ollama_running else 'OFF'}")
-        parts.append(f"Vite: {'ON' if vite_running else 'OFF'}")
-        _tray_icon.title = f"Smart Transcriber ({running_count}/3) — {' | '.join(parts)}"
-        # Force menu update so checked states refresh
+        _tray_icon.icon = create_icon_image(whisper_running, ollama_running, vite_running, cloudflare_running)
+        running_count = sum([whisper_running, ollama_running, vite_running, cloudflare_running])
+        parts = [
+            f"CUDA: {'ON' if whisper_running else 'OFF'}",
+            f"Ollama: {'ON' if ollama_running else 'OFF'}",
+            f"Vite: {'ON' if vite_running else 'OFF'}",
+            f"CF: {'ON' if cloudflare_running else 'OFF'}",
+        ]
+        _tray_icon.title = f"Smart Transcriber ({running_count}/4) — {' | '.join(parts)}"
         _tray_icon.update_menu()
 
 
@@ -342,6 +421,7 @@ def on_start_all(icon, item):
     start_ollama()
     start_whisper()
     start_vite()
+    start_cloudflare()
     time.sleep(2)
     refresh_status()
 
@@ -349,6 +429,7 @@ def on_stop_all(icon, item):
     stop_whisper()
     stop_ollama()
     stop_vite()
+    stop_cloudflare()
     time.sleep(1)
     refresh_status()
 
@@ -382,6 +463,25 @@ def on_open_lovable(icon, item):
 def on_open_local(icon, item):
     os.startfile(f"http://localhost:{VITE_PORT}")
 
+def on_open_tunnel(icon, item):
+    if cloudflare_url:
+        os.startfile(cloudflare_url)
+
+def on_copy_tunnel(icon, item):
+    import subprocess
+    if cloudflare_url:
+        subprocess.run(["powershell", "-Command", f'Set-Clipboard "{cloudflare_url}"'],
+                       capture_output=True,
+                       creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
+
+def on_toggle_cloudflare(icon, item):
+    if cloudflare_running:
+        stop_cloudflare()
+    else:
+        start_cloudflare()
+    time.sleep(1)
+    refresh_status()
+
 def on_toggle_autostart(icon, item):
     toggle_autostart()
 
@@ -397,17 +497,11 @@ def ollama_checked(item):
 def vite_checked(item):
     return vite_running
 
+def cloudflare_checked(item):
+    return cloudflare_running
+
 def autostart_checked(item):
     return is_autostart_enabled()
-
-def cuda_checked(item):
-    return whisper_running
-
-def ollama_checked(item):
-    return ollama_running
-
-def vite_checked(item):
-    return vite_running
 
 def cuda_label(item):
     return f"CUDA server (:{WHISPER_PORT})"
@@ -418,6 +512,12 @@ def ollama_label(item):
 def vite_label(item):
     return f"Vite Dev (:{VITE_PORT})"
 
+def cloudflare_label(item):
+    if cloudflare_url:
+        short = cloudflare_url.replace('https://', '')[:30]
+        return f"\u2601 Tunnel ({short})"
+    return "\u2601 Cloudflare Tunnel"
+
 
 def build_menu():
     return pystray.Menu(
@@ -427,9 +527,11 @@ def build_menu():
         pystray.MenuItem(cuda_label, on_toggle_cuda, checked=cuda_checked, radio=True),
         pystray.MenuItem(ollama_label, on_toggle_ollama, checked=ollama_checked, radio=True),
         pystray.MenuItem(vite_label, on_toggle_vite, checked=vite_checked, radio=True),
+        pystray.MenuItem(cloudflare_label, on_toggle_cloudflare, checked=cloudflare_checked, radio=True),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Open Lovable", on_open_lovable),
         pystray.MenuItem("Open localhost", on_open_local),
+        pystray.MenuItem("Copy Tunnel URL", on_copy_tunnel),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Auto-start with Windows", on_toggle_autostart, checked=autostart_checked),
         pystray.Menu.SEPARATOR,
@@ -497,6 +599,9 @@ def api_start():
     if target in ("all", "vite"):
         ok_v, msg_v = start_vite()
         results["vite"] = {"ok": ok_v, "message": msg_v}
+    if target in ("cloudflare", "tunnel"):
+        ok_cf, msg_cf, url_cf = start_cloudflare()
+        results["cloudflare"] = {"ok": ok_cf, "message": msg_cf, "url": url_cf}
     return jsonify({"ok": True, "results": results})
 
 
@@ -513,7 +618,20 @@ def api_stop():
     if target in ("all", "vite"):
         ok, msg = stop_vite()
         results["vite"] = {"ok": ok, "message": msg}
+    if target in ("all", "cloudflare", "tunnel"):
+        ok, msg = stop_cloudflare()
+        results["cloudflare"] = {"ok": ok, "message": msg}
     return jsonify({"ok": True, "results": results})
+
+
+@app.route("/tunnel", methods=["GET"])
+def api_tunnel():
+    """Return current Cloudflare Tunnel status and URL."""
+    return jsonify({
+        "running": cloudflare_running,
+        "url": cloudflare_url,
+        "installed": CLOUDFLARED_EXE.exists(),
+    })
 
 
 @app.route("/status", methods=["GET"])
@@ -562,16 +680,17 @@ def main():
     flask_thread.start()
 
     # Do initial status check before creating icon
-    global whisper_running, ollama_running, vite_running
+    global whisper_running, ollama_running, vite_running, cloudflare_running
     whisper_running, _ = check_whisper()
     ollama_running, _ = check_ollama()
     vite_running = check_vite()
+    cloudflare_running = check_cloudflare()
 
     # Create tray icon with actual status
     _tray_icon = pystray.Icon(
         "smart_transcriber",
-        create_icon_image(whisper_running, ollama_running, vite_running),
-        f"Smart Transcriber ({sum([whisper_running, ollama_running, vite_running])}/3)",
+        create_icon_image(whisper_running, ollama_running, vite_running, cloudflare_running),
+        f"Smart Transcriber ({sum([whisper_running, ollama_running, vite_running, cloudflare_running])}/4)",
         menu=build_menu(),
     )
 
