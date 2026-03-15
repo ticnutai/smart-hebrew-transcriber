@@ -102,10 +102,10 @@ async function pushDirtyTranscripts(userId: string): Promise<void> {
   // Handle inserts/updates
   const dirty = await db.transcripts.where('_dirty').equals(1).toArray();
   for (const t of dirty) {
-    const { id, audio_blob, _dirty, _deleted, ...row } = t;
+    const { id, audio_blob, _dirty, _deleted, word_timings, ...row } = t;
     const { error } = await supabase
       .from('transcripts')
-      .upsert({ id, ...row, updated_at: new Date().toISOString() }, { onConflict: 'id' });
+      .upsert({ id, ...row, word_timings: word_timings as any ?? null, updated_at: new Date().toISOString() } as any, { onConflict: 'id' });
 
     if (!error) {
       await db.transcripts.update(id, { _dirty: false });
