@@ -318,6 +318,10 @@ _model_loading: bool = False       # True while a model is being loaded in backg
 _model_loading_id: str | None = None  # model being loaded
 _model_loading_progress: str = ''   # current loading phase description
 
+# Device + GPU name cache
+_cached_device: str | None = None
+_cached_gpu_name: str | None = None
+
 # Staged audio files — pre-uploaded while model loads in parallel
 import uuid
 _staged_files: dict[str, dict] = {}  # stage_id → { path, filename, timestamp }
@@ -333,10 +337,12 @@ MODEL_REGISTRY = {
     "large-v2": "large-v2",
     "large-v3": "large-v3",
     "large-v3-turbo": "large-v3-turbo",
-    # Ivrit.ai Hebrew-optimized models (pre-converted CT2 available)
+    # Ivrit.ai Hebrew-optimized models (pre-converted CT2 format on HuggingFace)
     "ivrit-ai/faster-whisper-v2-d4": "ivrit-ai/faster-whisper-v2-d4",
-    "ivrit-ai/faster-whisper-v3-d4": "ivrit-ai/faster-whisper-v3-d4",  # newest Hebrew model
+    # ivrit-ai/whisper-large-v3-turbo — requires local HF→CT2 conversion (see MODELS_NEEDING_CONVERSION)
 }
+
+DEFAULT_MODEL = "large-v3-turbo"
 
 
 def get_device() -> str:
