@@ -317,7 +317,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
                   הגדר כתובת שרת
                 </Button>
               ) : isNonLocalHost ? (
-                /* On Lovable site — try launcher service on 8764, then check connection */
+                /* On hosted site — only check direct connection to local CUDA server (8765) */
                 <Button
                   size="sm"
                   variant="default"
@@ -325,33 +325,14 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
                   onClick={async (e) => {
                     e.preventDefault();
                     setIsStarting(true);
-                    // Step 1: Try launcher service to start everything
-                    try {
-                      const res = await fetch('http://localhost:8764/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target: 'whisper' }), signal: AbortSignal.timeout(5000) });
-                      const data = await res.json();
-                      if (data.ok) {
-                        toast({
-                          title: '🚀 מפעיל שרת CUDA...',
-                          description: data.results?.whisper?.message === 'already running'
-                            ? 'השרת כבר רץ, ממתין לחיבור...'
-                            : 'השרת עולה, ממתין לחיבור...',
-                        });
-                        startPolling(5000, 120000);
-                        // Clear isStarting after max polling duration (useEffect clears it sooner if connects)
-                        setTimeout(() => setIsStarting(false), 120000);
-                        return;
-                      }
-                    } catch {
-                      // Launcher not running — try direct connection check
-                    }
-                    // Step 2: Fallback — just check if server already reachable
                     const ok = await checkConnection();
                     if (ok) {
-                      toast({ title: '🟢 מחובר!', description: 'שרת CUDA זוהה' });
+                      toast({ title: '🟢 מחובר!', description: 'שרת CUDA זוהה ב־localhost:8765' });
+                      startPolling(10000);
                     } else {
                       toast({
-                        title: '🔴 שרת לא נמצא',
-                        description: 'הפעל install-launcher.ps1 ואז נסה שוב, או הפעל start-lovable.ps1 ידנית',
+                        title: '🔴 שרת לא נגיש',
+                        description: 'הפעל את שרת ה-CUDA המקומי (פורט 8765) מהמחשב ואז נסה שוב.',
                         variant: 'destructive',
                       });
                     }
@@ -363,7 +344,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
                   ) : (
                     <Server className="w-3.5 h-3.5" />
                   )}
-                  {isStarting ? 'מפעיל...' : 'הפעל שרת'}
+                  {isStarting ? 'בודק...' : 'בדוק חיבור'}
                 </Button>
               ) : (
                 <Button
