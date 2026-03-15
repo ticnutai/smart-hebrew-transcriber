@@ -46,6 +46,30 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
   const [beamSize, setBeamSize] = useState(() => parseInt(localStorage.getItem('cuda_beam_size') || '0'));
   const [noConditionPrev, setNoConditionPrev] = useState(() => localStorage.getItem('cuda_no_condition_prev') === '1');
   const [vadAggressive, setVadAggressive] = useState(() => localStorage.getItem('cuda_vad_aggressive') === '1');
+  const [preset, setPreset] = useState<'fast' | 'balanced' | 'accurate'>(() => (localStorage.getItem('cuda_preset') as 'fast' | 'balanced' | 'accurate') || 'balanced');
+
+  const applyPreset = useCallback((p: 'fast' | 'balanced' | 'accurate') => {
+    setPreset(p);
+    localStorage.setItem('cuda_preset', p);
+    const presets = {
+      fast:     { fastMode: true,  beamSize: 1, computeType: 'int8_float16', noConditionPrev: true,  vadAggressive: true  },
+      balanced: { fastMode: true,  beamSize: 1, computeType: 'int8_float16', noConditionPrev: true,  vadAggressive: false },
+      accurate: { fastMode: false, beamSize: 5, computeType: 'float16',      noConditionPrev: false, vadAggressive: false },
+    };
+    const cfg = presets[p];
+    setFastMode(cfg.fastMode);
+    setBeamSize(cfg.beamSize);
+    setComputeType(cfg.computeType);
+    setNoConditionPrev(cfg.noConditionPrev);
+    setVadAggressive(cfg.vadAggressive);
+    localStorage.setItem('cuda_fast_mode', cfg.fastMode ? '1' : '0');
+    localStorage.setItem('cuda_beam_size', String(cfg.beamSize));
+    localStorage.setItem('cuda_compute_type', cfg.computeType);
+    localStorage.setItem('cuda_no_condition_prev', cfg.noConditionPrev ? '1' : '0');
+    localStorage.setItem('cuda_vad_aggressive', cfg.vadAggressive ? '1' : '0');
+    const labels = { fast: '⚡ מהיר — מהירות מקסימלית', balanced: '⚖️ מאוזן — ברירת מחדל', accurate: '🎯 מדויק — דיוק מקסימלי' };
+    toast({ title: `ערכת תמלול: ${labels[p]}` });
+  }, []);
   const [isWarmingUp, setIsWarmingUp] = useState(false);
   const [preloadMode, setPreloadMode] = useState<'preload' | 'direct'>(() => (localStorage.getItem('cuda_preload_mode') as 'preload' | 'direct') || 'preload');
   const [preloadMsg, setPreloadMsg] = useState('');
@@ -530,26 +554,41 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
       {/* Fast mode toggle — only for CUDA engine */}
       {selected === 'local-server' && (
         <div className="border-t pt-3 mt-3">
-          <div className="flex items-center justify-between gap-2">
+          <Label className="text-xs font-medium text-right block mb-2">ערכת תמלול</Label>
+          <div className="flex gap-1.5" dir="rtl">
             <Button
-              variant={fastMode ? 'default' : 'outline'}
+              variant={preset === 'fast' ? 'default' : 'outline'}
               size="sm"
-              className={`gap-1.5 text-xs h-8 flex-1 ${fastMode ? 'bg-amber-500 hover:bg-amber-600 text-white' : ''}`}
-              onClick={(e) => {
-                e.preventDefault();
-                const next = !fastMode;
-                setFastMode(next);
-                localStorage.setItem('cuda_fast_mode', next ? '1' : '0');
-                toast({ title: next ? '⚡ מצב מהיר הופעל' : '🐢 מצב רגיל (איכות מקסימלית)', description: next ? 'עיבוד מקבילי — מהיר פי 2-5' : 'עיבוד סדרתי — איכות מקסימלית' });
-              }}
+              className={`gap-1 text-xs h-8 flex-1 ${preset === 'fast' ? 'bg-amber-500 hover:bg-amber-600 text-white' : ''}`}
+              onClick={(e) => { e.preventDefault(); applyPreset('fast'); }}
             >
-              {fastMode ? <Rabbit className="w-3.5 h-3.5" /> : <Turtle className="w-3.5 h-3.5" />}
-              {fastMode ? '⚡ מהיר' : '🐢 רגיל'}
+              <Rabbit className="w-3.5 h-3.5" />
+              ⚡ מהיר
             </Button>
-            <span className="text-[11px] text-muted-foreground text-right">
-              {fastMode ? 'עיבוד מקבילי — מהיר ביותר' : 'איכות מקסימלית'}
-            </span>
+            <Button
+              variant={preset === 'balanced' ? 'default' : 'outline'}
+              size="sm"
+              className={`gap-1 text-xs h-8 flex-1 ${preset === 'balanced' ? 'bg-blue-500 hover:bg-blue-600 text-white' : ''}`}
+              onClick={(e) => { e.preventDefault(); applyPreset('balanced'); }}
+            >
+              <Zap className="w-3.5 h-3.5" />
+              מאוזן
+            </Button>
+            <Button
+              variant={preset === 'accurate' ? 'default' : 'outline'}
+              size="sm"
+              className={`gap-1 text-xs h-8 flex-1 ${preset === 'accurate' ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : ''}`}
+              onClick={(e) => { e.preventDefault(); applyPreset('accurate'); }}
+            >
+              <Turtle className="w-3.5 h-3.5" />
+              🎯 מדויק
+            </Button>
           </div>
+          <p className="text-[10px] text-muted-foreground text-right mt-1">
+            {preset === 'fast' && 'עיבוד מקבילי, beam=1, דילוג שקט אגרסיבי — מהיר פי 3-5'}
+            {preset === 'balanced' && 'איזון טוב בין מהירות לדיוק — ברירת מחדל מומלצת'}
+            {preset === 'accurate' && 'עיבוד סדרתי, beam=5, הקשר מלא — דיוק מקסימלי'}
+          </p>
         </div>
       )}
 
@@ -590,7 +629,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent dir="rtl">
-                    <SelectItem value="0">ברירת מחדל (5 רגיל / 1 מהיר)</SelectItem>
+                    <SelectItem value="0">ברירת מחדל (לפי ערכה)</SelectItem>
                     <SelectItem value="1">1 — מהיר ביותר</SelectItem>
                     <SelectItem value="2">2</SelectItem>
                     <SelectItem value="3">3</SelectItem>

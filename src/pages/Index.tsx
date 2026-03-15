@@ -768,6 +768,7 @@ const Index = () => {
 
       // Build CUDA options from localStorage
       const cudaOptions: CudaOptions = {
+        preset: localStorage.getItem('cuda_preset') || 'balanced',
         fastMode: localStorage.getItem('cuda_fast_mode') === '1',
         computeType: localStorage.getItem('cuda_compute_type') || undefined,
         beamSize: parseInt(localStorage.getItem('cuda_beam_size') || '0') || undefined,

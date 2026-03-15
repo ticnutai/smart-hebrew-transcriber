@@ -29,6 +29,7 @@ export interface TranscriptionStats {
 }
 
 export interface CudaOptions {
+  preset?: string;              // 'fast' | 'balanced' | 'accurate' — server-side preset
   fastMode?: boolean;
   computeType?: string;         // 'float16' | 'int8_float16' | 'int8'
   beamSize?: number;            // 1-5
@@ -300,6 +301,9 @@ export const useLocalServer = () => {
     if (resumeFrom) {
       form.append('start_from', String(resumeFrom.startFrom));
     }
+    if (cudaOptions?.preset) {
+      form.append('preset', cudaOptions.preset);
+    }
     if (cudaOptions?.fastMode) {
       form.append('fast_mode', '1');
     }
@@ -473,6 +477,9 @@ export const useLocalServer = () => {
     form.append('language', language);
     if (resumeFrom) {
       form.append('start_from', String(resumeFrom.startFrom));
+    }
+    if (cudaOptions?.preset) {
+      form.append('preset', cudaOptions.preset);
     }
     if (cudaOptions?.fastMode) {
       form.append('fast_mode', '1');

@@ -132,7 +132,7 @@ threading.Thread(target=_cleanup_rate_limit_store, daemon=True, name="rate-limit
 def _auth_and_rate_limit():
     """Check API key (if configured) and rate limit on mutation endpoints."""
     # Exempt endpoints — always accessible for server discovery
-    exempt = {"/health", "/status", "/models"}
+    exempt = {"/health", "/status", "/models", "/presets"}
     if request.path in exempt or request.method == "OPTIONS":
         return None
 
@@ -433,6 +433,47 @@ def convert_hf_to_ct2(model_id: str) -> str:
 MODELS_NEEDING_CONVERSION = {
     "ivrit-ai/whisper-large-v3-turbo",
 }
+
+
+# ════════════════════════════════════════════════════════════════════
+#  TRANSCRIPTION PRESETS
+# ════════════════════════════════════════════════════════════════════
+TRANSCRIPTION_PRESETS = {
+    "fast": {
+        "label": "מהיר",
+        "label_en": "Fast",
+        "description": "מהירות מקסימלית — עיבוד מקבילי, beam=1, דילוג שקט אגרסיבי",
+        "fast_mode": True,
+        "beam_size": 1,
+        "batch_size": 24,
+        "condition_on_previous_text": False,
+        "vad_aggressive": True,
+        "compute_type": "int8_float16",
+    },
+    "balanced": {
+        "label": "מאוזן",
+        "label_en": "Balanced",
+        "description": "איזון טוב בין מהירות לדיוק — ברירת מחדל מומלצת",
+        "fast_mode": True,
+        "beam_size": 1,
+        "batch_size": 16,
+        "condition_on_previous_text": False,
+        "vad_aggressive": False,
+        "compute_type": "int8_float16",
+    },
+    "accurate": {
+        "label": "מדויק",
+        "label_en": "Accurate",
+        "description": "דיוק מקסימלי — עיבוד סדרתי, beam=5, הקשר טקסט מלא",
+        "fast_mode": False,
+        "beam_size": 5,
+        "batch_size": 8,
+        "condition_on_previous_text": True,
+        "vad_aggressive": False,
+        "compute_type": "float16",
+    },
+}
+DEFAULT_PRESET = "balanced"
 
 
 def load_model(model_id: str, compute_type_override: str | None = None) -> faster_whisper.WhisperModel:
@@ -744,6 +785,15 @@ def list_models():
     })
 
 
+@app.route("/presets", methods=["GET"])
+def list_presets():
+    """List available transcription presets."""
+    return jsonify({
+        "presets": TRANSCRIPTION_PRESETS,
+        "default": DEFAULT_PRESET,
+    })
+
+
 @app.route("/transcribe", methods=["POST"])
 def transcribe():
     """Transcribe audio file with word-level timestamps."""
@@ -892,11 +942,49 @@ def transcribe_stream():
     model_id = request.form.get("model", _current_model_id or DEFAULT_MODEL)
     language = request.form.get("language", "he")
     start_from = max(0.0, float(request.form.get("start_from", "0")))
-    fast_mode = request.form.get("fast_mode", "0") == "1"
-    compute_type_req = request.form.get("compute_type")  # float16 | int8_float16 | int8
-    beam_size_req = request.form.get("beam_size")  # 1-5
-    no_condition_prev = request.form.get("no_condition_on_previous", "0") == "1"
-    vad_aggressive = request.form.get("vad_aggressive", "0") == "1"
+
+    # ── Resolve preset → defaults, then allow per-param overrides ──
+    preset_name = request.form.get("preset", "").strip()
+    preset = TRANSCRIPTION_PRESETS.get(preset_name) if preset_name else None
+
+    fast_mode_raw = request.form.get("fast_mode")
+    if fast_mode_raw is not None:
+        fast_mode = fast_mode_raw == "1"
+    elif preset:
+        fast_mode = preset["fast_mode"]
+    else:
+        fast_mode = True  # Sprint 1 default: batched mode ON
+
+    compute_type_req = request.form.get("compute_type") or (preset["compute_type"] if preset else None)
+
+    beam_size_req = request.form.get("beam_size")
+    if not beam_size_req and preset:
+        beam_size_req = str(preset["beam_size"])
+
+    batch_size_raw = request.form.get("batch_size")
+    if batch_size_raw and batch_size_raw.isdigit():
+        batch_size = int(batch_size_raw)
+    elif preset:
+        batch_size = preset["batch_size"]
+    else:
+        batch_size = 24  # Sprint 1 default: higher batch for RTX GPUs
+
+    no_condition_prev_raw = request.form.get("no_condition_on_previous")
+    if no_condition_prev_raw is not None:
+        no_condition_prev = no_condition_prev_raw == "1"
+    elif preset:
+        no_condition_prev = not preset["condition_on_previous_text"]
+    else:
+        no_condition_prev = True  # Sprint 1 default: prevent hallucinations
+
+    vad_aggressive_raw = request.form.get("vad_aggressive")
+    if vad_aggressive_raw is not None:
+        vad_aggressive = vad_aggressive_raw == "1"
+    elif preset:
+        vad_aggressive = preset["vad_aggressive"]
+    else:
+        vad_aggressive = True  # Sprint 1 default: aggressive VAD
+
     hotwords_raw = request.form.get("hotwords", "").strip()
     hotwords = hotwords_raw if hotwords_raw else None
     paragraph_threshold = float(request.form.get("paragraph_threshold", "0"))
@@ -979,8 +1067,9 @@ def transcribe_stream():
             condition_on_prev = not no_condition_prev
             ct_label = compute_type_req or 'auto'
             mode_label = "FAST (batched)" if fast_mode else "normal"
+            preset_label = f", preset={preset_name}" if preset_name else ""
             hotwords_label = f", hotwords='{hotwords[:40]}'" if hotwords else ""
-            _log.info(f"[{request_id}] Transcribing: model={resolved}, lang={language}, start_from={start_from}s, mode={mode_label}, compute={ct_label}, beam={beam_size or 'default'}, cond_prev={condition_on_prev}, vad_agg={vad_aggressive}{hotwords_label})")
+            _log.info(f"[{request_id}] Transcribing: model={resolved}, lang={language}, start_from={start_from}s, mode={mode_label}, compute={ct_label}, beam={beam_size or 'default'}, batch={batch_size}, cond_prev={condition_on_prev}, vad_agg={vad_aggressive}{preset_label}{hotwords_label})")
             start = time.time()
 
             def _do_transcribe(mdl):
@@ -992,13 +1081,13 @@ def transcribe_stream():
                         language=language if language != "auto" else None,
                         word_timestamps=True,
                         beam_size=beam_size or 1,
-                        batch_size=16,
+                        batch_size=batch_size,
                         condition_on_previous_text=condition_on_prev,
                         hotwords=hotwords,
                     )
                 else:
                     vad_params = dict(
-                        min_silence_duration_ms=300 if vad_aggressive else 500,
+                        min_silence_duration_ms=200 if vad_aggressive else 500,
                         speech_pad_ms=100 if vad_aggressive else 200,
                         threshold=0.5 if vad_aggressive else 0.35,
                     )
@@ -1006,7 +1095,7 @@ def transcribe_stream():
                         transcribe_path,
                         language=language if language != "auto" else None,
                         word_timestamps=True,
-                        beam_size=beam_size or 3,
+                        beam_size=beam_size or 1,
                         vad_filter=True,
                         vad_parameters=vad_params,
                         condition_on_previous_text=condition_on_prev,
@@ -1866,6 +1955,7 @@ def main():
     print("    GET  /debug             — Full diagnostics (GPU, RAM, request history)")
     print("    GET  /diagnostics       — Complete request history")
     print("    GET  /models            — Available models")
+    print("    GET  /presets           — Available transcription presets")
     print("    POST /transcribe        — Transcribe audio (single response)")
     print("    POST /transcribe-stream — Transcribe audio (SSE streaming)")
     print("    POST /diarize           — Transcribe + speaker diarization")
