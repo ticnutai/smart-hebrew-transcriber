@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, memo } from "react";
+import { useState, useEffect, useCallback, memo, useRef } from "react";
 import { Card } from "@/components/ui/card";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
@@ -9,6 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Globe, Cpu, Zap, Chrome, Mic, Waves, Server, Power, PowerOff, Loader2, CheckCircle2, XCircle, Copy, Rabbit, Turtle, Settings, ChevronDown, Flame, Download, Sparkles, Link2 } from "lucide-react";
 import { useLocalServer } from "@/hooks/useLocalServer";
+import { useCloudPreferences } from "@/hooks/useCloudPreferences";
 import { toast } from "@/hooks/use-toast";
 
 type Engine = 'openai' | 'groq' | 'google' | 'local' | 'local-server' | 'assemblyai' | 'deepgram';
@@ -39,6 +40,8 @@ const hasCustomServerUrl = () => {
 
 export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, onSourceLanguageChange }: TranscriptionEngineProps) => {
   const { isConnected, serverStatus, checkConnection, startPolling, stopPolling, shutdownServer, warmupServer, preloadModelStream, cancelPreload, modelReady, modelLoading, getBaseUrl } = useLocalServer();
+  const { preferences: cloudPrefs, updatePreferences, isLoaded: cloudLoaded } = useCloudPreferences();
+  const cloudSynced = useRef(false);
   const [isStarting, setIsStarting] = useState(false);
   const [fastMode, setFastMode] = useState(() => localStorage.getItem('cuda_fast_mode') === '1');
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -48,9 +51,24 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
   const [vadAggressive, setVadAggressive] = useState(() => localStorage.getItem('cuda_vad_aggressive') === '1');
   const [preset, setPreset] = useState<'fast' | 'balanced' | 'accurate'>(() => (localStorage.getItem('cuda_preset') as 'fast' | 'balanced' | 'accurate') || 'balanced');
 
+  // Sync local state from cloud preferences (handles login from new machine)
+  useEffect(() => {
+    if (!cloudLoaded || cloudSynced.current) return;
+    cloudSynced.current = true;
+    setPreset(cloudPrefs.cuda_preset as 'fast' | 'balanced' | 'accurate');
+    setFastMode(cloudPrefs.cuda_fast_mode);
+    setComputeType(cloudPrefs.cuda_compute_type);
+    setBeamSize(cloudPrefs.cuda_beam_size);
+    setNoConditionPrev(cloudPrefs.cuda_no_condition_prev);
+    setVadAggressive(cloudPrefs.cuda_vad_aggressive);
+    setHotwords(cloudPrefs.cuda_hotwords);
+    setParagraphThreshold(cloudPrefs.cuda_paragraph_threshold);
+    setPreloadMode(cloudPrefs.cuda_preload_mode as 'preload' | 'direct');
+    setCloudSaveMode(cloudPrefs.cuda_cloud_save as 'immediate' | 'text-only' | 'skip');
+  }, [cloudLoaded, cloudPrefs]);
+
   const applyPreset = useCallback((p: 'fast' | 'balanced' | 'accurate') => {
     setPreset(p);
-    localStorage.setItem('cuda_preset', p);
     const presets = {
       fast:     { fastMode: true,  beamSize: 1, computeType: 'int8_float16', noConditionPrev: true,  vadAggressive: true  },
       balanced: { fastMode: true,  beamSize: 1, computeType: 'int8_float16', noConditionPrev: true,  vadAggressive: false },
@@ -62,14 +80,17 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
     setComputeType(cfg.computeType);
     setNoConditionPrev(cfg.noConditionPrev);
     setVadAggressive(cfg.vadAggressive);
-    localStorage.setItem('cuda_fast_mode', cfg.fastMode ? '1' : '0');
-    localStorage.setItem('cuda_beam_size', String(cfg.beamSize));
-    localStorage.setItem('cuda_compute_type', cfg.computeType);
-    localStorage.setItem('cuda_no_condition_prev', cfg.noConditionPrev ? '1' : '0');
-    localStorage.setItem('cuda_vad_aggressive', cfg.vadAggressive ? '1' : '0');
+    updatePreferences({
+      cuda_preset: p,
+      cuda_fast_mode: cfg.fastMode,
+      cuda_beam_size: cfg.beamSize,
+      cuda_compute_type: cfg.computeType,
+      cuda_no_condition_prev: cfg.noConditionPrev,
+      cuda_vad_aggressive: cfg.vadAggressive,
+    });
     const labels = { fast: '⚡ מהיר — מהירות מקסימלית', balanced: '⚖️ מאוזן — ברירת מחדל', accurate: '🎯 מדויק — דיוק מקסימלי' };
     toast({ title: `ערכת תמלול: ${labels[p]}` });
-  }, []);
+  }, [updatePreferences]);
   const [isWarmingUp, setIsWarmingUp] = useState(false);
   const [preloadMode, setPreloadMode] = useState<'preload' | 'direct'>(() => (localStorage.getItem('cuda_preload_mode') as 'preload' | 'direct') || 'preload');
   const [preloadMsg, setPreloadMsg] = useState('');
@@ -492,7 +513,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
               onClick={(e) => {
                 e.preventDefault();
                 setPreloadMode('preload');
-                localStorage.setItem('cuda_preload_mode', 'preload');
+                updatePreferences({ cuda_preload_mode: 'preload' });
                 toast({ title: '📦 מצב טעינה מראש', description: 'המודל ייטען אוטומטית ברגע שהשרת מחובר' });
               }}
             >
@@ -506,7 +527,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
               onClick={(e) => {
                 e.preventDefault();
                 setPreloadMode('direct');
-                localStorage.setItem('cuda_preload_mode', 'direct');
+                updatePreferences({ cuda_preload_mode: 'direct' });
                 toast({ title: '⚡ תמלול ישיר', description: 'המודל ייטען רק כשתתחיל לתמלל (חיסכון VRAM)' });
               }}
             >
@@ -608,7 +629,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
               {/* Compute Type */}
               <div className="space-y-1">
                 <Label className="text-xs font-medium text-right block">סוג חישוב (Compute Type)</Label>
-                <Select value={computeType} onValueChange={(v) => { setComputeType(v); localStorage.setItem('cuda_compute_type', v); }}>
+                <Select value={computeType} onValueChange={(v) => { setComputeType(v); updatePreferences({ cuda_compute_type: v }); }}>
                   <SelectTrigger className="h-8 text-xs" dir="rtl">
                     <SelectValue />
                   </SelectTrigger>
@@ -624,7 +645,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
               {/* Beam Size */}
               <div className="space-y-1">
                 <Label className="text-xs font-medium text-right block">Beam Size</Label>
-                <Select value={String(beamSize)} onValueChange={(v) => { setBeamSize(Number(v)); localStorage.setItem('cuda_beam_size', v); }}>
+                <Select value={String(beamSize)} onValueChange={(v) => { setBeamSize(Number(v)); updatePreferences({ cuda_beam_size: Number(v) }); }}>
                   <SelectTrigger className="h-8 text-xs" dir="rtl">
                     <SelectValue />
                   </SelectTrigger>
@@ -647,7 +668,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
                 </div>
                 <Switch
                   checked={noConditionPrev}
-                  onCheckedChange={(v) => { setNoConditionPrev(v); localStorage.setItem('cuda_no_condition_prev', v ? '1' : '0'); }}
+                  onCheckedChange={(v) => { setNoConditionPrev(v); updatePreferences({ cuda_no_condition_prev: v }); }}
                 />
               </div>
 
@@ -659,7 +680,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
                 </div>
                 <Switch
                   checked={vadAggressive}
-                  onCheckedChange={(v) => { setVadAggressive(v); localStorage.setItem('cuda_vad_aggressive', v ? '1' : '0'); }}
+                  onCheckedChange={(v) => { setVadAggressive(v); updatePreferences({ cuda_vad_aggressive: v }); }}
                 />
               </div>
 
@@ -671,7 +692,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
                   dir="rtl"
                   placeholder="הכנס מילים מופרדות בפסיקים: שלום, ירושלים, כנסת..."
                   value={hotwords}
-                  onChange={(e) => { setHotwords(e.target.value); localStorage.setItem('cuda_hotwords', e.target.value); }}
+                  onChange={(e) => { setHotwords(e.target.value); updatePreferences({ cuda_hotwords: e.target.value }); }}
                 />
                 <p className="text-[10px] text-muted-foreground text-right">מילים שחוזרות בהקלטה — משפר דיוק זיהוי שמות, מונחים מקצועיים</p>
               </div>
@@ -679,7 +700,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
               {/* Auto Paragraph Detection */}
               <div className="space-y-1">
                 <Label className="text-xs font-medium text-right block">זיהוי פסקאות אוטומטי</Label>
-                <Select value={String(paragraphThreshold)} onValueChange={(v) => { setParagraphThreshold(Number(v)); localStorage.setItem('cuda_paragraph_threshold', v); }}>
+                <Select value={String(paragraphThreshold)} onValueChange={(v) => { setParagraphThreshold(Number(v)); updatePreferences({ cuda_paragraph_threshold: Number(v) }); }}>
                   <SelectTrigger className="h-8 text-xs" dir="rtl">
                     <SelectValue />
                   </SelectTrigger>
@@ -777,7 +798,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
               {/* Cloud Save Mode */}
               <div className="space-y-1 border-t pt-2">
                 <Label className="text-xs font-medium text-right block">שמירה בענן</Label>
-                <Select value={cloudSaveMode} onValueChange={(v: 'immediate' | 'text-only' | 'skip') => { setCloudSaveMode(v); localStorage.setItem('cuda_cloud_save', v); }}>
+                <Select value={cloudSaveMode} onValueChange={(v: 'immediate' | 'text-only' | 'skip') => { setCloudSaveMode(v); updatePreferences({ cuda_cloud_save: v }); }}>
                   <SelectTrigger className="h-8 text-xs" dir="rtl">
                     <SelectValue />
                   </SelectTrigger>

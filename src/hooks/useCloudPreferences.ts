@@ -15,6 +15,17 @@ export interface UserPreferences {
   source_language: string; // source language for transcription
   custom_themes: string;  // JSON string of custom themes array
   editor_columns: number; // 1, 2, or 3 column text display
+  // CUDA / transcription settings
+  cuda_preset: string;         // 'fast' | 'balanced' | 'accurate'
+  cuda_fast_mode: boolean;
+  cuda_compute_type: string;   // 'int8_float16' | 'float16' | 'int8'
+  cuda_beam_size: number;
+  cuda_no_condition_prev: boolean;
+  cuda_vad_aggressive: boolean;
+  cuda_hotwords: string;
+  cuda_paragraph_threshold: number;
+  cuda_preload_mode: string;   // 'preload' | 'direct'
+  cuda_cloud_save: string;     // 'immediate' | 'text-only' | 'skip'
 }
 
 const DEFAULT_PREFERENCES: UserPreferences = {
@@ -28,6 +39,16 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   source_language: 'auto',
   custom_themes: '[]',
   editor_columns: 1,
+  cuda_preset: 'balanced',
+  cuda_fast_mode: true,
+  cuda_compute_type: 'int8_float16',
+  cuda_beam_size: 1,
+  cuda_no_condition_prev: true,
+  cuda_vad_aggressive: false,
+  cuda_hotwords: '',
+  cuda_paragraph_threshold: 0,
+  cuda_preload_mode: 'preload',
+  cuda_cloud_save: 'immediate',
 };
 
 export const useCloudPreferences = () => {
@@ -66,6 +87,27 @@ export const useCloudPreferences = () => {
           if (lineHeight) prefs.line_height = Number(lineHeight);
           if (themeId) prefs.theme = themeId;
           if (customThemes) prefs.custom_themes = customThemes;
+          // CUDA keys
+          const cPreset = localStorage.getItem('cuda_preset');
+          const cFast = localStorage.getItem('cuda_fast_mode');
+          const cCompute = localStorage.getItem('cuda_compute_type');
+          const cBeam = localStorage.getItem('cuda_beam_size');
+          const cNoCond = localStorage.getItem('cuda_no_condition_prev');
+          const cVad = localStorage.getItem('cuda_vad_aggressive');
+          const cHotwords = localStorage.getItem('cuda_hotwords');
+          const cParagraph = localStorage.getItem('cuda_paragraph_threshold');
+          const cPreload = localStorage.getItem('cuda_preload_mode');
+          const cCloudSave = localStorage.getItem('cuda_cloud_save');
+          if (cPreset) prefs.cuda_preset = cPreset;
+          if (cFast !== null) prefs.cuda_fast_mode = cFast === '1';
+          if (cCompute) prefs.cuda_compute_type = cCompute;
+          if (cBeam) prefs.cuda_beam_size = Number(cBeam);
+          if (cNoCond !== null) prefs.cuda_no_condition_prev = cNoCond === '1';
+          if (cVad !== null) prefs.cuda_vad_aggressive = cVad === '1';
+          if (cHotwords !== null) prefs.cuda_hotwords = cHotwords;
+          if (cParagraph) prefs.cuda_paragraph_threshold = Number(cParagraph);
+          if (cPreload) prefs.cuda_preload_mode = cPreload;
+          if (cCloudSave) prefs.cuda_cloud_save = cCloudSave;
           setPreferences(prefs);
         }
       } catch {}
@@ -103,12 +145,33 @@ export const useCloudPreferences = () => {
             ? (data as any).custom_themes
             : JSON.stringify((data as any).custom_themes ?? []),
           editor_columns: (data as any).editor_columns ?? DEFAULT_PREFERENCES.editor_columns,
+          cuda_preset: (data as any).cuda_preset ?? DEFAULT_PREFERENCES.cuda_preset,
+          cuda_fast_mode: (data as any).cuda_fast_mode ?? DEFAULT_PREFERENCES.cuda_fast_mode,
+          cuda_compute_type: (data as any).cuda_compute_type ?? DEFAULT_PREFERENCES.cuda_compute_type,
+          cuda_beam_size: (data as any).cuda_beam_size ?? DEFAULT_PREFERENCES.cuda_beam_size,
+          cuda_no_condition_prev: (data as any).cuda_no_condition_prev ?? DEFAULT_PREFERENCES.cuda_no_condition_prev,
+          cuda_vad_aggressive: (data as any).cuda_vad_aggressive ?? DEFAULT_PREFERENCES.cuda_vad_aggressive,
+          cuda_hotwords: (data as any).cuda_hotwords ?? DEFAULT_PREFERENCES.cuda_hotwords,
+          cuda_paragraph_threshold: (data as any).cuda_paragraph_threshold ?? DEFAULT_PREFERENCES.cuda_paragraph_threshold,
+          cuda_preload_mode: (data as any).cuda_preload_mode ?? DEFAULT_PREFERENCES.cuda_preload_mode,
+          cuda_cloud_save: (data as any).cuda_cloud_save ?? DEFAULT_PREFERENCES.cuda_cloud_save,
         };
         setPreferences(loaded);
         // Mirror to localStorage so useTheme picks up cloud values
         localStorage.setItem('app_theme_id', loaded.theme);
         localStorage.setItem('app_custom_themes', loaded.custom_themes);
         localStorage.setItem('editor_columns', String(loaded.editor_columns));
+        // Mirror CUDA settings to localStorage for backward compat
+        localStorage.setItem('cuda_preset', loaded.cuda_preset);
+        localStorage.setItem('cuda_fast_mode', loaded.cuda_fast_mode ? '1' : '0');
+        localStorage.setItem('cuda_compute_type', loaded.cuda_compute_type);
+        localStorage.setItem('cuda_beam_size', String(loaded.cuda_beam_size));
+        localStorage.setItem('cuda_no_condition_prev', loaded.cuda_no_condition_prev ? '1' : '0');
+        localStorage.setItem('cuda_vad_aggressive', loaded.cuda_vad_aggressive ? '1' : '0');
+        localStorage.setItem('cuda_hotwords', loaded.cuda_hotwords);
+        localStorage.setItem('cuda_paragraph_threshold', String(loaded.cuda_paragraph_threshold));
+        localStorage.setItem('cuda_preload_mode', loaded.cuda_preload_mode);
+        localStorage.setItem('cuda_cloud_save', loaded.cuda_cloud_save);
         window.dispatchEvent(new CustomEvent('cloud-prefs-loaded'));
 
         // Save to local DB for next time
@@ -148,6 +211,17 @@ export const useCloudPreferences = () => {
     localStorage.setItem('app_theme_id', updated.theme);
     localStorage.setItem('app_custom_themes', updated.custom_themes);
     localStorage.setItem('editor_columns', String(updated.editor_columns));
+    // Mirror CUDA settings
+    localStorage.setItem('cuda_preset', updated.cuda_preset);
+    localStorage.setItem('cuda_fast_mode', updated.cuda_fast_mode ? '1' : '0');
+    localStorage.setItem('cuda_compute_type', updated.cuda_compute_type);
+    localStorage.setItem('cuda_beam_size', String(updated.cuda_beam_size));
+    localStorage.setItem('cuda_no_condition_prev', updated.cuda_no_condition_prev ? '1' : '0');
+    localStorage.setItem('cuda_vad_aggressive', updated.cuda_vad_aggressive ? '1' : '0');
+    localStorage.setItem('cuda_hotwords', updated.cuda_hotwords);
+    localStorage.setItem('cuda_paragraph_threshold', String(updated.cuda_paragraph_threshold));
+    localStorage.setItem('cuda_preload_mode', updated.cuda_preload_mode);
+    localStorage.setItem('cuda_cloud_save', updated.cuda_cloud_save);
 
     // Save to local DB (instant, offline-capable)
     if (user) {
@@ -181,6 +255,16 @@ export const useCloudPreferences = () => {
           source_language: updated.source_language,
           custom_themes: customThemesParsed,
           editor_columns: updated.editor_columns,
+          cuda_preset: updated.cuda_preset,
+          cuda_fast_mode: updated.cuda_fast_mode,
+          cuda_compute_type: updated.cuda_compute_type,
+          cuda_beam_size: updated.cuda_beam_size,
+          cuda_no_condition_prev: updated.cuda_no_condition_prev,
+          cuda_vad_aggressive: updated.cuda_vad_aggressive,
+          cuda_hotwords: updated.cuda_hotwords,
+          cuda_paragraph_threshold: updated.cuda_paragraph_threshold,
+          cuda_preload_mode: updated.cuda_preload_mode,
+          cuda_cloud_save: updated.cuda_cloud_save,
           updated_at: new Date().toISOString(),
         } as any, { onConflict: 'user_id' });
 

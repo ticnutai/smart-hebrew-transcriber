@@ -177,6 +177,16 @@ export async function syncPreferencesDown(userId: string): Promise<void> {
       ? (data as Record<string, unknown>).custom_themes as string
       : JSON.stringify((data as Record<string, unknown>).custom_themes ?? []),
     editor_columns: (data as Record<string, unknown>).editor_columns as number ?? 1,
+    cuda_preset: (data as Record<string, unknown>).cuda_preset as string ?? 'balanced',
+    cuda_fast_mode: (data as Record<string, unknown>).cuda_fast_mode as boolean ?? true,
+    cuda_compute_type: (data as Record<string, unknown>).cuda_compute_type as string ?? 'int8_float16',
+    cuda_beam_size: (data as Record<string, unknown>).cuda_beam_size as number ?? 1,
+    cuda_no_condition_prev: (data as Record<string, unknown>).cuda_no_condition_prev as boolean ?? true,
+    cuda_vad_aggressive: (data as Record<string, unknown>).cuda_vad_aggressive as boolean ?? false,
+    cuda_hotwords: (data as Record<string, unknown>).cuda_hotwords as string ?? '',
+    cuda_paragraph_threshold: (data as Record<string, unknown>).cuda_paragraph_threshold as number ?? 0,
+    cuda_preload_mode: (data as Record<string, unknown>).cuda_preload_mode as string ?? 'preload',
+    cuda_cloud_save: (data as Record<string, unknown>).cuda_cloud_save as string ?? 'immediate',
     updated_at: data.updated_at,
     _dirty: false,
   });
@@ -206,6 +216,16 @@ async function pushDirtyPreferences(userId: string): Promise<void> {
       source_language: prefs.source_language,
       custom_themes: customThemesParsed,
       editor_columns: prefs.editor_columns,
+      cuda_preset: prefs.cuda_preset,
+      cuda_fast_mode: prefs.cuda_fast_mode,
+      cuda_compute_type: prefs.cuda_compute_type,
+      cuda_beam_size: prefs.cuda_beam_size,
+      cuda_no_condition_prev: prefs.cuda_no_condition_prev,
+      cuda_vad_aggressive: prefs.cuda_vad_aggressive,
+      cuda_hotwords: prefs.cuda_hotwords,
+      cuda_paragraph_threshold: prefs.cuda_paragraph_threshold,
+      cuda_preload_mode: prefs.cuda_preload_mode,
+      cuda_cloud_save: prefs.cuda_cloud_save,
       updated_at: new Date().toISOString(),
     } as any, { onConflict: 'user_id' });
 

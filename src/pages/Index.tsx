@@ -766,16 +766,16 @@ const Index = () => {
       setLastStats(null);
       toast({ title: "מתמלל עם GPU...", description: "מעבד את הקובץ בשרת המקומי עם CUDA — תראה תוצאות בזמן אמת" });
 
-      // Build CUDA options from localStorage
+      // Build CUDA options from cloud preferences
       const cudaOptions: CudaOptions = {
-        preset: localStorage.getItem('cuda_preset') || 'balanced',
-        fastMode: localStorage.getItem('cuda_fast_mode') === '1',
-        computeType: localStorage.getItem('cuda_compute_type') || undefined,
-        beamSize: parseInt(localStorage.getItem('cuda_beam_size') || '0') || undefined,
-        noConditionOnPrevious: localStorage.getItem('cuda_no_condition_prev') === '1',
-        vadAggressive: localStorage.getItem('cuda_vad_aggressive') === '1',
-        hotwords: localStorage.getItem('cuda_hotwords') || undefined,
-        paragraphThreshold: parseFloat(localStorage.getItem('cuda_paragraph_threshold') || '0') || undefined,
+        preset: preferences.cuda_preset || 'balanced',
+        fastMode: preferences.cuda_fast_mode,
+        computeType: preferences.cuda_compute_type || undefined,
+        beamSize: preferences.cuda_beam_size || undefined,
+        noConditionOnPrevious: preferences.cuda_no_condition_prev,
+        vadAggressive: preferences.cuda_vad_aggressive,
+        hotwords: preferences.cuda_hotwords || undefined,
+        paragraphThreshold: preferences.cuda_paragraph_threshold || undefined,
       };
 
       // Use parallel mode (stage audio + preload model simultaneously) when model isn't ready
@@ -798,7 +798,7 @@ const Index = () => {
       if (result.stats) setLastStats(result.stats);
 
       // Cloud save mode: 'immediate' (default), 'text-only' (no audio upload), 'skip' (local only)
-      const cloudSaveMode = localStorage.getItem('cuda_cloud_save') || 'immediate';
+      const cloudSaveMode = preferences.cuda_cloud_save || 'immediate';
       const engineLabel = `Local CUDA (${result.model || 'server'})`;
       if (cloudSaveMode === 'skip') {
         await saveToHistory(result.text, engineLabel, true, timings);  // localStorage only

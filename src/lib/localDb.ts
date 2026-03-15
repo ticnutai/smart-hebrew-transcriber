@@ -40,6 +40,16 @@ export interface LocalPreferences {
   source_language: string;
   custom_themes: string;
   editor_columns: number;
+  cuda_preset: string;
+  cuda_fast_mode: boolean;
+  cuda_compute_type: string;
+  cuda_beam_size: number;
+  cuda_no_condition_prev: boolean;
+  cuda_vad_aggressive: boolean;
+  cuda_hotwords: string;
+  cuda_paragraph_threshold: number;
+  cuda_preload_mode: string;
+  cuda_cloud_save: string;
   updated_at: string;
   _dirty?: boolean;
 }
