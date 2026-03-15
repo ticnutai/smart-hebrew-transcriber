@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 const sb = createClient('https://kjjljpllyjnvitemapox.supabase.co', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtqamxqcGxseWpudml0ZW1hcG94Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxNjM2NDksImV4cCI6MjA4ODczOTY0OX0.V6z69-vY-z5c1yA-fAP_X0PKWCzrS2Es4sfOckAet4I');
-await sb.auth.signInWithPassword({email:'jj1212t@gmail.com',password:'543211'});
+const _e = process.env.ADMIN_EMAIL || '', _p = process.env.ADMIN_PASSWORD || '';
+if (!_e || !_p) { console.error('Set ADMIN_EMAIL & ADMIN_PASSWORD env vars'); process.exit(1); }
+await sb.auth.signInWithPassword({email:_e,password:_p});
 
 // List all extensions
 const {data: d1, error: e1} = await sb.rpc('exec_sql_return', {

@@ -4,6 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { debugLog } from "@/lib/debugLogger";
 import { db, isDbAvailable } from '@/lib/localDb';
 import { getLocalApiKeys, saveApiKeysLocally } from '@/lib/syncEngine';
+import { setEncryptedKey } from '@/lib/keyCrypto';
 
 export interface ApiKeys {
   openai_key: string;
@@ -45,7 +46,7 @@ export const useCloudApiKeys = () => {
     for (const [field, storageKey] of Object.entries(STORAGE_MAP)) {
       const value = apiKeys[field as keyof ApiKeys];
       if (value) {
-        localStorage.setItem(storageKey, value);
+        setEncryptedKey(storageKey, value);
       }
     }
   }, []);

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { debugLog } from '@/lib/debugLogger';
+import { getApiKey } from '@/lib/keyCrypto';
 
 export interface WordTiming {
   word: string;
@@ -103,7 +104,7 @@ export const useLocalServer = () => {
   };
 
   const getApiHeaders = (): Record<string, string> => {
-    const key = localStorage.getItem('whisper_api_key') || '';
+    const key = getApiKey('whisper_api_key');
     return key ? { 'X-API-Key': key } : {};
   };
 

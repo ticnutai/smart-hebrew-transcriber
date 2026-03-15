@@ -336,6 +336,10 @@ MODEL_REGISTRY = {
     "large-v2": "large-v2",
     "large-v3": "large-v3",
     "large-v3-turbo": "large-v3-turbo",
+    # Distil-Whisper: faster, smaller, ~99% accuracy of large-v3
+    "distil-large-v3": "deepdml/faster-whisper-large-v3-turbo-ct2",
+    "distil-medium.en": "Systran/faster-distil-whisper-medium.en",
+    "distil-small.en": "Systran/faster-distil-whisper-small.en",
     # Ivrit.ai Hebrew-optimized models (pre-converted CT2 format on HuggingFace)
     "ivrit-ai/faster-whisper-v2-d4": "ivrit-ai/faster-whisper-v2-d4",
     # ivrit-ai/whisper-large-v3-turbo — requires local HF→CT2 conversion (see MODELS_NEEDING_CONVERSION)
@@ -474,6 +478,17 @@ TRANSCRIPTION_PRESETS = {
     },
 }
 DEFAULT_PRESET = "balanced"
+
+
+def auto_batch_size() -> int:
+    """Auto-detect optimal batch size based on GPU VRAM.
+    Rule: min(24, max(4, free_vram_mb // 512))
+    Falls back to 8 if VRAM cannot be determined.
+    """
+    gpu = _get_gpu_mem()
+    if gpu and gpu.get("free_mb"):
+        return min(24, max(4, int(gpu["free_mb"] // 512)))
+    return 8
 
 
 def load_model(model_id: str, compute_type_override: str | None = None) -> faster_whisper.WhisperModel:
@@ -943,6 +958,18 @@ def transcribe_stream():
     language = request.form.get("language", "he")
     start_from = max(0.0, float(request.form.get("start_from", "0")))
 
+    # ── Input validation ──
+    if model_id not in MODEL_REGISTRY and not model_id.startswith("ivrit-ai/"):
+        return jsonify({"error": f"Unknown model: {model_id}", "available": list(MODEL_REGISTRY.keys())}), 400
+
+    _VALID_LANGUAGES = {
+        "auto", "he", "en", "ar", "ru", "fr", "de", "es", "it", "pt", "zh",
+        "ja", "ko", "nl", "pl", "tr", "uk", "cs", "sv", "da", "fi", "no",
+        "hu", "ro", "el", "th", "vi", "id", "ms", "hi", "bn", "ta", "te",
+    }
+    if language and language not in _VALID_LANGUAGES:
+        return jsonify({"error": f"Unsupported language: {language}", "supported": sorted(_VALID_LANGUAGES)}), 400
+
     # ── Resolve preset → defaults, then allow per-param overrides ──
     preset_name = request.form.get("preset", "").strip()
     preset = TRANSCRIPTION_PRESETS.get(preset_name) if preset_name else None
@@ -967,7 +994,7 @@ def transcribe_stream():
     elif preset:
         batch_size = preset["batch_size"]
     else:
-        batch_size = 24  # Sprint 1 default: higher batch for RTX GPUs
+        batch_size = auto_batch_size()
 
     no_condition_prev_raw = request.form.get("no_condition_on_previous")
     if no_condition_prev_raw is not None:

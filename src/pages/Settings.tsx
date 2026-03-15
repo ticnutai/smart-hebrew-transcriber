@@ -12,6 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 import DevToolsPanel from "@/components/DevToolsPanel";
 import { OllamaManager } from "@/components/OllamaManager";
 import { ThemeManager } from "@/components/ThemeManager";
+import { getApiKey } from "@/lib/keyCrypto";
 
 const Settings = () => {
   const { isAuthenticated, logout, isLoading, isAdmin, user } = useAuth();
@@ -68,12 +69,12 @@ const Settings = () => {
         if (data.deepgram_key) setDeepgramKey(data.deepgram_key);
       } else {
         // Fallback to localStorage
-        const savedOpenAI = localStorage.getItem("openai_api_key");
-        const savedGoogle = localStorage.getItem("google_api_key");
-        const savedGroq = localStorage.getItem("groq_api_key");
-        const savedClaude = localStorage.getItem("claude_api_key");
-        const savedAssemblyAI = localStorage.getItem("assemblyai_api_key");
-        const savedDeepgram = localStorage.getItem("deepgram_api_key");
+        const savedOpenAI = getApiKey("openai_api_key");
+        const savedGoogle = getApiKey("google_api_key");
+        const savedGroq = getApiKey("groq_api_key");
+        const savedClaude = getApiKey("claude_api_key");
+        const savedAssemblyAI = getApiKey("assemblyai_api_key");
+        const savedDeepgram = getApiKey("deepgram_api_key");
         
         if (savedOpenAI) setOpenaiKey(savedOpenAI);
         if (savedGoogle) setGoogleKey(savedGoogle);

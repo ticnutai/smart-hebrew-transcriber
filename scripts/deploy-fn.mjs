@@ -14,8 +14,14 @@ const PROJECT_ROOT = path.resolve(__dirname, '..');
 
 const SUPABASE_URL = 'https://kjjljpllyjnvitemapox.supabase.co';
 const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtqamxqcGxseWpudml0ZW1hcG94Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxNjM2NDksImV4cCI6MjA4ODczOTY0OX0.V6z69-vY-z5c1yA-fAP_X0PKWCzrS2Es4sfOckAet4I';
-const ADMIN_EMAIL = 'jj1212t@gmail.com';
-const ADMIN_PASSWORD = '543211';
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || '';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+
+if (!ADMIN_EMAIL || !ADMIN_PASSWORD) {
+  console.error('❌ Missing ADMIN_EMAIL or ADMIN_PASSWORD environment variables.');
+  console.error('   Set them before running: $env:ADMIN_EMAIL="..."; $env:ADMIN_PASSWORD="..."');
+  process.exit(1);
+}
 
 const supabase = createClient(SUPABASE_URL, ANON_KEY);
 

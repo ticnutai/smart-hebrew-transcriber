@@ -7,8 +7,11 @@ const supabase = createClient(SUPABASE_URL, ANON_KEY);
 
 async function main() {
   console.log('🔐 Logging in...');
+  const email = process.env.ADMIN_EMAIL || '';
+  const password = process.env.ADMIN_PASSWORD || '';
+  if (!email || !password) { console.error('Set ADMIN_EMAIL & ADMIN_PASSWORD env vars'); process.exit(1); }
   const { data } = await supabase.auth.signInWithPassword({
-    email: 'jj1212t@gmail.com', password: '543211',
+    email, password,
   });
   if (!data.session) { console.error('Login failed'); return; }
   const jwt = data.session.access_token;

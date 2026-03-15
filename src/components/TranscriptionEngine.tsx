@@ -11,6 +11,7 @@ import { Globe, Cpu, Zap, Chrome, Mic, Waves, Server, Power, PowerOff, Loader2, 
 import { useLocalServer } from "@/hooks/useLocalServer";
 import { useCloudPreferences } from "@/hooks/useCloudPreferences";
 import { toast } from "@/hooks/use-toast";
+import { getApiKey } from "@/lib/keyCrypto";
 
 type Engine = 'openai' | 'groq' | 'google' | 'local' | 'local-server' | 'assemblyai' | 'deepgram';
 type SourceLanguage = 'auto' | 'he' | 'yi' | 'en';
@@ -98,7 +99,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
   const [hotwords, setHotwords] = useState(() => localStorage.getItem('cuda_hotwords') || '');
   const [paragraphThreshold, setParagraphThreshold] = useState(() => parseFloat(localStorage.getItem('cuda_paragraph_threshold') || '0'));
   const [serverUrl, setServerUrl] = useState(() => localStorage.getItem('whisper_server_url') || '');
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem('whisper_api_key') || '');
+  const [apiKey, setApiKey] = useState(() => getApiKey('whisper_api_key'));
   const [ollamaUrl, setOllamaUrl] = useState(() => localStorage.getItem('ollama_base_url') || '');
 
   // "True remote" = non-localhost site + custom remote URL configured

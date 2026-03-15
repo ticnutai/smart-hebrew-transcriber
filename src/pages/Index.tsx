@@ -28,6 +28,7 @@ import { compressAudio, needsCompression, formatFileSize, CLOUD_API_LIMIT } from
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { KeyboardShortcutsDialog } from "@/components/KeyboardShortcutsDialog";
 import { addNotification } from "@/hooks/useNotifications";
+import { getApiKey } from "@/lib/keyCrypto";
 
 // Lazy-loaded heavy components
 const LiveTranscriber = lazy(() => import("@/components/LiveTranscriber").then(m => ({ default: m.LiveTranscriber })));
@@ -420,7 +421,7 @@ const Index = () => {
     try {
       debugLog.info('OpenAI', `Starting transcription: ${file.name} (${file.size} bytes)`);
       
-      const openaiKey = localStorage.getItem("openai_api_key");
+      const openaiKey = getApiKey("openai_api_key");
       if (!openaiKey) {
         debugLog.error('OpenAI', 'No API key found in localStorage');
         toast({
@@ -504,7 +505,7 @@ const Index = () => {
     setIsUploading(true);
 
     try {
-      const groqKey = localStorage.getItem("groq_api_key");
+      const groqKey = getApiKey("groq_api_key");
       
       if (!groqKey) {
         debugLog.error('Groq', 'No API key found in localStorage');
@@ -598,7 +599,7 @@ const Index = () => {
     setIsUploading(true);
 
     try {
-      const googleKey = localStorage.getItem("google_api_key");
+      const googleKey = getApiKey("google_api_key");
 
       if (!googleKey) {
         debugLog.error('Google', 'No API key found in localStorage');
@@ -867,7 +868,7 @@ const Index = () => {
     setIsUploading(true);
     
     try {
-      const assemblyKey = localStorage.getItem("assemblyai_api_key");
+      const assemblyKey = getApiKey("assemblyai_api_key");
       
       if (!assemblyKey) {
         toast({
@@ -944,7 +945,7 @@ const Index = () => {
     setIsUploading(true);
     
     try {
-      const deepgramKey = localStorage.getItem("deepgram_api_key");
+      const deepgramKey = getApiKey("deepgram_api_key");
       
       if (!deepgramKey) {
         toast({

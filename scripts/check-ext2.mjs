@@ -6,8 +6,11 @@ const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsI
 const supabase = createClient(SUPABASE_URL, ANON_KEY);
 
 async function main() {
+  const email = process.env.ADMIN_EMAIL || '';
+  const pw = process.env.ADMIN_PASSWORD || '';
+  if (!email || !pw) { console.error('Set ADMIN_EMAIL & ADMIN_PASSWORD env vars'); process.exit(1); }
   const { data: authData } = await supabase.auth.signInWithPassword({
-    email: 'jj1212t@gmail.com', password: '543211',
+    email, password: pw,
   });
   if (!authData.session) { console.error('Login failed'); return; }
 
