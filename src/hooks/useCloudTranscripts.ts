@@ -380,7 +380,7 @@ export const useCloudTranscripts = () => {
   const stats = useMemo(() => ({
     total: transcripts.length,
     engines: [...new Set(transcripts.map(t => t.engine))],
-    totalChars: transcripts.reduce((sum, t) => sum + t.text.length, 0),
+    totalChars: transcripts.reduce((sum, t) => sum + (t.text?.length ?? 0), 0),
   }), [transcripts]);
 
   return {

@@ -483,8 +483,20 @@ def load_model(model_id: str, compute_type_override: str | None = None) -> faste
         model = _load(device, compute_type)
     except Exception as e:
         err_str = str(e).lower()
+        # Retry without Flash Attention if not supported by this GPU/driver
+        if "flash attention" in err_str:
+            print(f"  Flash Attention not supported ({e}), retrying without it...")
+            def _load_no_flash(dev, ct):
+                return faster_whisper.WhisperModel(
+                    actual_path,
+                    device=dev,
+                    compute_type=ct,
+                    download_root=str(Path.home() / ".cache" / "whisper-models"),
+                    flash_attention=False,
+                )
+            model = _load_no_flash(device, compute_type)
         # Fall back to CPU when CUDA runtime libraries are missing (e.g. cublas64_12.dll)
-        if device == "cuda" and (
+        elif device == "cuda" and (
             "cublas" in err_str or "cudnn" in err_str or "cufft" in err_str
             or "cannot be loaded" in err_str or "not found" in err_str
         ):
