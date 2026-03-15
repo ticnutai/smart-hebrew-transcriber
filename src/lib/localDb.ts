@@ -135,3 +135,21 @@ export async function isDbAvailable(): Promise<boolean> {
   }
   return dbAvailable;
 }
+
+// ─── Full-text search across local transcripts ────────────────────
+export async function searchTranscripts(
+  query: string,
+  userId?: string
+): Promise<LocalTranscript[]> {
+  const q = query.toLowerCase();
+  return db.transcripts
+    .filter(
+      t =>
+        (!userId || t.user_id === userId) &&
+        !t._deleted &&
+        (t.text.toLowerCase().includes(q) ||
+          (t.title || '').toLowerCase().includes(q) ||
+          (t.notes || '').toLowerCase().includes(q))
+    )
+    .toArray();
+}

@@ -432,7 +432,7 @@ def load_model(model_id: str, compute_type_override: str | None = None) -> faste
     global _current_model_id
 
     device = get_device()
-    compute_type = compute_type_override or ("float16" if device == "cuda" else "int8")
+    compute_type = compute_type_override or ("int8_float16" if device == "cuda" else "int8")
     cache_key = f"{model_id}::{compute_type}"
 
     if cache_key in _model_cache:
