@@ -336,6 +336,10 @@ MODEL_REGISTRY = {
     # Ivrit.ai Hebrew-optimized models (pre-converted CT2 available)
     "ivrit-ai/faster-whisper-v2-d4": "ivrit-ai/faster-whisper-v2-d4",
     "ivrit-ai/faster-whisper-v3-d4": "ivrit-ai/faster-whisper-v3-d4",  # newest Hebrew model
+}
+
+
+def get_device() -> str:
     """Detect best available device using CTranslate2 (cached)."""
     global _cached_device
     if _cached_device is not None:
