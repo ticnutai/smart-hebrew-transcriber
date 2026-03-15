@@ -10,17 +10,17 @@ test.describe('דף תמלול - UI בסיסי', () => {
   });
 
   test('כותרת הדף מוצגת', async ({ page }) => {
-    await expect(page.getByText('מערכת תמלול מתקדמת')).toBeVisible();
+    await expect(page.getByText('מערכת תמלול מתקדמת').first()).toBeVisible();
   });
 
   test('בורר מנוע תמלול מוצג', async ({ page }) => {
     // Engine selector should show at least one engine option
-    await expect(page.getByText(/Groq|OpenAI|Google|CUDA|ONNX/)).toBeVisible();
+    await expect(page.getByText(/Groq|OpenAI|Google|CUDA|ONNX/).first()).toBeVisible();
   });
 
   test('אזור העלאת קבצים מוצג', async ({ page }) => {
     // File uploader should be visible with upload button or drop zone
-    await expect(page.getByText(/העלה|גרור|בחר קובץ|upload/i)).toBeVisible();
+    await expect(page.getByText(/העלה|גרור|בחר קובץ|upload/i).first()).toBeVisible();
   });
 
   test('טאבים מוצגים - תמלול ועריכה', async ({ page }) => {
@@ -80,7 +80,7 @@ test.describe('העלאת קובץ', () => {
     });
 
     // After file selection, the file name or playback should appear
-    await expect(page.getByText(/test-recording|wav|קובץ נבחר|ready/i)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/test-recording|wav|קובץ נבחר|ready/i).first()).toBeVisible({ timeout: 5000 });
   });
 
   test('דחיית קובץ לא תקין', async ({ page }) => {
@@ -122,10 +122,13 @@ test.describe('תמלול עם מנוע CUDA (מוק)', () => {
       buffer: audioBuffer,
     });
 
+    // Wait for UI to stabilize after upload
+    await page.waitForTimeout(1000);
+
     // Wait for transcription to start (button click or auto-start)
     const startButton = page.getByRole('button', { name: /תמלל|התחל|start/i });
-    if (await startButton.count() > 0 && await startButton.isEnabled()) {
-      await startButton.click();
+    if (await startButton.count() > 0) {
+      await startButton.first().click({ timeout: 5000 }).catch(() => {});
     }
 
     // The mock SSE should return text — check for result or navigation
@@ -178,6 +181,6 @@ test.describe('בחירת שפה', () => {
 
   test('עברית היא ברירת המחדל', async ({ page }) => {
     // "עברית" should be the default language
-    await expect(page.getByText('עברית')).toBeVisible();
+    await expect(page.getByText('עברית').first()).toBeVisible();
   });
 });

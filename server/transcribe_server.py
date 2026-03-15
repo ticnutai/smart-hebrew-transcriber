@@ -311,6 +311,7 @@ _model_cache: dict[str, faster_whisper.WhisperModel] = {}
 _model_last_used: dict[str, float] = {}  # cache_key → last access timestamp
 _current_model_id: str | None = None
 MODEL_TTL_SECONDS = 30 * 60  # 30 minutes — evict unused models to free VRAM
+_flash_attention_disabled = False  # Set True after runtime flash-attention error
 
 # Background model loading state
 _model_loading_lock = threading.Lock()
@@ -440,7 +441,7 @@ def load_model(model_id: str, compute_type_override: str | None = None) -> faste
     """Load or retrieve cached Whisper model.
     compute_type_override: 'float16', 'int8_float16', 'int8', or None (auto)
     """
-    global _current_model_id
+    global _current_model_id, _flash_attention_disabled
 
     device = get_device()
     compute_type = compute_type_override or ("int8_float16" if device == "cuda" else "int8")
@@ -462,7 +463,7 @@ def load_model(model_id: str, compute_type_override: str | None = None) -> faste
     def _load(dev, ct):
         # Flash Attention 2: ~50% faster on CUDA (CTranslate2 4.x+), zero quality loss
         use_flash = False
-        if dev == "cuda":
+        if dev == "cuda" and not _flash_attention_disabled:
             try:
                 import ctranslate2
                 major = int(ctranslate2.__version__.split('.')[0])
@@ -471,6 +472,8 @@ def load_model(model_id: str, compute_type_override: str | None = None) -> faste
                 pass
         if use_flash:
             print(f"  ⚡ Flash Attention enabled (CTranslate2 {ctranslate2.__version__})")
+        elif _flash_attention_disabled and dev == "cuda":
+            print(f"  ℹ️ Flash Attention disabled (previously failed at runtime)")
         return faster_whisper.WhisperModel(
             actual_path,
             device=dev,
@@ -485,7 +488,8 @@ def load_model(model_id: str, compute_type_override: str | None = None) -> faste
         err_str = str(e).lower()
         # Retry without Flash Attention if not supported by this GPU/driver
         if "flash attention" in err_str:
-            print(f"  Flash Attention not supported ({e}), retrying without it...")
+            _flash_attention_disabled = True
+            print(f"  Flash Attention not supported ({e}), disabling globally and retrying...")
             def _load_no_flash(dev, ct):
                 return faster_whisper.WhisperModel(
                     actual_path,
@@ -518,6 +522,19 @@ def load_model(model_id: str, compute_type_override: str | None = None) -> faste
     _model_last_used[cache_key] = time.time()
     _current_model_id = model_id
     return model
+
+
+def _reload_model_without_flash(model_id: str, compute_type_override: str | None = None):
+    """Evict cached model and reload with flash_attention=False."""
+    global _flash_attention_disabled
+    _flash_attention_disabled = True
+    device = get_device()
+    compute_type = compute_type_override or ("int8_float16" if device == "cuda" else "int8")
+    cache_key = f"{model_id}::{compute_type}"
+    _model_cache.pop(cache_key, None)
+    _model_last_used.pop(cache_key, None)
+    _log.info(f"Flash Attention failed at runtime — reloading model {model_id} without it")
+    return load_model(model_id, compute_type_override)
 
 
 def _patch_feature_extractor(model, model_id: str):
@@ -588,6 +605,7 @@ def health():
         "model_loading": _model_loading,
         "model_loading_id": _model_loading_id,
         "model_ready": len(_model_cache) > 0,
+        "flash_attention_disabled": _flash_attention_disabled,
         "transcribe_active": _transcribe_active,
         "uptime_seconds": int(uptime),
     })
@@ -755,17 +773,27 @@ def transcribe():
         print(f"\n  Transcribing: {audio_file.filename} (model={resolved}, lang={language})")
         start = time.time()
 
-        segments, info = model.transcribe(
-            tmp_path,
-            language=language if language != "auto" else None,
-            word_timestamps=True,
-            beam_size=beam_size,
-            vad_filter=True,
-            vad_parameters=dict(
-                min_silence_duration_ms=500,
-                speech_pad_ms=200,
-            ),
-        )
+        def _run_transcribe(m):
+            return m.transcribe(
+                tmp_path,
+                language=language if language != "auto" else None,
+                word_timestamps=True,
+                beam_size=beam_size,
+                vad_filter=True,
+                vad_parameters=dict(
+                    min_silence_duration_ms=500,
+                    speech_pad_ms=200,
+                ),
+            )
+
+        try:
+            segments, info = _run_transcribe(model)
+        except Exception as fa_err:
+            if "flash attention" in str(fa_err).lower():
+                model = _reload_model_without_flash(resolved)
+                segments, info = _run_transcribe(model)
+            else:
+                raise
 
         # Collect segments and word timings
         full_text_parts = []
@@ -957,35 +985,59 @@ def transcribe_stream():
             _log.info(f"[{request_id}] Transcribing: model={resolved}, lang={language}, start_from={start_from}s, mode={mode_label}, compute={ct_label}, beam={beam_size or 'default'}, cond_prev={condition_on_prev}, vad_agg={vad_aggressive}{hotwords_label})")
             start = time.time()
 
-            if fast_mode:
-                # Fast mode: BatchedInferencePipeline processes multiple segments in parallel
-                from faster_whisper import BatchedInferencePipeline
-                pipeline = BatchedInferencePipeline(model=model)
-                segments_gen, info = pipeline.transcribe(
-                    transcribe_path,
-                    language=language if language != "auto" else None,
-                    word_timestamps=True,
-                    beam_size=beam_size or 1,
-                    batch_size=16,
-                    condition_on_previous_text=condition_on_prev,
-                    hotwords=hotwords,
-                )
-            else:
-                vad_params = dict(
-                    min_silence_duration_ms=300 if vad_aggressive else 500,
-                    speech_pad_ms=100 if vad_aggressive else 200,
-                    threshold=0.5 if vad_aggressive else 0.35,
-                )
-                segments_gen, info = model.transcribe(
-                    transcribe_path,
-                    language=language if language != "auto" else None,
-                    word_timestamps=True,
-                    beam_size=beam_size or 3,
-                    vad_filter=True,
-                    vad_parameters=vad_params,
-                    condition_on_previous_text=condition_on_prev,
-                    hotwords=hotwords,
-                )
+            def _do_transcribe(mdl):
+                if fast_mode:
+                    from faster_whisper import BatchedInferencePipeline
+                    pipeline = BatchedInferencePipeline(model=mdl)
+                    return pipeline.transcribe(
+                        transcribe_path,
+                        language=language if language != "auto" else None,
+                        word_timestamps=True,
+                        beam_size=beam_size or 1,
+                        batch_size=16,
+                        condition_on_previous_text=condition_on_prev,
+                        hotwords=hotwords,
+                    )
+                else:
+                    vad_params = dict(
+                        min_silence_duration_ms=300 if vad_aggressive else 500,
+                        speech_pad_ms=100 if vad_aggressive else 200,
+                        threshold=0.5 if vad_aggressive else 0.35,
+                    )
+                    return mdl.transcribe(
+                        transcribe_path,
+                        language=language if language != "auto" else None,
+                        word_timestamps=True,
+                        beam_size=beam_size or 3,
+                        vad_filter=True,
+                        vad_parameters=vad_params,
+                        condition_on_previous_text=condition_on_prev,
+                        hotwords=hotwords,
+                    )
+
+            try:
+                segments_gen, info = _do_transcribe(model)
+                # Force first segment to detect flash attention errors early
+                segments_list = []
+                first_seg = next(iter(segments_gen), None)
+                if first_seg is not None:
+                    segments_list.append(first_seg)
+            except Exception as fa_err:
+                if "flash attention" in str(fa_err).lower():
+                    _log.warning(f"[{request_id}] Flash Attention failed at runtime, reloading model without it...")
+                    yield f"data: {json.dumps({'type': 'loading', 'message': 'Reloading model (without Flash Attention)...', 'model': resolved})}\n\n"
+                    model = _reload_model_without_flash(resolved, compute_type_override=compute_type_req)
+                    segments_gen, info = _do_transcribe(model)
+                    segments_list = []
+                    first_seg = next(iter(segments_gen), None)
+                    if first_seg is not None:
+                        segments_list.append(first_seg)
+                else:
+                    raise
+
+            # Chain pre-fetched segments with the rest of the generator
+            import itertools
+            segments_gen = itertools.chain(segments_list, segments_gen)
 
             duration = info.duration or 1.0
             total_duration = duration + start_from  # Full original audio duration
@@ -1158,14 +1210,24 @@ def transcribe_live():
         model = load_model(resolved)
         start = time.time()
 
-        segments, info = model.transcribe(
-            tmp_path,
-            language=language if language != "auto" else None,
-            word_timestamps=True,
-            beam_size=1,
-            vad_filter=False,
-            without_timestamps=True,
-        )
+        def _run_live(m):
+            return m.transcribe(
+                tmp_path,
+                language=language if language != "auto" else None,
+                word_timestamps=True,
+                beam_size=1,
+                vad_filter=False,
+                without_timestamps=True,
+            )
+
+        try:
+            segments, info = _run_live(model)
+        except Exception as fa_err:
+            if "flash attention" in str(fa_err).lower():
+                model = _reload_model_without_flash(resolved)
+                segments, info = _run_live(model)
+            else:
+                raise
 
         text_parts = []
         word_timings = []
@@ -1531,13 +1593,23 @@ def diarize():
         _log.info(f"Diarizing: {audio_file.filename} (model={resolved}, lang={language}, min_gap={min_gap})")
         start = time.time()
 
-        segments_raw, info = model.transcribe(
-            tmp_path,
-            language=language if language != "auto" else None,
-            word_timestamps=True,
-            vad_filter=True,
-            vad_parameters=dict(min_silence_duration_ms=500, speech_pad_ms=200),
-        )
+        def _run_diarize(m):
+            return m.transcribe(
+                tmp_path,
+                language=language if language != "auto" else None,
+                word_timestamps=True,
+                vad_filter=True,
+                vad_parameters=dict(min_silence_duration_ms=500, speech_pad_ms=200),
+            )
+
+        try:
+            segments_raw, info = _run_diarize(model)
+        except Exception as fa_err:
+            if "flash attention" in str(fa_err).lower():
+                model = _reload_model_without_flash(resolved)
+                segments_raw, info = _run_diarize(model)
+            else:
+                raise
 
         # Collect raw segments
         raw_segments = []
@@ -1661,9 +1733,18 @@ def warmup_endpoint():
         # Generate 1 second of silence at 16kHz and run through the pipeline
         silence = np.zeros(16000, dtype=np.float32)
         start = time.time()
-        segments, _ = model.transcribe(silence, language="he")
-        for _ in segments:
-            pass  # consume generator
+        try:
+            segments, _ = model.transcribe(silence, language="he")
+            for _ in segments:
+                pass  # consume generator
+        except Exception as fa_err:
+            if "flash attention" in str(fa_err).lower():
+                model = _reload_model_without_flash(model_id)
+                segments, _ = model.transcribe(silence, language="he")
+                for _ in segments:
+                    pass
+            else:
+                raise
         elapsed = time.time() - start
         print(f"  GPU warmup done in {elapsed:.2f}s")
         return jsonify({"status": "ok", "warmup_time": round(elapsed, 2)})

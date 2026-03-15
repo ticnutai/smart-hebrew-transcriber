@@ -9,7 +9,7 @@ test.describe('עורך טקסט', () => {
 
   test('עמוד עורך טקסט נטען', async ({ page }) => {
     await page.goto('/text-editor');
-    await expect(page.getByText('עריכת טקסט')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('עריכת טקסט').first()).toBeVisible({ timeout: 10000 });
   });
 
   test('טאבים מוצגים בעורך', async ({ page }) => {
@@ -69,7 +69,7 @@ test.describe('עורך טקסט', () => {
     });
     await page.goto('/text-editor');
     // Editor should load without errors
-    await expect(page.getByText('עריכת טקסט')).toBeVisible();
+    await expect(page.getByText('עריכת טקסט').first()).toBeVisible();
   });
 });
 

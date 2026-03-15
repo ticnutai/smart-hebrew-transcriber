@@ -13,12 +13,12 @@ test.describe('רספונסיבי - מובייל', () => {
 
   test('דשבורד נטען במובייל', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByText(/תמלול חדש|שלום/i)).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(/תמלול חדש|שלום/i).first()).toBeVisible({ timeout: 10000 });
   });
 
   test('דף תמלול נטען במובייל', async ({ page }) => {
     await page.goto('/transcribe');
-    await expect(page.getByText('מערכת תמלול מתקדמת')).toBeVisible();
+    await expect(page.getByText('מערכת תמלול מתקדמת').first()).toBeVisible();
   });
 
   test('אין גלילה אופקית', async ({ page }) => {
@@ -70,7 +70,7 @@ test.describe('ביצועים', () => {
   test('דשבורד נטען תוך 5 שניות', async ({ page }) => {
     const start = Date.now();
     await page.goto('/');
-    await expect(page.getByText(/תמלול חדש|שלום/i)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/תמלול חדש|שלום/i).first()).toBeVisible({ timeout: 5000 });
     const elapsed = Date.now() - start;
     expect(elapsed).toBeLessThan(5000);
   });
@@ -78,7 +78,7 @@ test.describe('ביצועים', () => {
   test('דף תמלול נטען תוך 5 שניות', async ({ page }) => {
     const start = Date.now();
     await page.goto('/transcribe');
-    await expect(page.getByText('מערכת תמלול מתקדמת')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('מערכת תמלול מתקדמת').first()).toBeVisible({ timeout: 5000 });
     const elapsed = Date.now() - start;
     expect(elapsed).toBeLessThan(5000);
   });

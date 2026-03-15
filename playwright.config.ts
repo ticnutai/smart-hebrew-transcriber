@@ -13,6 +13,7 @@ export default defineConfig({
     baseURL: 'http://localhost:8080',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
+    video: process.env.RECORD_VIDEO ? 'on' : 'off',
     locale: 'he-IL',
     timezoneId: 'Asia/Jerusalem',
   },
