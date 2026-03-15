@@ -3,17 +3,25 @@
  *
  * Tests ALL transcription presets (fast / balanced / accurate) and API paths
  * (/transcribe, /transcribe-stream) plus full UI flow.
- * Measures and reports processing speed for each preset.
+ * Uses REAL Hebrew speech audio (generated via edge-tts) and measures both
+ * speed AND accuracy against expected transcription.
  *
  * Prerequisites:
  *   - Whisper server running on localhost:8765 with a loaded model
  *   - Vite dev server running on localhost:8080
+ *   - Run `python scripts/generate_hebrew_audio.py` to create fixtures
  *
  * Tests skip automatically if the server is not available.
  */
 
 import { test as base, expect, type Page } from '@playwright/test';
 import { mockSupabase, injectAuthSession } from './helpers';
+import * as fs from 'fs';
+import * as path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // ─── Audio generation helpers ────────────────────────────────────────────────
 
@@ -83,6 +91,66 @@ function createSpeechLikeWavBuffer(durationSec = 5, sampleRate = 16000): Buffer 
 
 const SERVER = 'http://localhost:8765';
 
+// ─── Hebrew audio fixtures ──────────────────────────────────────────────────
+
+const FIXTURES_DIR = path.join(__dirname, 'fixtures');
+
+interface AudioFixture {
+  id: string;
+  wavPath: string;
+  expectedText: string;
+  buffer: Buffer;
+}
+
+/** Load a Hebrew audio fixture (WAV + expected text) */
+function loadFixture(id: string): AudioFixture | null {
+  const wavPath = path.join(FIXTURES_DIR, `hebrew_${id}.wav`);
+  const txtPath = path.join(FIXTURES_DIR, `hebrew_${id}.expected.txt`);
+  if (!fs.existsSync(wavPath) || !fs.existsSync(txtPath)) return null;
+  return {
+    id,
+    wavPath,
+    expectedText: fs.readFileSync(txtPath, 'utf-8').trim(),
+    buffer: fs.readFileSync(wavPath),
+  };
+}
+
+/** Normalize Hebrew text for comparison: remove punctuation, collapse whitespace */
+function normalizeHebrew(text: string): string {
+  return text
+    .replace(/[.,;:!?"""''()\-–—…\u05BE]/g, '') // remove punctuation (including Hebrew maqaf)
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Compute word-level accuracy between transcribed and expected Hebrew text.
+ *  Returns { overlap, precision, recall, f1 } in range [0, 1] */
+function computeAccuracy(transcribed: string, expected: string) {
+  const transWords = normalizeHebrew(transcribed).split(' ').filter(Boolean);
+  const expWords = normalizeHebrew(expected).split(' ').filter(Boolean);
+
+  if (expWords.length === 0) return { overlap: 0, precision: 0, recall: 0, f1: 0, transWords: 0, expWords: 0 };
+
+  // Count word matches (order-independent bag-of-words)
+  const expBag = new Map<string, number>();
+  for (const w of expWords) expBag.set(w, (expBag.get(w) || 0) + 1);
+
+  let matches = 0;
+  for (const w of transWords) {
+    const count = expBag.get(w) || 0;
+    if (count > 0) {
+      matches++;
+      expBag.set(w, count - 1);
+    }
+  }
+
+  const precision = transWords.length > 0 ? matches / transWords.length : 0;
+  const recall = matches / expWords.length;
+  const f1 = precision + recall > 0 ? 2 * precision * recall / (precision + recall) : 0;
+
+  return { overlap: matches, precision, recall, f1, transWords: transWords.length, expWords: expWords.length };
+}
+
 async function isServerUp(page: Page): Promise<boolean> {
   try {
     const r = await page.request.get(`${SERVER}/health`);
@@ -114,6 +182,7 @@ interface BenchmarkResult {
   model: string;
   text: string;
   fastMode: boolean;
+  accuracy: { f1: number; precision: number; recall: number } | null;
 }
 
 const benchResults: BenchmarkResult[] = [];
@@ -188,13 +257,17 @@ test.describe('בנצ\'מארק תמלול — כל הערכות וכל ה-API',
       const up = await isServerUp(page);
       test.skip(!up, 'שרת CUDA לא זמין');
 
-      const audioBuffer = createSpeechLikeWavBuffer(5);
+      // Use real Hebrew audio if available, fallback to synthetic
+      const fixture = loadFixture('medium');
+      const audioBuffer = fixture?.buffer ?? createSpeechLikeWavBuffer(5);
+      const expectedText = fixture?.expectedText ?? null;
+
       const wallStart = Date.now();
 
       const response = await page.request.fetch(`${SERVER}/transcribe`, {
         method: 'POST',
         multipart: {
-          file: { name: 'bench.wav', mimeType: 'audio/wav', buffer: audioBuffer },
+          file: { name: fixture ? 'hebrew_medium.wav' : 'bench.wav', mimeType: 'audio/wav', buffer: audioBuffer },
           language: 'he',
           preset: presetName,
         },
@@ -208,6 +281,18 @@ test.describe('בנצ\'מארק תמלול — כל הערכות וכל ה-API',
       expect(result).toHaveProperty('duration');
       expect(result).toHaveProperty('processing_time');
       expect(result.duration).toBeGreaterThan(0);
+
+      // Accuracy measurement
+      let accuracy: BenchmarkResult['accuracy'] = null;
+      if (expectedText && result.text) {
+        const acc = computeAccuracy(result.text, expectedText);
+        accuracy = { f1: acc.f1, precision: acc.precision, recall: acc.recall };
+      }
+
+      // With real Hebrew audio, we expect non-empty transcription
+      if (fixture) {
+        expect(result.text.length).toBeGreaterThan(0);
+      }
 
       const rtf = result.processing_time / result.duration;
       const speedX = (1 / rtf).toFixed(1);
@@ -223,13 +308,17 @@ test.describe('בנצ\'מארק תמלול — כל הערכות וכל ה-API',
         model: result.model,
         text: (result.text || '').substring(0, 80),
         fastMode: presetName !== 'accurate',
+        accuracy,
       });
 
       console.log(`\n  📊 /transcribe [${presetName}]:`);
       console.log(`     ⏱️  עיבוד: ${result.processing_time.toFixed(2)}s (wall: ${wallTime.toFixed(2)}s)`);
       console.log(`     🎵 אודיו: ${result.duration.toFixed(1)}s`);
       console.log(`     🚀 מהירות: ${speedX}x מזמן אמת (RTF=${rtf.toFixed(3)})`);
-      console.log(`     📝 טקסט: "${(result.text || '(ריק)').substring(0, 60)}"`);
+      if (accuracy) {
+        console.log(`     🎯 דיוק: F1=${(accuracy.f1 * 100).toFixed(1)}% | Precision=${(accuracy.precision * 100).toFixed(1)}% | Recall=${(accuracy.recall * 100).toFixed(1)}%`);
+      }
+      console.log(`     📝 טקסט: "${(result.text || '(ריק)').substring(0, 80)}"`);
     });
   }
 
@@ -243,13 +332,17 @@ test.describe('בנצ\'מארק תמלול — כל הערכות וכל ה-API',
       const up = await isServerUp(page);
       test.skip(!up, 'שרת CUDA לא זמין');
 
-      const audioBuffer = createSpeechLikeWavBuffer(5);
+      // Use real Hebrew audio if available, fallback to synthetic
+      const fixture = loadFixture('medium');
+      const audioBuffer = fixture?.buffer ?? createSpeechLikeWavBuffer(5);
+      const expectedText = fixture?.expectedText ?? null;
+
       const wallStart = Date.now();
 
       const response = await page.request.fetch(`${SERVER}/transcribe-stream`, {
         method: 'POST',
         multipart: {
-          file: { name: 'bench.wav', mimeType: 'audio/wav', buffer: audioBuffer },
+          file: { name: fixture ? 'hebrew_medium.wav' : 'bench.wav', mimeType: 'audio/wav', buffer: audioBuffer },
           language: 'he',
           preset: presetName,
         },
@@ -278,6 +371,18 @@ test.describe('בנצ\'מארק תמלול — כל הערכות וכל ה-API',
       const rtf = pt / dur;
       const speedX = (1 / rtf).toFixed(1);
 
+      // Accuracy measurement
+      let accuracy: BenchmarkResult['accuracy'] = null;
+      if (expectedText && txt) {
+        const acc = computeAccuracy(txt, expectedText);
+        accuracy = { f1: acc.f1, precision: acc.precision, recall: acc.recall };
+      }
+
+      // With real Hebrew audio, we expect non-empty transcription
+      if (fixture) {
+        expect(txt.length).toBeGreaterThan(0);
+      }
+
       benchResults.push({
         preset: presetName,
         api: '/transcribe-stream',
@@ -289,6 +394,7 @@ test.describe('בנצ\'מארק תמלול — כל הערכות וכל ה-API',
         model,
         text: txt.substring(0, 80),
         fastMode: fm,
+        accuracy,
       });
 
       // Count how many segment events we got (streaming increments)
@@ -298,9 +404,12 @@ test.describe('בנצ\'מארק תמלול — כל הערכות וכל ה-API',
       console.log(`     ⏱️  עיבוד: ${pt.toFixed(2)}s (wall: ${wallTime.toFixed(2)}s)`);
       console.log(`     🎵 אודיו: ${dur.toFixed(1)}s`);
       console.log(`     🚀 מהירות: ${speedX}x מזמן אמת (RTF=${rtf.toFixed(3)})`);
+      if (accuracy) {
+        console.log(`     🎯 דיוק: F1=${(accuracy.f1 * 100).toFixed(1)}% | Precision=${(accuracy.precision * 100).toFixed(1)}% | Recall=${(accuracy.recall * 100).toFixed(1)}%`);
+      }
       console.log(`     📡 SSE אירועים: ${events.length} (${segmentCount} segments)`);
       console.log(`     ⚡ fast_mode: ${fm}`);
-      console.log(`     📝 טקסט: "${txt.substring(0, 60) || '(ריק)'}"`);
+      console.log(`     📝 טקסט: "${txt.substring(0, 80) || '(ריק)'}"`);
     });
   }
 
@@ -413,14 +522,14 @@ test.describe('בנצ\'מארק תמלול — כל הערכות וכל ה-API',
 
     // This test just prints the collected results from previous tests
     console.log('\n');
-    console.log('╔════════════════════════════════════════════════════════════════════════════╗');
-    console.log('║                    📊 סיכום בנצ\'מארק תמלול — כל הערכות                   ║');
-    console.log('╠══════════════╦═══════════════════╦══════════╦══════════╦═══════╦═══════════╣');
-    console.log('║ ערכה         ║ API               ║ אודיו(s) ║ עיבוד(s) ║ מהיר  ║ fast_mode ║');
-    console.log('╠══════════════╬═══════════════════╬══════════╬══════════╬═══════╬═══════════╣');
+    console.log('╔════════════════════════════════════════════════════════════════════════════════════════╗');
+    console.log('║                    📊 סיכום בנצ\'מארק תמלול — כל הערכות (עברית אמיתית)               ║');
+    console.log('╠══════════════╦═══════════════════╦══════════╦══════════╦═══════╦═══════════╦══════════╣');
+    console.log('║ ערכה         ║ API               ║ אודיו(s) ║ עיבוד(s) ║ מהיר  ║ fast_mode ║ דיוק F1 ║');
+    console.log('╠══════════════╬═══════════════════╬══════════╬══════════╬═══════╬═══════════╬══════════╣');
 
     if (benchResults.length === 0) {
-      console.log('║  (אין תוצאות — הרץ את כל הבדיקות ביחד)                                     ║');
+      console.log('║  (אין תוצאות — הרץ את כל הבדיקות ביחד)                                                ║');
     }
     for (const r of benchResults) {
       const preset = r.preset.padEnd(12);
@@ -429,10 +538,20 @@ test.describe('בנצ\'מארק תמלול — כל הערכות וכל ה-API',
       const proc = r.processingTime.toFixed(2).padStart(6);
       const speed = r.speedX.padStart(5);
       const fm = r.fastMode ? '  ✅   ' : '  ❌   ';
-      console.log(`║ ${preset} ║ ${api} ║ ${audio}   ║ ${proc}   ║ ${speed} ║${fm}    ║`);
+      const acc = r.accuracy ? `${(r.accuracy.f1 * 100).toFixed(0)}%`.padStart(5) : '  N/A';
+      console.log(`║ ${preset} ║ ${api} ║ ${audio}   ║ ${proc}   ║ ${speed} ║${fm}    ║  ${acc}   ║`);
     }
 
-    console.log('╚══════════════╩═══════════════════╩══════════╩══════════╩═══════╩═══════════╝');
+    console.log('╚══════════════╩═══════════════════╩══════════╩══════════╩═══════╩═══════════╩══════════╝');
+
+    // Print best accuracy result
+    const withAccuracy = benchResults.filter(r => r.accuracy);
+    if (withAccuracy.length > 0) {
+      const best = withAccuracy.reduce((a, b) => (a.accuracy!.f1 > b.accuracy!.f1 ? a : b));
+      const fastest = withAccuracy.reduce((a, b) => (a.processingTime < b.processingTime ? a : b));
+      console.log(`\n  🏆 דיוק הכי גבוה: ${best.preset}/${best.api} — F1=${(best.accuracy!.f1 * 100).toFixed(1)}%`);
+      console.log(`  ⚡ הכי מהיר: ${fastest.preset}/${fastest.api} — ${fastest.processingTime.toFixed(2)}s (${fastest.speedX})`);
+    }
     console.log('');
 
     // Basic assertion — we should have results if previous tests ran
