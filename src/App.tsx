@@ -46,6 +46,7 @@ const Settings = lazyWithLog('Settings', () => import("./pages/Settings"));
 const Setup = lazyWithLog('Setup', () => import("./pages/Setup"));
 const TextEditor = lazyWithLog('TextEditor', () => import("./pages/TextEditor"));
 const Folders = lazyWithLog('Folders', () => import("./pages/Folders"));
+const Benchmark = lazyWithLog('Benchmark', () => import("./pages/Benchmark"));
 const NotFound = lazyWithLog('NotFound', () => import("./pages/NotFound"));
 
 /** Logs route changes */
@@ -128,6 +129,7 @@ const App = () => {
                 <Route path="/setup" element={<ProtectedRoute><Setup /></ProtectedRoute>} />
                 <Route path="/text-editor" element={<ProtectedRoute><TextEditor /></ProtectedRoute>} />
                 <Route path="/folders" element={<ProtectedRoute><Folders /></ProtectedRoute>} />
+                <Route path="/benchmark" element={<ProtectedRoute><Benchmark /></ProtectedRoute>} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </Suspense>

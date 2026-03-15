@@ -21,6 +21,7 @@ import {
   Plus,
   Trash2,
   Server,
+  BarChart3,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
@@ -42,6 +43,7 @@ const navItems: NavItem[] = [
   { label: "תמלול", icon: Mic, path: "/transcribe" },
   { label: "תיקיות", icon: FolderOpen, path: "/folders" },
   { label: "עורך טקסט", icon: FileText, path: "/text-editor" },
+  { label: "בנצ'מארק", icon: BarChart3, path: "/benchmark" },
   { label: "התקנת שרת", icon: Server, path: "/setup" },
   { label: "הגדרות", icon: Settings, path: "/settings" },
 ];
