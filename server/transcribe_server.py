@@ -1072,7 +1072,8 @@ def transcribe_stream():
             _log.info(f"[{request_id}] Transcribing: model={resolved}, lang={language}, start_from={start_from}s, mode={mode_label}, compute={ct_label}, beam={beam_size or 'default'}, batch={batch_size}, cond_prev={condition_on_prev}, vad_agg={vad_aggressive}{preset_label}{hotwords_label})")
             start = time.time()
 
-            def _do_transcribe(mdl):
+            def _do_transcribe(mdl, override_batch=None):
+                bs = override_batch if override_batch is not None else batch_size
                 if fast_mode:
                     from faster_whisper import BatchedInferencePipeline
                     pipeline = BatchedInferencePipeline(model=mdl)
@@ -1081,7 +1082,7 @@ def transcribe_stream():
                         language=language if language != "auto" else None,
                         word_timestamps=True,
                         beam_size=beam_size or 1,
-                        batch_size=batch_size,
+                        batch_size=bs,
                         condition_on_previous_text=condition_on_prev,
                         hotwords=hotwords,
                     )
@@ -1110,11 +1111,23 @@ def transcribe_stream():
                 if first_seg is not None:
                     segments_list.append(first_seg)
             except Exception as fa_err:
-                if "flash attention" in str(fa_err).lower():
+                err_str_lower = str(fa_err).lower()
+                if "flash attention" in err_str_lower:
                     _log.warning(f"[{request_id}] Flash Attention failed at runtime, reloading model without it...")
                     yield f"data: {json.dumps({'type': 'loading', 'message': 'Reloading model (without Flash Attention)...', 'model': resolved})}\n\n"
                     model = _reload_model_without_flash(resolved, compute_type_override=compute_type_req)
                     segments_gen, info = _do_transcribe(model)
+                    segments_list = []
+                    first_seg = next(iter(segments_gen), None)
+                    if first_seg is not None:
+                        segments_list.append(first_seg)
+                elif "out of memory" in err_str_lower and fast_mode and batch_size > 4:
+                    # OOM with large batch — retry with smaller batch
+                    retry_batch = 4
+                    _log.warning(f"[{request_id}] GPU OOM with batch_size={batch_size}, retrying with batch_size={retry_batch}...")
+                    _cleanup_gpu_memory()
+                    yield f"data: {json.dumps({'type': 'loading', 'message': f'GPU memory full — retrying with smaller batch ({retry_batch})...', 'model': resolved})}\n\n"
+                    segments_gen, info = _do_transcribe(model, override_batch=retry_batch)
                     segments_list = []
                     first_seg = next(iter(segments_gen), None)
                     if first_seg is not None:

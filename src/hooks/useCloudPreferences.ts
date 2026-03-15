@@ -268,9 +268,9 @@ export const useCloudPreferences = () => {
           updated_at: new Date().toISOString(),
         } as any, { onConflict: 'user_id' });
 
-      // Fallback: if new columns don't exist yet, save without them
+      // Fallback: if CUDA columns don't exist yet, save without them
       if (error) {
-        await supabase
+        const { error: error2 } = await supabase
           .from('user_preferences')
           .upsert({
             user_id: user.id,
@@ -280,8 +280,28 @@ export const useCloudPreferences = () => {
             line_height: updated.line_height,
             sidebar_pinned: updated.sidebar_pinned,
             theme: updated.theme,
+            engine: updated.engine,
+            source_language: updated.source_language,
+            custom_themes: customThemesParsed,
+            editor_columns: updated.editor_columns,
             updated_at: new Date().toISOString(),
-          }, { onConflict: 'user_id' });
+          } as any, { onConflict: 'user_id' });
+
+        // Last resort: save only original columns
+        if (error2) {
+          await supabase
+            .from('user_preferences')
+            .upsert({
+              user_id: user.id,
+              font_size: updated.font_size,
+              font_family: updated.font_family,
+              text_color: updated.text_color,
+              line_height: updated.line_height,
+              sidebar_pinned: updated.sidebar_pinned,
+              theme: updated.theme,
+              updated_at: new Date().toISOString(),
+            }, { onConflict: 'user_id' });
+        }
       }
     }, 500);
   }, [user]);

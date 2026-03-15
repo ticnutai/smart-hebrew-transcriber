@@ -229,7 +229,29 @@ async function pushDirtyPreferences(userId: string): Promise<void> {
       updated_at: new Date().toISOString(),
     } as any, { onConflict: 'user_id' });
 
-  if (!error) {
+  if (error) {
+    // Fallback: save without CUDA columns if they don't exist yet
+    const { error: error2 } = await supabase
+      .from('user_preferences')
+      .upsert({
+        user_id: userId,
+        font_size: prefs.font_size,
+        font_family: prefs.font_family,
+        text_color: prefs.text_color,
+        line_height: prefs.line_height,
+        sidebar_pinned: prefs.sidebar_pinned,
+        theme: prefs.theme,
+        engine: prefs.engine,
+        source_language: prefs.source_language,
+        custom_themes: customThemesParsed,
+        editor_columns: prefs.editor_columns,
+        updated_at: new Date().toISOString(),
+      } as any, { onConflict: 'user_id' });
+
+    if (!error2) {
+      await db.preferences.update('current', { _dirty: false });
+    }
+  } else {
     await db.preferences.update('current', { _dirty: false });
   }
 }

@@ -22,9 +22,16 @@ if (authError) {
 }
 
 const sql = `
-ALTER TABLE public.user_preferences ADD COLUMN IF NOT EXISTS engine text DEFAULT 'groq';
-ALTER TABLE public.user_preferences ADD COLUMN IF NOT EXISTS source_language text DEFAULT 'auto';
-ALTER TABLE public.user_preferences ADD COLUMN IF NOT EXISTS custom_themes jsonb DEFAULT '[]'::jsonb;
+ALTER TABLE public.user_preferences ADD COLUMN IF NOT EXISTS cuda_preset text DEFAULT 'balanced';
+ALTER TABLE public.user_preferences ADD COLUMN IF NOT EXISTS cuda_fast_mode boolean DEFAULT true;
+ALTER TABLE public.user_preferences ADD COLUMN IF NOT EXISTS cuda_compute_type text DEFAULT 'int8_float16';
+ALTER TABLE public.user_preferences ADD COLUMN IF NOT EXISTS cuda_beam_size integer DEFAULT 1;
+ALTER TABLE public.user_preferences ADD COLUMN IF NOT EXISTS cuda_no_condition_prev boolean DEFAULT true;
+ALTER TABLE public.user_preferences ADD COLUMN IF NOT EXISTS cuda_vad_aggressive boolean DEFAULT false;
+ALTER TABLE public.user_preferences ADD COLUMN IF NOT EXISTS cuda_hotwords text DEFAULT '';
+ALTER TABLE public.user_preferences ADD COLUMN IF NOT EXISTS cuda_paragraph_threshold real DEFAULT 0;
+ALTER TABLE public.user_preferences ADD COLUMN IF NOT EXISTS cuda_preload_mode text DEFAULT 'preload';
+ALTER TABLE public.user_preferences ADD COLUMN IF NOT EXISTS cuda_cloud_save text DEFAULT 'immediate';
 `;
 
 const { data, error } = await supabase.rpc('exec_sql', { query: sql });
