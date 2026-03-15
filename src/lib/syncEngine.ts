@@ -70,6 +70,8 @@ export async function syncTranscriptsDown(userId: string): Promise<void> {
         category: row.category || '',
         is_favorite: row.is_favorite || false,
         audio_file_path: row.audio_file_path,
+        word_timings: row.word_timings as any || null,
+        edited_text: row.edited_text || null,
         created_at: row.created_at,
         updated_at: row.updated_at,
         _dirty: false,
@@ -100,10 +102,10 @@ async function pushDirtyTranscripts(userId: string): Promise<void> {
   // Handle inserts/updates
   const dirty = await db.transcripts.where('_dirty').equals(1).toArray();
   for (const t of dirty) {
-    const { id, audio_blob, _dirty, _deleted, ...row } = t;
+    const { id, audio_blob, _dirty, _deleted, word_timings, ...row } = t;
     const { error } = await supabase
       .from('transcripts')
-      .upsert({ id, ...row, updated_at: new Date().toISOString() }, { onConflict: 'id' });
+      .upsert({ id, ...row, word_timings: word_timings as any ?? null, updated_at: new Date().toISOString() } as any, { onConflict: 'id' });
 
     if (!error) {
       await db.transcripts.update(id, { _dirty: false });

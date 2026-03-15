@@ -195,6 +195,7 @@ export type Database = {
           audio_file_path: string | null
           category: string | null
           created_at: string
+          edited_text: string | null
           engine: string
           folder: string | null
           id: string
@@ -205,11 +206,13 @@ export type Database = {
           title: string | null
           updated_at: string
           user_id: string
+          word_timings: Json | null
         }
         Insert: {
           audio_file_path?: string | null
           category?: string | null
           created_at?: string
+          edited_text?: string | null
           engine?: string
           folder?: string | null
           id?: string
@@ -220,11 +223,13 @@ export type Database = {
           title?: string | null
           updated_at?: string
           user_id: string
+          word_timings?: Json | null
         }
         Update: {
           audio_file_path?: string | null
           category?: string | null
           created_at?: string
+          edited_text?: string | null
           engine?: string
           folder?: string | null
           id?: string
@@ -235,6 +240,7 @@ export type Database = {
           title?: string | null
           updated_at?: string
           user_id?: string
+          word_timings?: Json | null
         }
         Relationships: []
       }
