@@ -410,19 +410,18 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
           )}
           {!isConnected && !isRemoteAccess && isNonLocalHost && (
             <div className="text-[11px] text-muted-foreground space-y-1.5 border-t pt-2">
-              <p className="font-medium">🖥️ לחץ "הפעל שרת" — ה-Launcher יפעיל הכל אוטומטית!</p>
+              <p className="font-medium">🖥️ עובד מול השרת המקומי בלבד (localhost:8765)</p>
               <p className="text-muted-foreground">
-                הפעם ראשונה? הרץ פעם אחת בטרמינל:
+                הפעל את שרת ה-CUDA במחשב (מה-tray או ידנית), ואז לחץ "בדוק חיבור".
               </p>
               <div className="flex items-center gap-1">
                 <code className="flex-1 bg-background px-2 py-1 rounded text-[11px] font-mono border select-all">
-                  .\scripts\install-launcher.ps1
+                  .\scripts\start-whisper-server.ps1
                 </code>
-                <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={(e) => { e.preventDefault(); navigator.clipboard.writeText('.\\scripts\\install-launcher.ps1'); toast({ title: 'הועתק', description: 'הפקודה הועתקה ללוח' }); }}>
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={(e) => { e.preventDefault(); navigator.clipboard.writeText('.\\scripts\\start-whisper-server.ps1'); toast({ title: 'הועתק', description: 'הפקודה הועתקה ללוח' }); }}>
                   <Copy className="w-3 h-3" />
                 </Button>
               </div>
-              <p className="text-[10px] text-muted-foreground">זה מתקין שירות קטן שעולה אוטומטית עם Windows ומאפשר הפעלת השרת מהאתר</p>
             </div>
           )}
           {!isConnected && isRemoteAccess && (

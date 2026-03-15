@@ -117,17 +117,25 @@ function swAutoVersion(): Plugin {
 }
 
 // https://vitejs.dev/config/
-export default defineConfig(({ mode }) => ({
+export default defineConfig(({ mode }) => {
+  const isLovableCloud = Boolean(process.env.LOVABLE);
+
+  return {
   server: {
     host: "::",
     port: 8080,
-    hmr: {
-      protocol: "ws",
-      host: "localhost",
-      port: 8080,
-    },
-    // Allow Cloudflare Tunnel and other external origins
-    allowedHosts: ['localhost', '.trycloudflare.com'],
+    hmr: isLovableCloud
+      ? {
+          protocol: "wss",
+          clientPort: 443,
+        }
+      : {
+          protocol: "ws",
+          host: "localhost",
+          port: 8080,
+        },
+    // Allow Cloudflare Tunnel and external preview origins
+    allowedHosts: ['localhost', '.trycloudflare.com', '.lovable.app', '.lovableproject.com'],
   },
   plugins: [
     react(),
