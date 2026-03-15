@@ -317,7 +317,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
                   הגדר כתובת שרת
                 </Button>
               ) : isNonLocalHost ? (
-                /* On hosted site — only check direct connection to local CUDA server (8765) */
+                /* On hosted Lovable site — try launcher (8764) first, then direct check */
                 <Button
                   size="sm"
                   variant="default"
@@ -325,6 +325,30 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
                   onClick={async (e) => {
                     e.preventDefault();
                     setIsStarting(true);
+                    // 1. Try the launcher service (port 8764) — has PNA + CORS headers
+                    try {
+                      const launcherRes = await fetch('http://localhost:8764/start', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ target: 'whisper' }),
+                        signal: AbortSignal.timeout(5000),
+                      });
+                      const launcherData = await launcherRes.json();
+                      if (launcherData.ok) {
+                        toast({
+                          title: '🚀 השרת מופעל!',
+                          description: launcherData.results?.whisper?.message === 'already running'
+                            ? 'השרת כבר רץ, ממתין לחיבור...'
+                            : 'שרת CUDA עולה, ממתין לחיבור...',
+                        });
+                        startPolling(5000, 120000);
+                        setTimeout(() => setIsStarting(false), 120000);
+                        return;
+                      }
+                    } catch {
+                      // Launcher not reachable — try direct connection check
+                    }
+                    // 2. Fallback: just check if server is already running
                     const ok = await checkConnection();
                     if (ok) {
                       toast({ title: '🟢 מחובר!', description: 'שרת CUDA זוהה ב־localhost:8765' });
@@ -332,7 +356,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
                     } else {
                       toast({
                         title: '🔴 שרת לא נגיש',
-                        description: 'הפעל את שרת ה-CUDA המקומי (פורט 8765) מהמחשב ואז נסה שוב.',
+                        description: 'הפעל את שרת ה-CUDA מה-tray או בטרמינל, ואז לחץ שוב.',
                         variant: 'destructive',
                       });
                     }
@@ -342,9 +366,9 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
                   {isStarting ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   ) : (
-                    <Server className="w-3.5 h-3.5" />
+                    <Power className="w-3.5 h-3.5" />
                   )}
-                  {isStarting ? 'בודק...' : 'בדוק חיבור'}
+                  {isStarting ? 'מפעיל...' : 'הפעל שרת'}
                 </Button>
               ) : (
                 <Button
@@ -371,18 +395,16 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
                 className="gap-1.5 text-xs h-7 text-destructive border-destructive/40 hover:bg-destructive/10"
                 onClick={async (e) => {
                   e.preventDefault();
-                  // On hosted site, avoid localhost:8764 launcher calls (blocked by browser private-network policy)
-                  if (!isNonLocalHost) {
-                    try {
-                      await fetch('http://localhost:8764/stop', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ target: 'whisper' }),
-                        signal: AbortSignal.timeout(5000),
-                      });
-                    } catch {
-                      // Tray not available — that's ok
-                    }
+                  // Try launcher stop (works from Lovable via PNA)
+                  try {
+                    await fetch('http://localhost:8764/stop', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ target: 'whisper' }),
+                      signal: AbortSignal.timeout(5000),
+                    });
+                  } catch {
+                    // Tray not available — fall through to direct shutdown
                   }
                   await shutdownServer();
                   setIsStarting(false);
@@ -410,9 +432,10 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
           )}
           {!isConnected && !isRemoteAccess && isNonLocalHost && (
             <div className="text-[11px] text-muted-foreground space-y-1.5 border-t pt-2">
-              <p className="font-medium">🖥️ עובד מול השרת המקומי בלבד (localhost:8765)</p>
+              <p className="font-medium">🖥️ עובד מול השרת המקומי (localhost:8765)</p>
               <p className="text-muted-foreground">
-                הפעל את שרת ה-CUDA במחשב (מה-tray או ידנית), ואז לחץ "בדוק חיבור".
+                לחץ "הפעל שרת" — האפליקציה תנסה להפעיל את השרת דרך ה-tray (פורט 8764).
+                אם ה-tray לא פועל, הפעל ידנית:
               </p>
               <div className="flex items-center gap-1">
                 <code className="flex-1 bg-background px-2 py-1 rounded text-[11px] font-mono border select-all">

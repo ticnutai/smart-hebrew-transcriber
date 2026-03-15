@@ -161,8 +161,8 @@ def start_whisper():
     python_path = find_python()
     if not python_path:
         return False, "No venv found", None
-    model = "ivrit-ai/whisper-large-v3-turbo-ct2"
-    cmd = [python_path, str(WHISPER_SERVER_SCRIPT), "--port", str(WHISPER_PORT), "--model", model]
+    # Use server's built-in DEFAULT_MODEL (large-v3-turbo) — don't hardcode a model that may not exist
+    cmd = [python_path, str(WHISPER_SERVER_SCRIPT), "--port", str(WHISPER_PORT)]
     try:
         whisper_process = subprocess.Popen(
             cmd, cwd=str(PROJECT_ROOT),
