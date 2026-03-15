@@ -42,7 +42,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
   const [isStarting, setIsStarting] = useState(false);
   const [fastMode, setFastMode] = useState(() => localStorage.getItem('cuda_fast_mode') === '1');
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [computeType, setComputeType] = useState(() => localStorage.getItem('cuda_compute_type') || 'float16');
+  const [computeType, setComputeType] = useState(() => localStorage.getItem('cuda_compute_type') || 'int8_float16');
   const [beamSize, setBeamSize] = useState(() => parseInt(localStorage.getItem('cuda_beam_size') || '0'));
   const [noConditionPrev, setNoConditionPrev] = useState(() => localStorage.getItem('cuda_no_condition_prev') === '1');
   const [vadAggressive, setVadAggressive] = useState(() => localStorage.getItem('cuda_vad_aggressive') === '1');
@@ -551,8 +551,8 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent dir="rtl">
-                    <SelectItem value="float16">float16 — ברירת מחדל (איכות מקסימלית)</SelectItem>
-                    <SelectItem value="int8_float16">int8_float16 — מהיר ~30% (איכות טובה)</SelectItem>
+                    <SelectItem value="int8_float16">int8_float16 — ברירת מחדל (מהיר + איכות טובה)</SelectItem>
+                    <SelectItem value="float16">float16 — איכות מקסימלית (VRAM גבוה)</SelectItem>
                     <SelectItem value="int8">int8 — מהיר ביותר (פחות דיוק)</SelectItem>
                   </SelectContent>
                 </Select>
