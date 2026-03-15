@@ -70,6 +70,8 @@ export async function syncTranscriptsDown(userId: string): Promise<void> {
         category: row.category || '',
         is_favorite: row.is_favorite || false,
         audio_file_path: row.audio_file_path,
+        word_timings: row.word_timings as any || null,
+        edited_text: row.edited_text || null,
         created_at: row.created_at,
         updated_at: row.updated_at,
         _dirty: false,

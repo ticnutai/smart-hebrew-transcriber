@@ -24,7 +24,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { useCloudPreferences } from "@/hooks/useCloudPreferences";
 import { useCloudTranscripts } from "@/hooks/useCloudTranscripts";
-import { debugLog } from "@/lib/debugLogger";
 
 const TextEditor = () => {
   const navigate = useNavigate();
