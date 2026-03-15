@@ -121,6 +121,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
             description: launcherData.results?.whisper?.message === 'already running' ? 'השרת כבר רץ, ממתין לחיבור...' : 'שרת CUDA + Ollama עולים...',
           });
           startPolling(5000, 120000);
+          setTimeout(() => setIsStarting(false), 120000);
           return;
         }
       } catch {
@@ -336,6 +337,8 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
                             : 'השרת עולה, ממתין לחיבור...',
                         });
                         startPolling(5000, 120000);
+                        // Clear isStarting after max polling duration (useEffect clears it sooner if connects)
+                        setTimeout(() => setIsStarting(false), 120000);
                         return;
                       }
                     } catch {

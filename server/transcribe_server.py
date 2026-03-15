@@ -68,6 +68,18 @@ except Exception:
     _has_torch = False
 
 app = Flask(__name__)
+
+# Must be registered BEFORE CORS(app) so it runs AFTER flask-cors
+# (Flask calls after_request in reverse registration order)
+@app.after_request
+def _add_private_network_header(response):
+    """Allow Chrome Private Network Access (PNA).
+    Required for HTTPS pages (Lovable preview) to reach localhost:8765.
+    Without this, Chrome 94+ blocks all requests from public sites to private networks.
+    """
+    response.headers["Access-Control-Allow-Private-Network"] = "true"
+    return response
+
 CORS(app, origins=[
     "http://localhost:8080",
     "http://localhost:5173",
