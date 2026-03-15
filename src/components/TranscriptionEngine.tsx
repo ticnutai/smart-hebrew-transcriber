@@ -371,16 +371,18 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
                 className="gap-1.5 text-xs h-7 text-destructive border-destructive/40 hover:bg-destructive/10"
                 onClick={async (e) => {
                   e.preventDefault();
-                  // Try tray stop + direct shutdown for state reset
-                  try {
-                    await fetch('http://localhost:8764/stop', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ target: 'whisper' }),
-                      signal: AbortSignal.timeout(5000),
-                    });
-                  } catch {
-                    // Tray not available — that's ok
+                  // On hosted site, avoid localhost:8764 launcher calls (blocked by browser private-network policy)
+                  if (!isNonLocalHost) {
+                    try {
+                      await fetch('http://localhost:8764/stop', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ target: 'whisper' }),
+                        signal: AbortSignal.timeout(5000),
+                      });
+                    } catch {
+                      // Tray not available — that's ok
+                    }
                   }
                   await shutdownServer();
                   setIsStarting(false);
