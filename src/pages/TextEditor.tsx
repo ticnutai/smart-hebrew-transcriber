@@ -24,6 +24,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { useCloudPreferences } from "@/hooks/useCloudPreferences";
 import { useCloudTranscripts } from "@/hooks/useCloudTranscripts";
+import { db } from "@/lib/localDb";
 
 const TextEditor = () => {
   const navigate = useNavigate();
@@ -59,6 +60,18 @@ const TextEditor = () => {
     columnGap: '2rem',
     columnRule: '1px solid hsl(var(--border))',
   } : {};
+
+  // Recover audio from Dexie IndexedDB (last saved blob)
+  const tryRecoverAudioFromDexie = useCallback(async () => {
+    try {
+      const entry = await db.audioBlobs.get('last_audio');
+      if (entry?.blob) {
+        const url = URL.createObjectURL(entry.blob);
+        setAudioUrl(url);
+        debugLog.info('TextEditor', `Audio recovered from Dexie: ${entry.name}`);
+      }
+    } catch { /* Dexie not available */ }
+  }, []);
 
   useEffect(() => {
     debugLog.info('TextEditor', '📝 TextEditor mounted');
@@ -114,9 +127,16 @@ const TextEditor = () => {
     if (location.state?.audioUrl) {
       const url = location.state.audioUrl as string;
       if (url.startsWith('blob:')) {
-        fetch(url, { method: 'HEAD' }).then(() => {
-          setAudioUrl(url);
-        }).catch(() => {});
+        // Blob URLs only support GET (HEAD fails), so use a minimal range GET to verify
+        fetch(url).then((resp) => {
+          if (resp.ok || resp.status === 206) {
+            resp.body?.cancel(); // Don't download the whole file
+            setAudioUrl(url);
+          }
+        }).catch(() => {
+          // Blob URL expired — try recovering from Dexie
+          tryRecoverAudioFromDexie();
+        });
       } else {
         setAudioUrl(url);
       }
@@ -125,6 +145,9 @@ const TextEditor = () => {
       getAudioUrl(location.state.audioFilePath).then((url) => {
         if (url) setAudioUrl(url);
       });
+    } else {
+      // No audio URL in navigation state — try recovering from Dexie
+      tryRecoverAudioFromDexie();
     }
 
     // Load word timings from state, or fallback to localStorage

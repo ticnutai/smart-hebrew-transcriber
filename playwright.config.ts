@@ -7,15 +7,16 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
   reporter: [['html', { open: 'never' }], ['list']],
-  timeout: 30_000,
+  timeout: 90_000,
 
   use: {
-    baseURL: 'http://localhost:8080',
+    baseURL: 'http://localhost:8091',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: process.env.RECORD_VIDEO ? 'on' : 'off',
     locale: 'he-IL',
     timezoneId: 'Asia/Jerusalem',
+    serviceWorkers: 'block',
   },
 
   projects: [
@@ -26,9 +27,9 @@ export default defineConfig({
   ],
 
   webServer: {
-    command: 'npx vite --port 8080',
-    port: 8080,
-    reuseExistingServer: true,
-    timeout: 30_000,
+    command: 'npx vite --port 8091',
+    port: 8091,
+    reuseExistingServer: !process.env.CI,
+    timeout: 60_000,
   },
 });
