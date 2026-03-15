@@ -317,7 +317,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
                   הגדר כתובת שרת
                 </Button>
               ) : isNonLocalHost ? (
-                /* On Lovable site — try launcher service on 8764, then check connection */
+                /* On hosted site — only check direct connection to local CUDA server (8765) */
                 <Button
                   size="sm"
                   variant="default"
@@ -325,33 +325,14 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
                   onClick={async (e) => {
                     e.preventDefault();
                     setIsStarting(true);
-                    // Step 1: Try launcher service to start everything
-                    try {
-                      const res = await fetch('http://localhost:8764/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target: 'whisper' }), signal: AbortSignal.timeout(5000) });
-                      const data = await res.json();
-                      if (data.ok) {
-                        toast({
-                          title: '🚀 מפעיל שרת CUDA...',
-                          description: data.results?.whisper?.message === 'already running'
-                            ? 'השרת כבר רץ, ממתין לחיבור...'
-                            : 'השרת עולה, ממתין לחיבור...',
-                        });
-                        startPolling(5000, 120000);
-                        // Clear isStarting after max polling duration (useEffect clears it sooner if connects)
-                        setTimeout(() => setIsStarting(false), 120000);
-                        return;
-                      }
-                    } catch {
-                      // Launcher not running — try direct connection check
-                    }
-                    // Step 2: Fallback — just check if server already reachable
                     const ok = await checkConnection();
                     if (ok) {
-                      toast({ title: '🟢 מחובר!', description: 'שרת CUDA זוהה' });
+                      toast({ title: '🟢 מחובר!', description: 'שרת CUDA זוהה ב־localhost:8765' });
+                      startPolling(10000);
                     } else {
                       toast({
-                        title: '🔴 שרת לא נמצא',
-                        description: 'הפעל install-launcher.ps1 ואז נסה שוב, או הפעל start-lovable.ps1 ידנית',
+                        title: '🔴 שרת לא נגיש',
+                        description: 'הפעל את שרת ה-CUDA המקומי (פורט 8765) מהמחשב ואז נסה שוב.',
                         variant: 'destructive',
                       });
                     }
@@ -363,7 +344,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
                   ) : (
                     <Server className="w-3.5 h-3.5" />
                   )}
-                  {isStarting ? 'מפעיל...' : 'הפעל שרת'}
+                  {isStarting ? 'בודק...' : 'בדוק חיבור'}
                 </Button>
               ) : (
                 <Button
@@ -390,16 +371,18 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
                 className="gap-1.5 text-xs h-7 text-destructive border-destructive/40 hover:bg-destructive/10"
                 onClick={async (e) => {
                   e.preventDefault();
-                  // Try tray stop + direct shutdown for state reset
-                  try {
-                    await fetch('http://localhost:8764/stop', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ target: 'whisper' }),
-                      signal: AbortSignal.timeout(5000),
-                    });
-                  } catch {
-                    // Tray not available — that's ok
+                  // On hosted site, avoid localhost:8764 launcher calls (blocked by browser private-network policy)
+                  if (!isNonLocalHost) {
+                    try {
+                      await fetch('http://localhost:8764/stop', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ target: 'whisper' }),
+                        signal: AbortSignal.timeout(5000),
+                      });
+                    } catch {
+                      // Tray not available — that's ok
+                    }
                   }
                   await shutdownServer();
                   setIsStarting(false);
@@ -427,19 +410,18 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
           )}
           {!isConnected && !isRemoteAccess && isNonLocalHost && (
             <div className="text-[11px] text-muted-foreground space-y-1.5 border-t pt-2">
-              <p className="font-medium">🖥️ לחץ "הפעל שרת" — ה-Launcher יפעיל הכל אוטומטית!</p>
+              <p className="font-medium">🖥️ עובד מול השרת המקומי בלבד (localhost:8765)</p>
               <p className="text-muted-foreground">
-                הפעם ראשונה? הרץ פעם אחת בטרמינל:
+                הפעל את שרת ה-CUDA במחשב (מה-tray או ידנית), ואז לחץ "בדוק חיבור".
               </p>
               <div className="flex items-center gap-1">
                 <code className="flex-1 bg-background px-2 py-1 rounded text-[11px] font-mono border select-all">
-                  .\scripts\install-launcher.ps1
+                  .\scripts\start-whisper-server.ps1
                 </code>
-                <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={(e) => { e.preventDefault(); navigator.clipboard.writeText('.\\scripts\\install-launcher.ps1'); toast({ title: 'הועתק', description: 'הפקודה הועתקה ללוח' }); }}>
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={(e) => { e.preventDefault(); navigator.clipboard.writeText('.\\scripts\\start-whisper-server.ps1'); toast({ title: 'הועתק', description: 'הפקודה הועתקה ללוח' }); }}>
                   <Copy className="w-3 h-3" />
                 </Button>
               </div>
-              <p className="text-[10px] text-muted-foreground">זה מתקין שירות קטן שעולה אוטומטית עם Windows ומאפשר הפעלת השרת מהאתר</p>
             </div>
           )}
           {!isConnected && isRemoteAccess && (

@@ -117,17 +117,19 @@ function swAutoVersion(): Plugin {
 }
 
 // https://vitejs.dev/config/
-export default defineConfig(({ mode }) => ({
+export default defineConfig(({ mode }) => {
+  const isLovableCloud = Boolean(process.env.LOVABLE);
+
+  return {
   server: {
     host: "::",
     port: 8080,
     hmr: {
-      protocol: "ws",
-      host: "localhost",
-      port: 8080,
+      protocol: isLovableCloud ? "wss" : "ws",
+      ...(isLovableCloud ? { clientPort: 443 } : {}),
     },
-    // Allow Cloudflare Tunnel and other external origins
-    allowedHosts: ['localhost', '.trycloudflare.com'],
+    // Allow Cloudflare Tunnel and external preview origins
+    allowedHosts: ['localhost', '.trycloudflare.com', '.lovable.app', '.lovableproject.com'],
   },
   plugins: [
     react(),
@@ -170,4 +172,5 @@ export default defineConfig(({ mode }) => ({
     // Increase chunk size warning limit
     chunkSizeWarningLimit: 1000,
   },
-}));
+  };
+});
