@@ -178,4 +178,5 @@ export default defineConfig(({ mode }) => {
     // Increase chunk size warning limit
     chunkSizeWarningLimit: 1000,
   },
-}));
+  };
+});
