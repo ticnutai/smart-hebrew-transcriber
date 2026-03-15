@@ -851,10 +851,13 @@ def transcribe():
 
         try:
             segments, info = _run_transcribe(model)
+            # Force first segment to detect flash attention errors early
+            segments = list(segments)
         except Exception as fa_err:
             if "flash attention" in str(fa_err).lower():
                 model = _reload_model_without_flash(resolved)
                 segments, info = _run_transcribe(model)
+                segments = list(segments)
             else:
                 raise
 

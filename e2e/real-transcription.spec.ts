@@ -253,7 +253,7 @@ test.describe('בנצ\'מארק תמלול — כל הערכות וכל ה-API',
 
   for (const presetName of ['fast', 'balanced', 'accurate'] as const) {
     test(`3.${presetName} — /transcribe ערכת "${presetName}"`, async ({ page }) => {
-      test.setTimeout(90_000);
+      test.setTimeout(presetName === 'accurate' ? 180_000 : 90_000);
       const up = await isServerUp(page);
       test.skip(!up, 'שרת CUDA לא זמין');
 
@@ -328,7 +328,7 @@ test.describe('בנצ\'מארק תמלול — כל הערכות וכל ה-API',
 
   for (const presetName of ['fast', 'balanced', 'accurate'] as const) {
     test(`4.${presetName} — /transcribe-stream ערכת "${presetName}"`, async ({ page }) => {
-      test.setTimeout(90_000);
+      test.setTimeout(presetName === 'accurate' ? 180_000 : 90_000);
       const up = await isServerUp(page);
       test.skip(!up, 'שרת CUDA לא זמין');
 
