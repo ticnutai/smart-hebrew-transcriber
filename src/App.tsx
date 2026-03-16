@@ -126,6 +126,7 @@ const App = () => {
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/transcribe" element={<ProtectedRoute><Index /></ProtectedRoute>} />
                 <Route path="/login" element={<Login />} />
+                <Route path="/reset-password" element={<ResetPassword />} />
                 <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
                 <Route path="/setup" element={<ProtectedRoute><Setup /></ProtectedRoute>} />
                 <Route path="/text-editor" element={<ProtectedRoute><TextEditor /></ProtectedRoute>} />
