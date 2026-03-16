@@ -13,6 +13,7 @@ interface HistoryEntry {
   engine: string;
   tags?: string[];
   notes?: string;
+  word_timings?: any[] | null;
 }
 
 interface TranscriptHistoryProps {
