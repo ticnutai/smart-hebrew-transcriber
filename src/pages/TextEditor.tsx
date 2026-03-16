@@ -150,9 +150,22 @@ const TextEditor = () => {
       tryRecoverAudioFromDexie();
     }
 
-    // Load word timings from state, or fallback to localStorage
+    // Load word timings from state, or fallback to localStorage, or fetch from cloud
     if (location.state?.wordTimings) {
       setWordTimings(location.state.wordTimings);
+    } else if (location.state?.transcriptId) {
+      // Try fetching word_timings from cloud
+      supabase
+        .from('transcripts')
+        .select('word_timings')
+        .eq('id', location.state.transcriptId)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (data?.word_timings && Array.isArray(data.word_timings) && data.word_timings.length > 0) {
+            setWordTimings(data.word_timings as unknown as WordTiming[]);
+            debugLog.info('TextEditor', `Loaded ${(data.word_timings as any[]).length} word timings from cloud`);
+          }
+        });
     } else {
       try {
         const saved = localStorage.getItem('last_word_timings');

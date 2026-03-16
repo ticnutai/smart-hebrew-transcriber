@@ -180,7 +180,7 @@ const Dashboard = () => {
                 <div
                   key={t.id}
                   className="flex items-center justify-between p-3 rounded-lg border hover:bg-accent/50 transition-colors cursor-pointer"
-                  onClick={() => navigate('/text-editor', { state: { text: t.text } })}
+                  onClick={() => navigate('/text-editor', { state: { text: t.edited_text || t.text, transcriptId: t.id, audioFilePath: t.audio_file_path } })}
                 >
                   <div className="flex items-center gap-3 flex-1 min-w-0">
                     <FileText className="w-4 h-4 text-muted-foreground flex-shrink-0" />
