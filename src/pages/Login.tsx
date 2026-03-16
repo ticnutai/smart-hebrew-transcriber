@@ -5,6 +5,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { toast } from "sonner";
 import { Lock, Eye, EyeOff, Mail, KeyRound, Sparkles } from "lucide-react";
@@ -14,6 +16,8 @@ const Login = () => {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isSignUp, setIsSignUp] = useState(false);
+  const [isForgotPassword, setIsForgotPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(() => localStorage.getItem("rememberMe") === "true");
   const [isLoading, setIsLoading] = useState(false);
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
