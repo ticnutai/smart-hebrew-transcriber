@@ -128,7 +128,7 @@ export const TranscriptHistory = ({ history, onSelect, onClear, onUpdateEntry }:
                     size="sm"
                     variant="outline"
                     className="flex-1 text-xs"
-                    onClick={() => navigate('/text-editor', { state: { text: entry.text } })}
+                    onClick={() => navigate('/text-editor', { state: { text: entry.text, wordTimings: entry.word_timings } })}
                   >
                     <Edit className="w-3 h-3 ml-1" />
                     ערוך

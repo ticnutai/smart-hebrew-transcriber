@@ -402,7 +402,7 @@ export const FolderManager = ({ transcripts, onUpdate, onDelete, onGetAudioUrl }
                 onAddTag={() => addTag(t.id, t.tags || [])}
                 onRemoveTag={(tag) => removeTag(t.id, t.tags || [], tag)}
                 onCancelAddTag={() => setAddingTagId(null)}
-                onNavigateEdit={() => navigate('/text-editor', { state: { text: t.text } })}
+                onNavigateEdit={() => navigate('/text-editor', { state: { text: t.edited_text || t.text, transcriptId: t.id, audioFilePath: t.audio_file_path } })}
                 onDelete={() => onDelete(t.id)}
                 movingId={movingId}
                 setMovingId={setMovingId}
