@@ -48,6 +48,7 @@ const TextEditor = lazyWithLog('TextEditor', () => import("./pages/TextEditor"))
 const Folders = lazyWithLog('Folders', () => import("./pages/Folders"));
 const Benchmark = lazyWithLog('Benchmark', () => import("./pages/Benchmark"));
 const NotFound = lazyWithLog('NotFound', () => import("./pages/NotFound"));
+const ResetPassword = lazyWithLog('ResetPassword', () => import("./pages/ResetPassword"));
 
 /** Logs route changes */
 const RouteLogger = () => {
