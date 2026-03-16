@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import DOMPurify from "dompurify";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,9 +35,14 @@ interface RichTextEditorProps {
   columnStyle?: React.CSSProperties;
 }
 
+const sanitize = (html: string): string => DOMPurify.sanitize(html, {
+  ALLOWED_TAGS: ['b', 'i', 'u', 's', 'br', 'p', 'div', 'span', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'mark', 'font', 'strong', 'em'],
+  ALLOWED_ATTR: ['style', 'color', 'size', 'dir', 'class'],
+});
+
 const prepareHtml = (text: string): string => {
   if (!text) return '';
-  if (/<[a-z][\s\S]*>/i.test(text)) return text;
+  if (/<[a-z][\s\S]*>/i.test(text)) return sanitize(text);
   return text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -46,7 +52,7 @@ const prepareHtml = (text: string): string => {
 
 const stripHtml = (html: string): string => {
   const div = document.createElement('div');
-  div.innerHTML = html;
+  div.innerHTML = sanitize(html);
   return div.innerText || '';
 };
 
@@ -78,7 +84,7 @@ export const RichTextEditor = ({ text, onChange, columnStyle }: RichTextEditorPr
       const newHtml = prepareHtml(text);
       setHtmlContent(newHtml);
       if (editorRef.current && editorRef.current.innerHTML !== newHtml) {
-        editorRef.current.innerHTML = newHtml;
+        editorRef.current.innerHTML = sanitize(newHtml);
       }
     }
     isInternalUpdate.current = false;
@@ -481,7 +487,7 @@ export const RichTextEditor = ({ text, onChange, columnStyle }: RichTextEditorPr
                     ...columnStyle,
                   }}
                   onInput={syncContent}
-                  dangerouslySetInnerHTML={{ __html: htmlContent }}
+                  dangerouslySetInnerHTML={{ __html: sanitize(htmlContent) }}
                   suppressContentEditableWarning
                 />
               </div>
@@ -509,7 +515,7 @@ export const RichTextEditor = ({ text, onChange, columnStyle }: RichTextEditorPr
                   wordBreak: 'break-word',
                   ...columnStyle,
                 }}
-                dangerouslySetInnerHTML={{ __html: htmlContent }}
+                dangerouslySetInnerHTML={{ __html: sanitize(htmlContent) }}
               />
             </div>
           )}

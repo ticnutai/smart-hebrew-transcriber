@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Upload, Loader2, Zap, Globe, Chrome, Mic, Waves, Server, Cpu, Film, Music, FolderUp, Files, Play, X, CheckCircle, AlertCircle, RotateCcw, Clock, FileAudio } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { isVideoFile } from "@/lib/videoUtils";
+import { toast } from "@/hooks/use-toast";
 import type { TranscriptionJob } from "@/hooks/useTranscriptionJobs";
 
 function formatBytes(bytes: number): string {
@@ -154,6 +155,10 @@ export const FileUploader = ({
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (file.size > maxFileSizeMB * 1024 * 1024) {
+        toast({ title: `הקובץ גדול מדי (${Math.round(file.size / 1024 / 1024)}MB)`, description: `הגבלה: ${maxFileSizeMB}MB`, variant: "destructive" });
+        return;
+      }
       setSelectedFile(file);
       onFileSelect(file);
     }
@@ -355,7 +360,10 @@ export const FileUploader = ({
                   input.onchange = async (e) => {
                     const file = (e.target as HTMLInputElement).files?.[0];
                     if (!file) return;
-                    if (file.size > maxFileSizeMB * 1024 * 1024) return;
+                    if (file.size > maxFileSizeMB * 1024 * 1024) {
+                      toast({ title: `הקובץ גדול מדי`, description: `הגבלה: ${maxFileSizeMB}MB`, variant: "destructive" });
+                      return;
+                    }
                     await onSubmitBackgroundJob(file);
                   };
                   input.click();

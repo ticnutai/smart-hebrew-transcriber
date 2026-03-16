@@ -38,3 +38,13 @@ __pycache__/
 remote-urls.txt
 _remote_test.txt
 .playwright-mcp/
+
+# Debug artifacts
+server_err.txt
+server_out.txt
+server_restart_err.txt
+push_err.txt
+push_output.txt
+_git_remote.txt
+playwright-report/
+test-results/

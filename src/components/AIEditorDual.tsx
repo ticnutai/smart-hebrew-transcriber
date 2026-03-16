@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, memo } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -65,7 +65,7 @@ const TRANSLATE_LANGS = [
   { value: 'גרמנית', label: '🇩🇪 גרמנית' },
 ];
 
-export const AIEditorDual = ({ text, onTextChange, onSaveVersion }: AIEditorDualProps) => {
+const AIEditorDualInner = ({ text, onTextChange, onSaveVersion }: AIEditorDualProps) => {
   const [isEditing1, setIsEditing1] = useState(false);
   const [isEditing2, setIsEditing2] = useState(false);
   const [model1, setModel1] = useState('gemini-flash');
@@ -407,3 +407,5 @@ export const AIEditorDual = ({ text, onTextChange, onSaveVersion }: AIEditorDual
     </Card>
   );
 };
+
+export const AIEditorDual = memo(AIEditorDualInner);

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, memo } from "react";
 import { Card } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
@@ -98,7 +98,7 @@ function mergeVersions(local: TextVersion[], cloud: CloudVersion[]): DisplayVers
   return result;
 }
 
-export const TextEditHistory = ({
+const TextEditHistoryInner = ({
   versions,
   onSelectVersion,
   selectedVersionId,
@@ -386,3 +386,5 @@ export const TextEditHistory = ({
     </Card>
   );
 };
+
+export const TextEditHistory = memo(TextEditHistoryInner);

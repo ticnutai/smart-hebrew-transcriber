@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, memo } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -24,7 +24,7 @@ interface TranscriptEditorProps {
   onSearchOpenChange?: (open: boolean) => void;
 }
 
-export const TranscriptEditor = ({ transcript, onTranscriptChange, wordTimings, searchOpen, onSearchOpenChange }: TranscriptEditorProps) => {
+const TranscriptEditorInner = ({ transcript, onTranscriptChange, wordTimings, searchOpen, onSearchOpenChange }: TranscriptEditorProps) => {
   const [isEditing, setIsEditing] = useState(false);
   const [showConfidence, setShowConfidence] = useState(false);
   const [customPrompt, setCustomPrompt] = useState("");
@@ -488,3 +488,5 @@ export const TranscriptEditor = ({ transcript, onTranscriptChange, wordTimings, 
     </Card>
   );
 };
+
+export const TranscriptEditor = memo(TranscriptEditorInner);

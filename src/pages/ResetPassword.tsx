@@ -35,8 +35,12 @@ const ResetPassword = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (password.length < 6) {
-      toast.error("הסיסמה חייבת להכיל לפחות 6 תווים");
+    if (password.length < 8) {
+      toast.error("הסיסמה חייבת להכיל לפחות 8 תווים");
+      return;
+    }
+    if (!/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/\d/.test(password)) {
+      toast.error("הסיסמה חייבת להכיל אות גדולה, אות קטנה ומספר");
       return;
     }
 

@@ -123,7 +123,7 @@ const App = () => {
           <AppLayout>
             <Suspense fallback={<PageLoader label="suspense" />}>
               <Routes>
-                <Route path="/" element={<Dashboard />} />
+                <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
                 <Route path="/transcribe" element={<ProtectedRoute><Index /></ProtectedRoute>} />
                 <Route path="/login" element={<Login />} />
                 <Route path="/reset-password" element={<ResetPassword />} />
