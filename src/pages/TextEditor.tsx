@@ -162,7 +162,7 @@ const TextEditor = () => {
         .maybeSingle()
         .then(({ data }) => {
           if (data?.word_timings && Array.isArray(data.word_timings) && data.word_timings.length > 0) {
-            setWordTimings(data.word_timings as WordTiming[]);
+            setWordTimings(data.word_timings as unknown as WordTiming[]);
             debugLog.info('TextEditor', `Loaded ${(data.word_timings as any[]).length} word timings from cloud`);
           }
         });
