@@ -22,6 +22,14 @@ const Login = () => {
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
 
+  // Load remembered email
+  useEffect(() => {
+    if (rememberMe) {
+      const saved = localStorage.getItem("rememberedEmail");
+      if (saved) setEmail(saved);
+    }
+  }, []);
+
   useEffect(() => {
     if (isAuthenticated) {
       navigate("/");
