@@ -46,22 +46,32 @@ const Login = () => {
     setIsLoading(true);
 
     try {
-      if (isSignUp) {
-        const { error } = await supabase.auth.signUp({
-          email,
-          password,
+      if (isForgotPassword) {
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: `${window.location.origin}/reset-password`,
         });
+        if (error) throw error;
+        toast.success("נשלח קישור לאיפוס סיסמה לאימייל שלך 📧");
+        setIsForgotPassword(false);
+      } else if (isSignUp) {
+        const { error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
         toast.success("נרשמת בהצלחה! 🎉");
+        navigate("/");
       } else {
-        const { error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
+        // Remember me: save email for next visit
+        if (rememberMe) {
+          localStorage.setItem("rememberMe", "true");
+          localStorage.setItem("rememberedEmail", email);
+        } else {
+          localStorage.removeItem("rememberMe");
+          localStorage.removeItem("rememberedEmail");
+        }
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
         toast.success("התחברת בהצלחה! 🎉");
+        navigate("/");
       }
-      navigate("/");
     } catch (error: any) {
       toast.error(error.message || "שגיאה בהתחברות");
     } finally {
