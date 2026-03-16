@@ -10,15 +10,16 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import {
   Wand2, Loader2, Sparkles, MessageSquare, BookOpen, FileText,
   Languages, Users, List, Heading, Maximize2, Minimize2,
-  CheckCheck, Volume2, AlignJustify, Quote, Cpu
+  CheckCheck, Volume2, AlignJustify, Quote, Cpu, Save
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import { editTranscriptCloud } from "@/utils/editTranscriptApi";
 import { useOllama, isOllamaModel, getOllamaModelName } from "@/hooks/useOllama";
 
 interface AIEditorDualProps {
   text: string;
   onTextChange: (text: string, source: string, customPrompt?: string) => void;
+  onSaveVersion?: (text: string, source: string, engineLabel: string, actionLabel: string) => void;
 }
 
 const CLOUD_MODELS = [
@@ -55,15 +56,16 @@ const TONE_OPTIONS = [
 ];
 
 const TRANSLATE_LANGS = [
-  { value: 'אנגלית', label: 'אנגלית' },
-  { value: 'ערבית', label: 'ערבית' },
-  { value: 'רוסית', label: 'רוסית' },
-  { value: 'צרפתית', label: 'צרפתית' },
-  { value: 'ספרדית', label: 'ספרדית' },
-  { value: 'גרמנית', label: 'גרמנית' },
+  { value: 'אנגלית', label: '🇺🇸 עברית ← אנגלית' },
+  { value: 'עברית', label: '🇮🇱 אנגלית ← עברית' },
+  { value: 'ערבית', label: '🇸🇦 ערבית' },
+  { value: 'רוסית', label: '🇷🇺 רוסית' },
+  { value: 'צרפתית', label: '🇫🇷 צרפתית' },
+  { value: 'ספרדית', label: '🇪🇸 ספרדית' },
+  { value: 'גרמנית', label: '🇩🇪 גרמנית' },
 ];
 
-export const AIEditorDual = ({ text, onTextChange }: AIEditorDualProps) => {
+export const AIEditorDual = ({ text, onTextChange, onSaveVersion }: AIEditorDualProps) => {
   const [isEditing1, setIsEditing1] = useState(false);
   const [isEditing2, setIsEditing2] = useState(false);
   const [model1, setModel1] = useState('gemini-flash');
@@ -117,20 +119,15 @@ export const AIEditorDual = ({ text, onTextChange }: AIEditorDualProps) => {
           targetLanguage: extra?.targetLanguage,
         });
       } else {
-        // Cloud execution via Supabase edge function
-        const body: Record<string, string> = {
+        // Cloud execution via DB proxy → edge function fallback
+        resultText = await editTranscriptCloud({
           text,
           action,
           model: getModelApi(modelValue),
-        };
-
-        if (extra?.customPrompt) body.customPrompt = extra.customPrompt;
-        if (extra?.toneStyle) body.toneStyle = extra.toneStyle;
-        if (extra?.targetLanguage) body.targetLanguage = extra.targetLanguage;
-
-        const { data, error } = await supabase.functions.invoke('edit-transcript', { body });
-        if (error) throw error;
-        resultText = data?.text;
+          customPrompt: extra?.customPrompt,
+          toneStyle: extra?.toneStyle,
+          targetLanguage: extra?.targetLanguage,
+        });
       }
 
       if (resultText) {
@@ -138,9 +135,9 @@ export const AIEditorDual = ({ text, onTextChange }: AIEditorDualProps) => {
         toast({ title: "הצלחה", description: `עריכה עם ${getModelLabel(modelValue)} הושלמה` });
       }
     } catch (error) {
-      console.error('Error editing:', error);
+      console.error(`Error editing with ${getModelLabel(modelValue)}:`, error);
       toast({
-        title: "שגיאה",
+        title: `שגיאה ב-${getModelLabel(modelValue)}`,
         description: error instanceof Error ? error.message : "שגיאה בעריכה",
         variant: "destructive",
       });
@@ -172,7 +169,7 @@ export const AIEditorDual = ({ text, onTextChange }: AIEditorDualProps) => {
   );
 
   const EnginePanel = ({
-    num, modelValue, setModelValue, isEditingState, result, onApply
+    num, modelValue, setModelValue, isEditingState, result, onApply, onSave
   }: {
     num: number;
     modelValue: string;
@@ -180,6 +177,7 @@ export const AIEditorDual = ({ text, onTextChange }: AIEditorDualProps) => {
     isEditingState: boolean;
     result: string;
     onApply: () => void;
+    onSave: () => void;
   }) => (
     <div className="border rounded-lg p-4 space-y-3">
       <div className="flex items-center justify-between">
@@ -224,6 +222,12 @@ export const AIEditorDual = ({ text, onTextChange }: AIEditorDualProps) => {
           <Button size="sm" onClick={onApply} className="w-full">
             החלף בטקסט הראשי
           </Button>
+          {onSaveVersion && (
+            <Button size="sm" variant="outline" onClick={onSave} className="w-full">
+              <Save className="w-3 h-3 ml-1" />
+              שמור גרסה
+            </Button>
+          )}
         </>
       )}
     </div>
@@ -292,7 +296,7 @@ export const AIEditorDual = ({ text, onTextChange }: AIEditorDualProps) => {
                   תרגם
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-44 p-2" dir="rtl">
+              <PopoverContent className="w-52 p-2" dir="rtl">
                 <Label className="text-xs font-semibold mb-2 block">שפת יעד:</Label>
                 <div className="space-y-0.5">
                   {TRANSLATE_LANGS.map(lang => (
@@ -388,6 +392,7 @@ export const AIEditorDual = ({ text, onTextChange }: AIEditorDualProps) => {
           isEditingState={isEditing1}
           result={result1}
           onApply={() => onTextChange(result1, `ai-${lastAction || 'improve'}`, `${getModelLabel(model1)}`)}
+          onSave={() => onSaveVersion?.(result1, `ai-${lastAction || 'improve'}`, getModelLabel(model1), lastAction || 'improve')}
         />
         <EnginePanel
           num={2}
@@ -396,6 +401,7 @@ export const AIEditorDual = ({ text, onTextChange }: AIEditorDualProps) => {
           isEditingState={isEditing2}
           result={result2}
           onApply={() => onTextChange(result2, `ai-${lastAction || 'improve'}`, `${getModelLabel(model2)}`)}
+          onSave={() => onSaveVersion?.(result2, `ai-${lastAction || 'improve'}`, getModelLabel(model2), lastAction || 'improve')}
         />
       </div>
     </Card>

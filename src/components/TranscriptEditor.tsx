@@ -5,7 +5,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Wand2, BookOpen, FileText, Copy, Download, Loader2, Upload, Settings2, CheckCheck, AlignJustify, Quote, Users, Search, ChevronUp, ChevronDown, X } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import { editTranscriptCloud } from "@/utils/editTranscriptApi";
 import { ExportButton } from "@/components/ExportButton";
 import {
   Dialog,
@@ -113,25 +113,19 @@ export const TranscriptEditor = ({ transcript, onTranscriptChange, wordTimings, 
     setIsEditing(true);
 
     try {
-      const { data, error } = await supabase.functions.invoke('edit-transcript', {
-        body: { 
-          text: transcript, 
-          action,
-          customPrompt: prompt 
-        }
+      const resultText = await editTranscriptCloud({
+        text: transcript,
+        action,
+        customPrompt: prompt,
       });
 
-      if (error) throw error;
-
-      if (data?.text) {
-        onTranscriptChange(data.text);
-        toast({
-          title: "הצלחה",
-          description: "הטקסט נערך בהצלחה",
-        });
-        setShowPromptDialog(false);
-        setCustomPrompt("");
-      }
+      onTranscriptChange(resultText);
+      toast({
+        title: "הצלחה",
+        description: "הטקסט נערך בהצלחה",
+      });
+      setShowPromptDialog(false);
+      setCustomPrompt("");
     } catch (error) {
       console.error('Error editing transcript:', error);
       toast({

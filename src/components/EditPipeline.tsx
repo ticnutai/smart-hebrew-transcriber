@@ -11,7 +11,7 @@ import {
   Workflow, Plus, Trash2, Play, Loader2, ArrowDown, GripVertical, ChevronDown, Cpu
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import { editTranscriptCloud } from "@/utils/editTranscriptApi";
 import { useOllama, isOllamaModel, getOllamaModelName } from "@/hooks/useOllama";
 
 interface EditPipelineProps {
@@ -173,16 +173,12 @@ export const EditPipeline = ({ text, onTextChange }: EditPipelineProps) => {
             model: getOllamaModelName(model),
           });
         } else {
-          // Cloud execution
-          const { data, error } = await supabase.functions.invoke('edit-transcript', {
-            body: {
-              text: currentText,
-              action: steps[i].action,
-              model,
-            }
+          // Cloud execution via DB proxy → edge function fallback
+          responseText = await editTranscriptCloud({
+            text: currentText,
+            action: steps[i].action,
+            model,
           });
-          if (error) throw error;
-          responseText = data?.text;
         }
 
         if (responseText) {

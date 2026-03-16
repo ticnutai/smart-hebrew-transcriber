@@ -190,6 +190,51 @@ export type Database = {
         }
         Relationships: []
       }
+      transcript_versions: {
+        Row: {
+          id: string
+          transcript_id: string
+          user_id: string
+          text: string
+          source: string
+          engine_label: string | null
+          action_label: string | null
+          version_number: number
+          word_count: number | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          transcript_id: string
+          user_id: string
+          text: string
+          source?: string
+          engine_label?: string | null
+          action_label?: string | null
+          version_number?: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          transcript_id?: string
+          user_id?: string
+          text?: string
+          source?: string
+          engine_label?: string | null
+          action_label?: string | null
+          version_number?: number
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "transcript_versions_transcript_id_fkey"
+            columns: ["transcript_id"]
+            isOneToOne: false
+            referencedRelation: "transcripts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       transcripts: {
         Row: {
           audio_file_path: string | null

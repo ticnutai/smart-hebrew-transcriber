@@ -201,7 +201,11 @@ export function useOllama() {
       systemPrompt = TONE_PROMPTS[toneStyle || 'formal'] || TONE_PROMPTS.formal;
     } else if (action === 'translate') {
       const lang = targetLanguage || 'אנגלית';
-      systemPrompt = `אתה מתרגם מקצועי. תרגם את הטקסט הבא ל${lang}. שמור על המשמעות והסגנון המקורי. אל תוסיף הערות — רק את התרגום עצמו.`;
+      if (lang === 'עברית') {
+        systemPrompt = 'You are a professional translator. Translate the following text into Hebrew (עברית). Preserve the original meaning and style. Do not add notes — only the translation itself.';
+      } else {
+        systemPrompt = `אתה מתרגם מקצועי. תרגם את הטקסט הבא ל${lang}. שמור על המשמעות והסגנון המקורי. אל תוסיף הערות — רק את התרגום עצמו.`;
+      }
     } else {
       systemPrompt = ACTION_PROMPTS[action];
       if (!systemPrompt) throw new Error(`Invalid action: ${action}`);

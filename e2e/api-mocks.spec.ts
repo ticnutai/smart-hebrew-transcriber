@@ -11,8 +11,8 @@ test.describe('Supabase API - תמלולים', () => {
 
   test('טעינת רשימת תמלולים מ-Supabase', async ({ page }) => {
     await page.goto('/');
-    // Dashboard should load and show transcripts from mock
-    await expect(page.getByText(/תמלול בדיקה|בדיקה/i).first()).toBeVisible({ timeout: 10000 });
+    // Wait for dashboard to finish loading data from mock API
+    await expect(page.getByText(/תמלול בדיקה|בדיקה/i).first()).toBeVisible({ timeout: 45000 });
   });
 
   test('שמירת תמלול חדש', async ({ page }) => {

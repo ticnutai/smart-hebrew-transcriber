@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/dialog";
 import { BookMarked, Plus, Trash2, Play, Save, Search, Loader2, Cpu } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import { editTranscriptCloud } from "@/utils/editTranscriptApi";
 import { useOllama, isOllamaModel, getOllamaModelName } from "@/hooks/useOllama";
 
 interface PromptLibraryProps {
@@ -170,12 +170,10 @@ export const PromptLibrary = ({ text, onTextChange }: PromptLibraryProps) => {
           customPrompt: prompt,
         });
       } else {
-        // Cloud execution
-        const { data, error } = await supabase.functions.invoke('edit-transcript', {
-          body: { text, action: 'custom', customPrompt: prompt }
+        // Cloud execution via DB proxy → edge function fallback
+        resultText = await editTranscriptCloud({
+          text, action: 'custom', customPrompt: prompt,
         });
-        if (error) throw error;
-        resultText = data?.text;
       }
 
       if (resultText) {

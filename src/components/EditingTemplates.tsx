@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, FileText, Languages, ListChecks, Newspaper, BookOpen, PenLine, Sparkles } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import { editTranscriptCloud } from "@/utils/editTranscriptApi";
 
 interface EditingTemplatesProps {
   text: string;
@@ -95,12 +95,10 @@ export const EditingTemplates = ({ text, onApply }: EditingTemplatesProps) => {
     }
     setLoadingId(template.id);
     try {
-      const { data, error } = await supabase.functions.invoke('edit-transcript', {
-        body: { text, action: 'custom', customPrompt: template.prompt }
+      const resultText = await editTranscriptCloud({
+        text, action: 'custom', customPrompt: template.prompt
       });
-      if (error) throw error;
-      if (!data?.text) throw new Error('לא התקבלה תשובה');
-      onApply(data.text, template.label);
+      onApply(resultText, template.label);
       toast({ title: `${template.label} הושלם ✅` });
     } catch (err) {
       toast({

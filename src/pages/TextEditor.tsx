@@ -21,10 +21,34 @@ const SyncAudioPlayer = lazy(() => import("@/components/SyncAudioPlayer").then(m
 const SyncTranscriptView = lazy(() => import("@/components/SyncTranscriptView").then(m => ({ default: m.SyncTranscriptView })));
 import { ArrowRight, Home, Wand2, SplitSquareVertical, SpellCheck, Loader2, Columns2, Columns3, AlignJustify, LayoutGrid, Rows3 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { editTranscriptCloud } from "@/utils/editTranscriptApi";
 import { toast } from "@/hooks/use-toast";
 import { useCloudPreferences } from "@/hooks/useCloudPreferences";
 import { useCloudTranscripts } from "@/hooks/useCloudTranscripts";
+import { useCloudVersions } from "@/hooks/useCloudVersions";
+import { useOllama, isOllamaModel } from "@/hooks/useOllama";
 import { db } from "@/lib/localDb";
+
+const sourceLabels: Record<string, string> = {
+  original: 'תמלול מקורי',
+  manual: 'עריכה ידנית',
+  'ai-improve': 'שיפור ניסוח',
+  'ai-sources': 'הוספת מקורות',
+  'ai-readable': 'זורם לקריאה',
+  'ai-custom': 'פרומפט מותאם',
+  'ai-fix': 'תיקון ועיבוד',
+  'ai-grammar': 'דקדוק ואיות',
+  'ai-punctuation': 'פיסוק',
+  'ai-paragraphs': 'חלוקה לפסקאות',
+  'ai-bullets': 'נקודות מפתח',
+  'ai-headings': 'כותרות',
+  'ai-expand': 'הרחבה',
+  'ai-shorten': 'קיצור',
+  'ai-summarize': 'סיכום',
+  'ai-translate': 'תרגום',
+  'ai-speakers': 'זיהוי דוברים',
+  'ai-tone': 'שינוי טון',
+};
 
 const TextEditor = () => {
   const navigate = useNavigate();
@@ -39,6 +63,9 @@ const TextEditor = () => {
   const manualVersionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { updateTranscript, getAudioUrl } = useCloudTranscripts();
   const [syncEnabled, setSyncEnabled] = useState(true);
+  const [transcriptId, setTranscriptId] = useState<string | null>(null);
+  const { versions: cloudVersions, isLoading: cloudVersionsLoading, saveVersion: saveCloudVersion } = useCloudVersions(transcriptId);
+  const ollama = useOllama();
   
   // Cloud-synced style settings
   const { preferences, updatePreference } = useCloudPreferences();
@@ -94,6 +121,13 @@ const TextEditor = () => {
       // Save to localStorage for persistence
       localStorage.setItem('current_editing_text', stateText);
       localStorage.setItem('text_versions', JSON.stringify([initialVersion]));
+      // Save initial version to cloud
+      if (location.state?.transcriptId) {
+        // Defer to avoid calling saveCloudVersion before hook is ready
+        setTimeout(() => {
+          saveCloudVersion(stateText, 'original', null, 'תמלול מקורי');
+        }, 500);
+      }
     } else {
       // Try to load from localStorage
       const savedText = localStorage.getItem('current_editing_text');
@@ -121,6 +155,7 @@ const TextEditor = () => {
     // Track transcript ID for cloud saves
     if (location.state?.transcriptId) {
       transcriptIdRef.current = location.state.transcriptId;
+      setTranscriptId(location.state.transcriptId);
     }
 
     // Load audio URL from navigation state or resolve from Supabase Storage
@@ -208,11 +243,31 @@ const TextEditor = () => {
     setVersions(prev => [...prev, newVersion]);
     setSelectedVersionId(newVersion.id);
     setText(newText);
+    // Also save to cloud versions
+    if (transcriptId) {
+      saveCloudVersion(newText, source, customPrompt || null, sourceLabels[source] || source);
+    }
+  };
+
+  const handleSaveVersion = (text: string, source: string, engineLabel: string, actionLabel: string) => {
+    // Save version to cloud WITHOUT replacing the main text
+    if (transcriptId) {
+      saveCloudVersion(text, source, engineLabel, actionLabel);
+      toast({ title: 'גרסה נשמרה בענן ☁️', description: `${engineLabel} — ${actionLabel}` });
+    } else {
+      toast({ title: 'לא ניתן לשמור', description: 'יש צורך בתמלול שמור בענן', variant: 'destructive' });
+    }
   };
 
   const handleVersionSelect = (version: TextVersion) => {
     setSelectedVersionId(version.id);
     setText(version.text);
+  };
+
+  const handleRestoreVersion = (newText: string) => {
+    setText(newText);
+    addVersion(newText, 'manual', 'שחזור גרסה');
+    toast({ title: 'גרסה שוחזרה ✅' });
   };
 
   
@@ -225,21 +280,38 @@ const TextEditor = () => {
       return;
     }
     setAiAction(action);
+    const labels: Record<string, string> = {
+      fix_errors: 'תיקון שגיאות',
+      split_paragraphs: 'חלוקה לפסקאות',
+      fix_and_split: 'תיקון + חלוקה',
+    };
     try {
-      const { data, error } = await supabase.functions.invoke('edit-transcript', {
-        body: { text, action }
-      });
-      if (error) throw error;
-      if (!data?.text) throw new Error('לא התקבלה תשובה מ-AI');
-      
-      const labels: Record<string, string> = {
-        fix_errors: 'תיקון שגיאות',
-        split_paragraphs: 'חלוקה לפסקאות',
-        fix_and_split: 'תיקון + חלוקה',
-      };
-      addVersion(data.text, 'ai-fix', labels[action]);
+      let resultText: string | undefined;
+
+      // Prefer Ollama if connected (offline-first)
+      if (ollama.isConnected && ollama.models.length > 0) {
+        const model = ollama.models[0].name;
+        resultText = await ollama.editText({ text, action, model });
+      } else {
+        // Cloud: DB proxy → edge function fallback
+        resultText = await editTranscriptCloud({ text, action });
+      }
+
+      if (!resultText) throw new Error('לא התקבלה תשובה מ-AI');
+      addVersion(resultText, 'ai-fix', labels[action]);
       toast({ title: `${labels[action]} הושלם ✅` });
     } catch (err) {
+      // If Ollama failed, try cloud as fallback
+      if (ollama.isConnected) {
+        try {
+          const cloudText = await editTranscriptCloud({ text, action });
+          if (cloudText) {
+            addVersion(cloudText, 'ai-fix', labels[action]);
+            toast({ title: `${labels[action]} הושלם ✅ (ענן)` });
+            return;
+          }
+        } catch { /* cloud also failed */ }
+      }
       console.error('AI action error:', err);
       toast({ title: "שגיאה בעיבוד AI", description: err instanceof Error ? err.message : 'שגיאה', variant: "destructive" });
     } finally {
@@ -419,7 +491,8 @@ const TextEditor = () => {
                 onTextChange={(newText, source, customPrompt) => {
                   setText(newText);
                   addVersion(newText, source as TextVersion['source'], customPrompt);
-                }} 
+                }}
+                onSaveVersion={handleSaveVersion}
               />
             </div>
           </TabsContent>
@@ -472,6 +545,9 @@ const TextEditor = () => {
               versions={versions}
               onSelectVersion={handleVersionSelect}
               selectedVersionId={selectedVersionId}
+              cloudVersions={cloudVersions}
+              cloudLoading={cloudVersionsLoading}
+              onRestoreVersion={handleRestoreVersion}
             />
           </TabsContent>
         </Tabs>
