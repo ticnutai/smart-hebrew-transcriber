@@ -108,27 +108,79 @@ export const useLocalServer = () => {
     return key ? { 'X-API-Key': key } : {};
   };
 
+  const setDisconnected = useCallback(() => {
+    setIsConnected(false);
+    setServerStatus(null);
+    setModelReady(false);
+    setModelLoading(false);
+  }, []);
+
+  const applyConnectedStatus = useCallback((data: ServerStatus) => {
+    setServerStatus(data);
+    setIsConnected(true);
+    setModelReady(data.model_ready ?? false);
+    setModelLoading(data.model_loading ?? false);
+  }, []);
+
   const checkConnection = useCallback(async () => {
-    const url = `${getBaseUrl()}/health`;
+    const baseUrl = getBaseUrl();
+    const url = `${baseUrl}/health`;
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
       if (res.ok) {
         const data = await res.json();
-        setServerStatus(data);
-        setIsConnected(true);
-        setModelReady(data.model_ready ?? false);
-        setModelLoading(data.model_loading ?? false);
+        applyConnectedStatus(data as ServerStatus);
         return true;
       }
     } catch {
       // Server not running — silent
     }
-    setIsConnected(false);
-    setServerStatus(null);
-    setModelReady(false);
-    setModelLoading(false);
+
+    // Hosted app fallback: ask the local launcher (8764) about whisper status.
+    // This keeps status/live-mode working even when direct localhost checks are flaky.
+    const shouldTryLauncherHealth = (() => {
+      if (typeof window === 'undefined') return false;
+      const host = window.location.hostname;
+      const isLocalPage = host === 'localhost' || host === '127.0.0.1';
+      if (isLocalPage) return false;
+      return baseUrl.includes('localhost:8765') || baseUrl.includes('127.0.0.1:8765');
+    })();
+
+    if (shouldTryLauncherHealth) {
+      try {
+        const launcherRes = await fetch('http://localhost:8764/health', {
+          signal: AbortSignal.timeout(3000),
+          headers: { 'Accept': 'application/json' },
+        });
+        if (launcherRes.ok) {
+          const launcher = await launcherRes.json() as {
+            whisper?: { running?: boolean };
+          };
+          if (launcher.whisper?.running) {
+            const fallbackStatus: ServerStatus = {
+              status: 'ok',
+              device: 'cuda',
+              gpu: null,
+              current_model: null,
+              cached_models: [],
+              downloaded_models: [],
+              available_models: [],
+              model_loading: false,
+              model_loading_id: null,
+              model_ready: true,
+            };
+            applyConnectedStatus(fallbackStatus);
+            return true;
+          }
+        }
+      } catch {
+        // Launcher not available — keep disconnected
+      }
+    }
+
+    setDisconnected();
     return false;
-  }, []);
+  }, [applyConnectedStatus, setDisconnected]);
 
   /** Start polling — call this when the CUDA engine is selected.
    *  @param intervalMs  base polling interval (default 10 000 ms)

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, lazy, Suspense, useCallback } from "react";
+import { useState, useEffect, useRef, lazy, Suspense, useCallback, type ChangeEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { TranscriptionEngine } from "@/components/TranscriptionEngine";
 import { FileUploader } from "@/components/FileUploader";
@@ -81,6 +81,7 @@ const Index = () => {
   // Save reference to last uploaded file for resume functionality
   const lastFileRef = useRef<File | null>(null);
   const lastAudioUrlRef = useRef<string | null>(null);
+  const resumeFileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Pending file waiting for local server to come up
   const pendingServerFileRef = useRef<{ file: File; audioUrl: string } | null>(null);
@@ -98,17 +99,17 @@ const Index = () => {
   // Helper to track the start time of each transcription for analytics
   const transcriptionStartRef = useRef<number>(0);
 
-  // Start/stop health polling when CUDA engine is selected
-  // Skip polling when on cloud (non-localhost) with default server URL
-  const isCloudWithDefaultUrl = typeof window !== 'undefined'
-    && !['localhost', '127.0.0.1'].includes(window.location.hostname)
-    && !localStorage.getItem('whisper_server_url');
-
   useEffect(() => {
-    // TranscriptionEngine handles initial check + polling for the CUDA engine.
-    // Index only starts polling on-demand (see transcribeWithLocalServer).
+    // Keep Index's serverConnected in sync (used by LiveTranscriber and resume flow).
+    // TranscriptionEngine has its own hook instance, so we also poll here.
+    if (engine === 'local-server') {
+      checkConnection();
+      startPolling(10000);
+    } else {
+      stopPolling();
+    }
     return () => stopPolling();
-  }, [engine, stopPolling]);
+  }, [engine, checkConnection, startPolling, stopPolling]);
 
   // Cleanup audio Object URL on unmount
   useEffect(() => {
@@ -271,6 +272,7 @@ const Index = () => {
 
   const handleFileSelect = async (file: File) => {
     currentFileRef.current = file;
+    lastFileRef.current = file;
     pendingServerFileRef.current = null; // Clear pending queue when new file is selected
     setRecoveredPartialInfo(null); // Clear recovery banner on new transcription
     
@@ -1084,17 +1086,19 @@ const Index = () => {
     setIsUploading(false);
   };
 
-  const handleResumeTranscription = async () => {
+  const handleResumeTranscription = async (fileOverride?: File) => {
     const partial = recoverPartial();
     if (!partial || !partial.lastSegEnd) {
       toast({ title: "אין מה להמשיך", description: "לא נמצא תמלול חלקי עם נקודת המשך", variant: "destructive" });
       return;
     }
-    const file = currentFileRef.current;
+    const file = fileOverride || currentFileRef.current || lastFileRef.current;
     if (!file) {
-      toast({ title: "נדרש קובץ", description: "העלה שוב את אותו קובץ שאומת כדי להמשיך", variant: "destructive" });
+      toast({ title: "נדרש קובץ", description: "בחר שוב את קובץ המקור כדי להמשיך מאותה נקודה", variant: "destructive" });
       return;
     }
+    currentFileRef.current = file;
+    lastFileRef.current = file;
     setRecoveredPartialInfo(null);
     try {
       await transcribeWithLocalServer(file, undefined, {
@@ -1106,6 +1110,14 @@ const Index = () => {
       if (error instanceof Error && error.message === 'CANCELLED') return;
       console.error('[Index] resume failed:', error);
     }
+  };
+
+  const handleResumeFilePick = async (e: ChangeEvent<HTMLInputElement>) => {
+    const picked = e.target.files?.[0];
+    e.currentTarget.value = '';
+    if (!picked) return;
+    toast({ title: 'נבחר קובץ להמשך', description: picked.name });
+    await handleResumeTranscription(picked);
   };
 
   // Batch transcription wrapper - transcribes a single file and returns text
@@ -1293,6 +1305,13 @@ const Index = () => {
         {/* Recovered partial transcript banner */}
         {recoveredPartialInfo && !isLoading && transcript && (
           <Card className="p-3 border-amber-500/40 bg-amber-500/5" dir="rtl">
+            <input
+              ref={resumeFileInputRef}
+              type="file"
+              className="hidden"
+              accept="audio/*,video/*,.mp3,.wav,.m4a,.flac,.ogg,.aac,.wma,.mp4,.webm,.avi,.mov,.mkv"
+              onChange={handleResumeFilePick}
+            />
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Button
@@ -1310,15 +1329,21 @@ const Index = () => {
                   <Square className="h-3 w-3" />
                   עצור
                 </Button>
-                {recoveredPartialInfo.lastSegEnd && currentFileRef.current && (
+                {recoveredPartialInfo.lastSegEnd && (
                   <Button
                     variant="default"
                     size="sm"
                     className="text-xs gap-1"
-                    onClick={handleResumeTranscription}
+                    onClick={() => {
+                      if (currentFileRef.current || lastFileRef.current) {
+                        handleResumeTranscription();
+                      } else {
+                        resumeFileInputRef.current?.click();
+                      }
+                    }}
                   >
                     <Play className="h-3 w-3" />
-                    המשך
+                    {currentFileRef.current || lastFileRef.current ? 'המשך' : 'בחר קובץ והמשך'}
                   </Button>
                 )}
               </div>
