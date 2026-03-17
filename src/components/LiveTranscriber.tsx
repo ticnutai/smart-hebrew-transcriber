@@ -32,6 +32,7 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
   const chunkIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const allChunksRef = useRef<Blob[]>([]);
+  const headerChunkRef = useRef<Blob | null>(null);
   const processingRef = useRef(false);
   const gpuBusyToastAtRef = useRef(0);
 
@@ -276,6 +277,11 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
 
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) {
+          // Save the first chunk — it contains the WebM header/init segment.
+          // Without it, later chunks are invalid standalone WebM files.
+          if (!headerChunkRef.current) {
+            headerChunkRef.current = e.data;
+          }
           chunksRef.current.push(e.data);
           allChunksRef.current.push(e.data);
         }
@@ -283,10 +289,17 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
 
       recorder.start(LIVE_RECORDING_TIMESLICE_MS);
 
-      // Send accumulated chunks every ~1.8s for lower perceived latency.
+      // Send accumulated chunks every LIVE_CHUNK_MS.
+      // Always prepend the WebM header chunk so each blob is a valid, standalone file.
       chunkIntervalRef.current = setInterval(() => {
         if (chunksRef.current.length > 0 && !processingRef.current) {
-          const blob = new Blob(chunksRef.current, { type: mimeType });
+          const parts: Blob[] = [];
+          // If the batch doesn't start with the header chunk, prepend it
+          if (headerChunkRef.current && chunksRef.current[0] !== headerChunkRef.current) {
+            parts.push(headerChunkRef.current);
+          }
+          parts.push(...chunksRef.current);
+          const blob = new Blob(parts, { type: mimeType });
           chunksRef.current = [];
           sendChunk(blob);
         }
@@ -326,6 +339,7 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
     }
     chunksRef.current = [];
     allChunksRef.current = [];
+    headerChunkRef.current = null;
     processingRef.current = false;
     isListeningRef.current = false;
     setIsListening(false);

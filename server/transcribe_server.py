@@ -1996,16 +1996,22 @@ def main():
             try:
                 model = load_model(model_id)
                 print("  ✅ Background preload complete — model ready!")
-                # Warm-up: run a tiny silent transcription to trigger flash attention
+                # Warm-up: run a tone transcription to trigger flash attention
                 # failure NOW instead of during the first real request.
+                # Must use non-silent audio so segments are actually decoded.
                 try:
-                    import wave, struct
+                    import wave, struct, math
                     warmup_path = os.path.join(tempfile.gettempdir(), "_whisper_warmup.wav")
+                    sr = 16000
+                    dur = 2  # seconds
+                    n = sr * dur
+                    # 440 Hz sine wave — enough to produce at least one segment
+                    samples = [int(16000 * math.sin(2 * math.pi * 440 * i / sr)) for i in range(n)]
                     with wave.open(warmup_path, "w") as wf:
                         wf.setnchannels(1)
                         wf.setsampwidth(2)
-                        wf.setframerate(16000)
-                        wf.writeframes(struct.pack("<" + "h" * 16000, *([0] * 16000)))
+                        wf.setframerate(sr)
+                        wf.writeframes(struct.pack("<" + "h" * n, *samples))
                     segments, _ = model.transcribe(warmup_path, language="he", beam_size=1)
                     list(segments)  # Force iteration to trigger flash attention errors
                     os.unlink(warmup_path)
