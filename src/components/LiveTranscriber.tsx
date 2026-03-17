@@ -8,9 +8,9 @@ import { toast } from "@/hooks/use-toast";
 
 type LiveMode = "browser" | "cuda";
 
-const LIVE_CHUNK_MS = 1800;
-const LIVE_RECORDING_TIMESLICE_MS = 120;
-const LIVE_MIN_BLOB_BYTES = 700;
+const LIVE_CHUNK_MS = 3000;
+const LIVE_RECORDING_TIMESLICE_MS = 200;
+const LIVE_MIN_BLOB_BYTES = 1200;
 
 interface LiveTranscriberProps {
   onTranscriptComplete: (text: string) => void;
@@ -33,6 +33,7 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
   const chunksRef = useRef<Blob[]>([]);
   const allChunksRef = useRef<Blob[]>([]);
   const processingRef = useRef(false);
+  const gpuBusyToastAtRef = useRef(0);
 
   const appendDedupText = useCallback((prev: string, nextRaw: string) => {
     const next = nextRaw.trim();
@@ -160,6 +161,16 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
         signal: AbortSignal.timeout(15000),
       });
 
+      if (res.status === 429) {
+        chunksRef.current.unshift(blob);
+        const now = Date.now();
+        if (now - gpuBusyToastAtRef.current > 4000) {
+          gpuBusyToastAtRef.current = now;
+          toast({ title: "GPU עסוק", description: "ממשיך אוטומטית כשהשרת יתפנה" });
+        }
+        return;
+      }
+
       if (res.ok) {
         const data = await res.json();
         const text = data.text?.trim();
@@ -170,6 +181,8 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
       }
     } catch (err) {
       console.error("Live chunk error:", err);
+      // Keep audio for the next cycle when a transient network/server error occurs.
+      chunksRef.current.unshift(blob);
     } finally {
       processingRef.current = false;
     }
@@ -280,7 +293,11 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
   const stopListening = useCallback(async () => {
     if (mode === "cuda") {
       const refinedText = await runFinalRefinePass();
-      const merged = refinedText ? appendDedupText(finalText, refinedText) : finalText;
+      const merged = refinedText
+        ? (refinedText.length >= Math.max(20, Math.floor(finalText.length * 0.8))
+          ? refinedText
+          : appendDedupText(finalText, refinedText))
+        : finalText;
       if (refinedText) {
         setFinalText(merged);
       }

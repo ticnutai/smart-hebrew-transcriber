@@ -1340,11 +1340,11 @@ def transcribe_live():
     # Live requests should not run inference in parallel on a single GPU.
     # A short lock timeout keeps latency predictable and avoids queue buildup.
     live_lock_wait = time.time()
-    acquired = _transcribe_lock.acquire(timeout=2.0)
+    acquired = _transcribe_lock.acquire(timeout=6.0)
     if not acquired:
         return jsonify({
             "error": "Server busy (GPU) — try again",
-            "retry_after_ms": 800,
+            "retry_after_ms": 500,
         }), 429
 
     try:
@@ -1353,7 +1353,7 @@ def transcribe_live():
 
         def _run_live(m):
             # Live mode keeps latency low; optional final mode improves quality after stop.
-            beam_size = 2 if is_final else 1
+            beam_size = 3 if is_final else 2
             vad_filter = True if is_final else False
             with_timestamps = True if is_final else False
             return m.transcribe(
@@ -1363,7 +1363,7 @@ def transcribe_live():
                 beam_size=beam_size,
                 best_of=beam_size,
                 vad_filter=vad_filter,
-                condition_on_previous_text=False,
+                condition_on_previous_text=True if is_final else False,
                 without_timestamps=not with_timestamps,
             )
 
