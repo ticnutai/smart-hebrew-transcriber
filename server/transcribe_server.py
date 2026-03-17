@@ -1328,6 +1328,7 @@ def transcribe_live():
     audio_file = request.files["file"]
     model_id = request.form.get("model", _current_model_id or DEFAULT_MODEL)
     language = request.form.get("language", "he")
+    is_final = str(request.form.get("final", "0")).lower() in ("1", "true", "yes")
 
     resolved = MODEL_REGISTRY.get(model_id, model_id)
     suffix = _safe_suffix(audio_file.filename)
@@ -1341,13 +1342,19 @@ def transcribe_live():
         start = time.time()
 
         def _run_live(m):
+            # Live mode keeps latency low; optional final mode improves quality after stop.
+            beam_size = 2 if is_final else 1
+            vad_filter = True if is_final else False
+            with_timestamps = True if is_final else False
             return m.transcribe(
                 tmp_path,
                 language=language if language != "auto" else None,
-                word_timestamps=True,
-                beam_size=1,
-                vad_filter=False,
-                without_timestamps=True,
+                word_timestamps=with_timestamps,
+                beam_size=beam_size,
+                best_of=beam_size,
+                vad_filter=vad_filter,
+                condition_on_previous_text=False,
+                without_timestamps=not with_timestamps,
             )
 
         try:
@@ -1380,6 +1387,7 @@ def transcribe_live():
             "wordTimings": word_timings,
             "processing_time": round(elapsed, 3),
             "audio_duration": round(info.duration, 2),
+            "final": is_final,
         })
 
     except Exception as e:

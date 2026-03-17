@@ -8,6 +8,10 @@ import { toast } from "@/hooks/use-toast";
 
 type LiveMode = "browser" | "cuda";
 
+const LIVE_CHUNK_MS = 1800;
+const LIVE_RECORDING_TIMESLICE_MS = 120;
+const LIVE_MIN_BLOB_BYTES = 700;
+
 interface LiveTranscriberProps {
   onTranscriptComplete: (text: string) => void;
   serverConnected?: boolean;
@@ -27,7 +31,29 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
   const streamRef = useRef<MediaStream | null>(null);
   const chunkIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const allChunksRef = useRef<Blob[]>([]);
   const processingRef = useRef(false);
+
+  const appendDedupText = useCallback((prev: string, nextRaw: string) => {
+    const next = nextRaw.trim();
+    if (!next) return prev;
+    if (!prev.trim()) return next;
+
+    const prevWords = prev.trim().split(/\s+/);
+    const nextWords = next.split(/\s+/);
+    const maxOverlap = Math.min(8, prevWords.length, nextWords.length);
+
+    for (let overlap = maxOverlap; overlap >= 1; overlap--) {
+      const prevTail = prevWords.slice(-overlap).join(" ");
+      const nextHead = nextWords.slice(0, overlap).join(" ");
+      if (prevTail === nextHead) {
+        const suffix = nextWords.slice(overlap).join(" ");
+        return suffix ? `${prev} ${suffix}` : prev;
+      }
+    }
+
+    return `${prev} ${next}`;
+  }, []);
 
   useEffect(() => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -121,7 +147,7 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
   const getBaseUrl = () => localStorage.getItem('whisper_server_url') || 'http://localhost:8765';
 
   const sendChunk = useCallback(async (blob: Blob) => {
-    if (blob.size < 1000 || processingRef.current) return;
+    if (blob.size < LIVE_MIN_BLOB_BYTES || processingRef.current) return;
     processingRef.current = true;
     try {
       const formData = new FormData();
@@ -138,7 +164,7 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
         const data = await res.json();
         const text = data.text?.trim();
         if (text) {
-          setFinalText(prev => prev + (prev ? " " : "") + text);
+          setFinalText(prev => appendDedupText(prev, text));
           setInterimText("");
         }
       }
@@ -146,6 +172,37 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
       console.error("Live chunk error:", err);
     } finally {
       processingRef.current = false;
+    }
+  }, [appendDedupText]);
+
+  const runFinalRefinePass = useCallback(async (): Promise<string | null> => {
+    if (allChunksRef.current.length === 0) return null;
+    try {
+      const mimeType = mediaRecorderRef.current?.mimeType || "audio/webm";
+      const fullBlob = new Blob(allChunksRef.current, { type: mimeType });
+
+      const formData = new FormData();
+      formData.append("file", fullBlob, "live-final.webm");
+      formData.append("language", "he");
+      formData.append("final", "1");
+
+      const res = await fetch(`${getBaseUrl()}/transcribe-live`, {
+        method: "POST",
+        body: formData,
+        signal: AbortSignal.timeout(30000),
+      });
+
+      if (!res.ok) return null;
+      const data = await res.json();
+      const refinedText = data.text?.trim();
+      if (refinedText) {
+        toast({ title: "✅ שופר דיוק", description: "בוצע refine קצר לאחר עצירה" });
+        return refinedText;
+      }
+      return null;
+    } catch {
+      // Final refine is best-effort only.
+      return null;
     }
   }, []);
 
@@ -166,19 +223,20 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) {
           chunksRef.current.push(e.data);
+          allChunksRef.current.push(e.data);
         }
       };
 
-      recorder.start(100); // collect data every 100ms
+      recorder.start(LIVE_RECORDING_TIMESLICE_MS);
 
-      // Send accumulated chunks every 4 seconds
+      // Send accumulated chunks every ~1.8s for lower perceived latency.
       chunkIntervalRef.current = setInterval(() => {
         if (chunksRef.current.length > 0 && !processingRef.current) {
           const blob = new Blob(chunksRef.current, { type: mimeType });
           chunksRef.current = [];
           sendChunk(blob);
         }
-      }, 4000);
+      }, LIVE_CHUNK_MS);
 
       setInterimText("מאזין...");
       isListeningRef.current = true;
@@ -203,6 +261,7 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
       streamRef.current = null;
     }
     chunksRef.current = [];
+    allChunksRef.current = [];
     processingRef.current = false;
     isListeningRef.current = false;
     setIsListening(false);
@@ -218,24 +277,24 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
     }
   }, [mode, startCuda, startBrowser]);
 
-  const stopListening = useCallback(() => {
+  const stopListening = useCallback(async () => {
     if (mode === "cuda") {
-      // Send remaining chunks
-      if (chunksRef.current.length > 0) {
-        const mimeType = mediaRecorderRef.current?.mimeType || "audio/webm";
-        const blob = new Blob(chunksRef.current, { type: mimeType });
-        chunksRef.current = [];
-        sendChunk(blob);
+      const refinedText = await runFinalRefinePass();
+      const merged = refinedText ? appendDedupText(finalText, refinedText) : finalText;
+      if (refinedText) {
+        setFinalText(merged);
       }
       stopCudaCleanup();
+      if (merged.trim()) {
+        onTranscriptComplete(merged.trim());
+      }
     } else {
       stopBrowser();
+      if (finalText.trim()) {
+        onTranscriptComplete(finalText.trim());
+      }
     }
-
-    if (finalText.trim()) {
-      onTranscriptComplete(finalText.trim());
-    }
-  }, [mode, finalText, onTranscriptComplete, stopCudaCleanup, stopBrowser, sendChunk]);
+  }, [appendDedupText, mode, finalText, onTranscriptComplete, runFinalRefinePass, stopCudaCleanup, stopBrowser]);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(finalText);
@@ -348,7 +407,7 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
 
       <p className="text-xs text-muted-foreground text-center mt-3">
         {mode === "cuda"
-          ? "משתמש ב-Whisper + GPU – דיוק גבוה, תמלול כל 4 שניות"
+          ? "משתמש ב-Whisper + GPU – תמלול מהיר (כ-1.8 שניות) + refine בעת עצירה"
           : "משתמש ב-Web Speech API – עובד ישירות בדפדפן, ללא מפתח API"
         }
       </p>
