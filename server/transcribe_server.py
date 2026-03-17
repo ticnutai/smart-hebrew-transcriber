@@ -1315,12 +1315,14 @@ def transcribe_live():
     """Transcribe a short audio chunk for live/real-time transcription.
 
     Optimized for low-latency: uses beam_size=1, no VAD filter.
-    Accepts audio chunks (typically 3-5 seconds each).
+    Accepts audio chunks (typically 2-3 seconds each).
+    Final mode (final=1): beam_size=3 + VAD + word timestamps for best accuracy.
 
     Form params:
         file: audio chunk (webm/wav/etc)
         model: whisper model id (optional)
         language: language code (optional, default 'he')
+        final: '1' for final refine pass after stop
     """
     if "file" not in request.files:
         return jsonify({"error": "No file provided"}), 400
@@ -1337,11 +1339,24 @@ def transcribe_live():
         audio_file.save(tmp)
         tmp_path = tmp.name
 
+    # Quick silence detection: skip tiny files that are almost certainly silence.
+    file_size = os.path.getsize(tmp_path)
+    if not is_final and file_size < 2000:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        return jsonify({"text": "", "wordTimings": [], "processing_time": 0, "audio_duration": 0, "silent": True})
+
     # Live requests should not run inference in parallel on a single GPU.
     # A short lock timeout keeps latency predictable and avoids queue buildup.
     live_lock_wait = time.time()
     acquired = _transcribe_lock.acquire(timeout=6.0)
     if not acquired:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
         return jsonify({
             "error": "Server busy (GPU) — try again",
             "retry_after_ms": 500,
@@ -1352,8 +1367,8 @@ def transcribe_live():
         start = time.time()
 
         def _run_live(m):
-            # Live mode: beam_size=1 for lowest latency.
-            # Final mode: beam_size=3 for best quality after stop.
+            # Live mode: beam_size=1, temperature=0 for deterministic, suppressed blanks.
+            # Final mode: beam_size=3 for best quality, with VAD/word-timestamps.
             beam_size = 3 if is_final else 1
             vad_filter = True if is_final else False
             with_timestamps = True if is_final else False
@@ -1365,6 +1380,10 @@ def transcribe_live():
                 vad_filter=vad_filter,
                 condition_on_previous_text=True if is_final else False,
                 without_timestamps=not with_timestamps,
+                temperature=0.0,
+                no_speech_threshold=0.6,
+                suppress_blank=True,
+                initial_prompt="תמלול בעברית." if language == "he" else None,
             )
             # Materialize segments to surface errors (e.g. flash attention)
             # inside this function rather than during lazy iteration.
@@ -1381,8 +1400,13 @@ def transcribe_live():
 
         text_parts = []
         word_timings = []
+        total_prob = 0.0
+        prob_count = 0
         for segment in segments:
-            text_parts.append(segment.text.strip())
+            seg_text = segment.text.strip()
+            if not seg_text:
+                continue
+            text_parts.append(seg_text)
             if segment.words:
                 for w in segment.words:
                     word_timings.append({
@@ -1391,9 +1415,12 @@ def transcribe_live():
                         "end": round(w.end, 3),
                         "probability": round(w.probability, 3),
                     })
+                    total_prob += w.probability
+                    prob_count += 1
 
         text = " ".join(text_parts)
         elapsed = time.time() - start
+        avg_confidence = round(total_prob / prob_count, 3) if prob_count > 0 else None
 
         return jsonify({
             "text": text,
@@ -1402,6 +1429,7 @@ def transcribe_live():
             "audio_duration": round(info.duration, 2),
             "lock_wait_ms": round((time.time() - live_lock_wait) * 1000, 1),
             "final": is_final,
+            "confidence": avg_confidence,
         })
 
     except Exception as e:

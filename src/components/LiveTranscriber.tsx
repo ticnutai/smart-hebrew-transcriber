@@ -3,14 +3,24 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Mic, Square, Copy, Trash2, Radio, Cpu, Globe, Volume2 } from "lucide-react";
+import { Mic, Square, Copy, Trash2, Radio, Cpu, Globe, Volume2, Clock, Zap, AlertTriangle } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 
 type LiveMode = "browser" | "cuda";
 
-const LIVE_CHUNK_MS = 3000;
-const LIVE_RECORDING_TIMESLICE_MS = 200;
-const LIVE_MIN_BLOB_BYTES = 1200;
+const LIVE_CHUNK_MS = 2000;           // 2s chunks for lower latency
+const LIVE_RECORDING_TIMESLICE_MS = 150;
+const LIVE_MIN_BLOB_BYTES = 800;
+const SILENCE_THRESHOLD = 3;          // Skip chunks below this audio level
+const MAX_CONSECUTIVE_ERRORS = 5;
+
+interface LiveStats {
+  chunksProcessed: number;
+  totalLatencyMs: number;
+  wordsTranscribed: number;
+  errorsCount: number;
+  silenceSkips: number;
+}
 
 interface LiveTranscriberProps {
   onTranscriptComplete: (text: string) => void;
@@ -25,6 +35,7 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
   const [isSupported, setIsSupported] = useState(true);
   const [mode, setMode] = useState<LiveMode>(serverConnected ? "cuda" : "browser");
   const recognitionRef = useRef<any>(null);
+  const [isRefining, setIsRefining] = useState(false);
 
   // CUDA live mode refs
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -35,12 +46,23 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
   const headerChunkRef = useRef<Blob | null>(null);
   const processingRef = useRef(false);
   const gpuBusyToastAtRef = useRef(0);
+  const consecutiveErrorsRef = useRef(0);
 
   // Audio level indicator refs
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number>(0);
   const [audioLevel, setAudioLevel] = useState(0);
+  const audioLevelRef = useRef(0);
+
+  // Timer & stats
+  const startTimeRef = useRef(0);
+  const [elapsedSec, setElapsedSec] = useState(0);
+  const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [stats, setStats] = useState<LiveStats>({
+    chunksProcessed: 0, totalLatencyMs: 0, wordsTranscribed: 0, errorsCount: 0, silenceSkips: 0,
+  });
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const appendDedupText = useCallback((prev: string, nextRaw: string) => {
     const next = nextRaw.trim();
@@ -156,7 +178,17 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
 
   const sendChunk = useCallback(async (blob: Blob) => {
     if (blob.size < LIVE_MIN_BLOB_BYTES || processingRef.current) return;
+
+    // Client-side silence skip — don't waste GPU on silence
+    if (audioLevelRef.current < SILENCE_THRESHOLD) {
+      setStats(prev => ({ ...prev, silenceSkips: prev.silenceSkips + 1 }));
+      setInterimText("שקט — ממתין לדיבור...");
+      return;
+    }
+
     processingRef.current = true;
+    setInterimText("מעבד...");
+    const sendStart = performance.now();
     try {
       const formData = new FormData();
       formData.append("file", blob, "chunk.webm");
@@ -165,7 +197,7 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
       const res = await fetch(`${getBaseUrl()}/transcribe-live`, {
         method: "POST",
         body: formData,
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(12000),
       });
 
       if (res.status === 429) {
@@ -175,32 +207,53 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
           gpuBusyToastAtRef.current = now;
           toast({ title: "GPU עסוק", description: "ממשיך אוטומטית כשהשרת יתפנה" });
         }
+        setInterimText("GPU עסוק — ממתין...");
         return;
       }
 
       if (res.status === 500) {
-        // Server error — re-queue chunk for retry, warn user once
-        chunksRef.current.unshift(blob);
-        const now = Date.now();
-        if (now - gpuBusyToastAtRef.current > 5000) {
-          gpuBusyToastAtRef.current = now;
-          toast({ title: "שגיאת שרת", description: "מנסה שוב אוטומטית...", variant: "destructive" });
+        consecutiveErrorsRef.current++;
+        if (consecutiveErrorsRef.current >= MAX_CONSECUTIVE_ERRORS) {
+          toast({ title: "שגיאות חוזרות", description: "מנותק מהשרת — בדוק את שרת CUDA", variant: "destructive" });
+          setInterimText("שגיאה — שרת לא מגיב");
+          return;
         }
+        chunksRef.current.unshift(blob);
+        setStats(prev => ({ ...prev, errorsCount: prev.errorsCount + 1 }));
         return;
       }
 
       if (res.ok) {
+        consecutiveErrorsRef.current = 0;
         const data = await res.json();
         const text = data.text?.trim();
+        const latencyMs = Math.round(performance.now() - sendStart);
+        const newWords = text ? text.split(/\s+/).length : 0;
+
+        setStats(prev => ({
+          ...prev,
+          chunksProcessed: prev.chunksProcessed + 1,
+          totalLatencyMs: prev.totalLatencyMs + latencyMs,
+          wordsTranscribed: prev.wordsTranscribed + newWords,
+        }));
+
         if (text) {
           setFinalText(prev => appendDedupText(prev, text));
           setInterimText("");
+          // Auto-scroll
+          setTimeout(() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' }), 50);
+        } else {
+          setInterimText("מאזין...");
         }
       }
     } catch (err) {
       console.error("Live chunk error:", err);
-      // Keep audio for the next cycle when a transient network/server error occurs.
+      consecutiveErrorsRef.current++;
       chunksRef.current.unshift(blob);
+      setStats(prev => ({ ...prev, errorsCount: prev.errorsCount + 1 }));
+      if (consecutiveErrorsRef.current >= MAX_CONSECUTIVE_ERRORS) {
+        setInterimText("שרת לא מגיב — בדוק חיבור");
+      }
     } finally {
       processingRef.current = false;
     }
@@ -208,6 +261,8 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
 
   const runFinalRefinePass = useCallback(async (): Promise<string | null> => {
     if (allChunksRef.current.length === 0) return null;
+    setIsRefining(true);
+    setInterimText("משפר דיוק — refine pass...");
     try {
       const mimeType = mediaRecorderRef.current?.mimeType || "audio/webm";
       const fullBlob = new Blob(allChunksRef.current, { type: mimeType });
@@ -220,37 +275,55 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
       const res = await fetch(`${getBaseUrl()}/transcribe-live`, {
         method: "POST",
         body: formData,
-        signal: AbortSignal.timeout(30000),
+        signal: AbortSignal.timeout(60000),
       });
 
       if (!res.ok) return null;
       const data = await res.json();
       const refinedText = data.text?.trim();
       if (refinedText) {
-        toast({ title: "✅ שופר דיוק", description: "בוצע refine קצר לאחר עצירה" });
+        toast({ title: "✅ שופר דיוק", description: `refine הושלם — ${data.wordTimings?.length || '?'} מילים | ${data.processing_time || '?'}s` });
         return refinedText;
       }
       return null;
     } catch {
-      // Final refine is best-effort only.
+      toast({ title: "refine נכשל", description: "משתמש בטקסט שנצבר", variant: "destructive" });
       return null;
+    } finally {
+      setIsRefining(false);
+      setInterimText("");
     }
   }, []);
 
   const startCuda = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true },
+        audio: {
+          sampleRate: 16000,
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
       });
       streamRef.current = stream;
+      consecutiveErrorsRef.current = 0;
+      setStats({ chunksProcessed: 0, totalLatencyMs: 0, wordsTranscribed: 0, errorsCount: 0, silenceSkips: 0 });
 
-      // Audio level monitoring
+      // Recording timer
+      startTimeRef.current = Date.now();
+      setElapsedSec(0);
+      timerIntervalRef.current = setInterval(() => {
+        setElapsedSec(Math.floor((Date.now() - startTimeRef.current) / 1000));
+      }, 1000);
+
+      // Audio level monitoring with smoothing
       try {
-        const actx = new AudioContext();
+        const actx = new AudioContext({ sampleRate: 16000 });
         const src = actx.createMediaStreamSource(stream);
         const analyser = actx.createAnalyser();
-        analyser.fftSize = 256;
-        analyser.smoothingTimeConstant = 0.5;
+        analyser.fftSize = 512;
+        analyser.smoothingTimeConstant = 0.6;
         src.connect(analyser);
         audioCtxRef.current = actx;
         analyserRef.current = analyser;
@@ -260,7 +333,9 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
           let sum = 0;
           for (let i = 0; i < dataArr.length; i++) sum += dataArr[i];
           const avg = sum / dataArr.length;
-          setAudioLevel(Math.min(100, Math.round((avg / 128) * 100)));
+          const level = Math.min(100, Math.round((avg / 128) * 100));
+          setAudioLevel(level);
+          audioLevelRef.current = level;
           animFrameRef.current = requestAnimationFrame(tick);
         };
         tick();
@@ -319,6 +394,10 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
       clearInterval(chunkIntervalRef.current);
       chunkIntervalRef.current = null;
     }
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
     if (animFrameRef.current) {
       cancelAnimationFrame(animFrameRef.current);
       animFrameRef.current = 0;
@@ -329,6 +408,7 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
     }
     analyserRef.current = null;
     setAudioLevel(0);
+    audioLevelRef.current = 0;
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       mediaRecorderRef.current.stop();
     }
@@ -341,6 +421,7 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
     allChunksRef.current = [];
     headerChunkRef.current = null;
     processingRef.current = false;
+    consecutiveErrorsRef.current = 0;
     isListeningRef.current = false;
     setIsListening(false);
     setInterimText("");
@@ -392,6 +473,32 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
     (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
   );
 
+  // Keyboard shortcut: Space to start/stop (when not typing)
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.code === 'Space' && e.target === document.body) {
+        e.preventDefault();
+        if (isListening) {
+          stopListening();
+        } else {
+          startListening();
+        }
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [isListening, startListening, stopListening]);
+
+  const formatTime = (sec: number) => {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
+
+  const avgLatency = stats.chunksProcessed > 0
+    ? Math.round(stats.totalLatencyMs / stats.chunksProcessed)
+    : 0;
+
   if (!isSupported && !serverConnected) {
     return (
       <Card className="p-6" dir="rtl">
@@ -405,9 +512,10 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
 
   return (
     <Card className="p-6" dir="rtl">
+      {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <Radio className="w-5 h-5 text-primary" />
+          <Radio className={`w-5 h-5 ${isListening ? 'text-red-500 animate-pulse' : 'text-primary'}`} />
           <h3 className="text-lg font-semibold">תמלול בזמן אמת</h3>
           {isListening && (
             <Badge variant="destructive" className="animate-pulse text-xs gap-1">
@@ -415,36 +523,66 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
               מאזין
             </Badge>
           )}
-          {isListening && mode === "cuda" && (
-            <div className="flex items-center gap-1.5" title={`רמת שמע: ${audioLevel}%`}>
-              <Volume2 className={`w-4 h-4 ${audioLevel > 5 ? 'text-green-500' : 'text-muted-foreground'}`} />
-              <div className="flex items-end gap-[2px] h-4">
-                {[0, 1, 2, 3, 4].map(i => (
-                  <div
-                    key={i}
-                    className={`w-[3px] rounded-sm transition-all duration-100 ${
-                      audioLevel > i * 20 ? 'bg-green-500' : 'bg-muted-foreground/30'
-                    }`}
-                    style={{ height: `${Math.max(4, (i + 1) * 3.2)}px` }}
-                  />
-                ))}
-              </div>
-            </div>
+          {isRefining && (
+            <Badge variant="secondary" className="animate-pulse text-xs gap-1">
+              <Zap className="w-3 h-3" />
+              משפר דיוק...
+            </Badge>
           )}
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          {/* Timer */}
+          {isListening && mode === "cuda" && (
+            <Badge variant="outline" className="text-xs gap-1 font-mono">
+              <Clock className="w-3 h-3" />
+              {formatTime(elapsedSec)}
+            </Badge>
+          )}
           {finalText && (
             <>
-              <Button variant="ghost" size="sm" onClick={handleCopy}>
+              <Button variant="ghost" size="sm" onClick={handleCopy} title="העתק">
                 <Copy className="w-4 h-4" />
               </Button>
-              <Button variant="ghost" size="sm" onClick={handleClear}>
+              <Button variant="ghost" size="sm" onClick={handleClear} title="נקה">
                 <Trash2 className="w-4 h-4" />
               </Button>
             </>
           )}
         </div>
       </div>
+
+      {/* Audio Level Bar + Stats (CUDA only, while listening) */}
+      {isListening && mode === "cuda" && (
+        <div className="mb-3 space-y-2">
+          {/* Waveform-style VU meter */}
+          <div className="flex items-center gap-2">
+            <Volume2 className={`w-4 h-4 shrink-0 ${audioLevel > 5 ? 'text-green-500' : 'text-muted-foreground'}`} />
+            <div className="flex-1 h-3 bg-muted/50 rounded-full overflow-hidden relative">
+              <div
+                className="h-full rounded-full transition-all duration-100"
+                style={{
+                  width: `${Math.min(100, audioLevel)}%`,
+                  background: audioLevel > 70 ? '#ef4444' : audioLevel > 40 ? '#f59e0b' : '#22c55e',
+                }}
+              />
+            </div>
+            <span className="text-xs text-muted-foreground font-mono w-8 text-left">{audioLevel}%</span>
+          </div>
+          {/* Live stats bar */}
+          <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
+            <span>חלקים: {stats.chunksProcessed}</span>
+            <span>מילים: {stats.wordsTranscribed}</span>
+            {avgLatency > 0 && <span>השהיה: {avgLatency}ms</span>}
+            {stats.silenceSkips > 0 && <span>שקט: {stats.silenceSkips}</span>}
+            {stats.errorsCount > 0 && (
+              <span className="text-orange-500 flex items-center gap-1">
+                <AlertTriangle className="w-3 h-3" />
+                שגיאות: {stats.errorsCount}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Mode selector */}
       {!isListening && (
@@ -473,14 +611,18 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
       )}
 
       {/* Live text display */}
-      <ScrollArea className="h-[200px] mb-4 rounded-md border p-4 bg-muted/30">
-        <div className="text-right whitespace-pre-wrap leading-relaxed">
+      <ScrollArea className="h-[220px] mb-4 rounded-md border p-4 bg-muted/30" ref={scrollRef}>
+        <div className="text-right whitespace-pre-wrap leading-relaxed text-base">
           {finalText && <span>{finalText}</span>}
           {interimText && (
             <span className="text-muted-foreground opacity-60"> {interimText}</span>
           )}
           {!finalText && !interimText && !isListening && (
-            <p className="text-muted-foreground text-center">לחץ על הכפתור כדי להתחיל תמלול בזמן אמת</p>
+            <p className="text-muted-foreground text-center">
+              לחץ על הכפתור כדי להתחיל תמלול בזמן אמת
+              <br />
+              <span className="text-xs opacity-60">או לחץ רווח (Space)</span>
+            </p>
           )}
           {!finalText && !interimText && isListening && (
             <p className="text-muted-foreground text-center animate-pulse">מחכה לדיבור...</p>
@@ -489,14 +631,14 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
       </ScrollArea>
 
       {/* Controls */}
-      <div className="flex justify-center">
+      <div className="flex justify-center gap-3">
         {!isListening ? (
-          <Button onClick={startListening} className="gap-2 rounded-full px-8">
+          <Button onClick={startListening} className="gap-2 rounded-full px-8 h-12 text-base" disabled={isRefining}>
             <Mic className="w-5 h-5" />
             התחל תמלול חי
           </Button>
         ) : (
-          <Button onClick={stopListening} variant="destructive" className="gap-2 rounded-full px-8">
+          <Button onClick={stopListening} variant="destructive" className="gap-2 rounded-full px-8 h-12 text-base">
             <Square className="w-5 h-5" />
             עצור
           </Button>
@@ -505,8 +647,8 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
 
       <p className="text-xs text-muted-foreground text-center mt-3">
         {mode === "cuda"
-          ? "משתמש ב-Whisper + GPU – תמלול מהיר (כ-1.8 שניות) + refine בעת עצירה"
-          : "משתמש ב-Web Speech API – עובד ישירות בדפדפן, ללא מפתח API"
+          ? `Whisper + GPU — chunks כל ${LIVE_CHUNK_MS / 1000}s + refine בעצירה | רווח להתחלה/עצירה`
+          : "Web Speech API — עובד ישירות בדפדפן, ללא מפתח API"
         }
       </p>
     </Card>
