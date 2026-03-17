@@ -95,9 +95,15 @@ const CLOUD_MODELS = [
   // Anthropic
   { value: 'anthropic/claude-3.5-sonnet', label: '☁️ Claude 3.5 Sonnet' },
   { value: 'anthropic/claude-3-haiku', label: '☁️ Claude 3 Haiku' },
+  // Cohere
+  { value: 'cohere/command-r', label: '☁️ Command R' },
+  { value: 'cohere/aya-expanse-8b', label: '☁️ Aya Expanse 8B' },
   // Meta & Mistral
   { value: 'meta-llama/llama-3.1-70b-instruct', label: '☁️ Llama 3.1 70B' },
   { value: 'mistralai/mistral-large-latest', label: '☁️ Mistral Large' },
+  // Qwen
+  { value: 'qwen/qwen-2.5-14b-instruct', label: '☁️ Qwen 2.5 14B' },
+  { value: 'qwen/qwen-2.5-32b-instruct', label: '☁️ Qwen 2.5 32B' },
 ];
 
 export const EditPipeline = ({ text, onTextChange }: EditPipelineProps) => {

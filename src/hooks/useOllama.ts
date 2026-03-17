@@ -63,23 +63,16 @@ export function useOllama() {
   // pauses when tab is hidden
   useEffect(() => {
     let timeoutId: ReturnType<typeof setTimeout>;
-    let consecutiveFails = 0;
     const BASE_INTERVAL = 30_000;
     const MAX_INTERVAL = 120_000;
+    let currentInterval = BASE_INTERVAL;
 
     const poll = async () => {
       const ok = await checkConnection();
-      if (ok) {
-        consecutiveFails = 0;
-      } else {
-        consecutiveFails++;
-      }
-      // Stop polling after 5 consecutive failures (Ollama not running)
-      if (consecutiveFails >= 5) return;
-      const nextInterval = ok
+      currentInterval = ok
         ? BASE_INTERVAL
-        : Math.min(BASE_INTERVAL * Math.pow(2, consecutiveFails), MAX_INTERVAL);
-      timeoutId = setTimeout(poll, nextInterval);
+        : Math.min(currentInterval * 2, MAX_INTERVAL);
+      timeoutId = setTimeout(poll, currentInterval);
     };
 
     const handleVisibility = () => {
@@ -87,6 +80,7 @@ export function useOllama() {
         clearTimeout(timeoutId);
       } else {
         // Immediate check on tab focus, then resume schedule
+        currentInterval = BASE_INTERVAL;
         poll();
       }
     };
@@ -188,6 +182,7 @@ export function useOllama() {
       if (!systemPrompt) throw new Error(`Invalid action: ${action}`);
     }
 
+    // First try OpenAI-compatible endpoint (newer Ollama versions)
     const res = await fetch(`${baseUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -201,15 +196,35 @@ export function useOllama() {
       }),
     });
 
-    if (!res.ok) {
-      const errText = await res.text().catch(() => res.statusText);
+    if (res.ok) {
+      const data = await res.json();
+      const content = data.choices?.[0]?.message?.content;
+      if (content) return content;
+    }
+
+    // Fallback for older Ollama versions: /api/chat
+    const legacyRes = await fetch(`${baseUrl}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: text },
+        ],
+        stream: false,
+      }),
+    });
+
+    if (!legacyRes.ok) {
+      const errText = await legacyRes.text().catch(() => legacyRes.statusText);
       throw new Error(`Ollama error: ${errText}`);
     }
 
-    const data = await res.json();
-    const content = data.choices?.[0]?.message?.content;
-    if (!content) throw new Error('No response from Ollama model');
-    return content;
+    const legacyData = await legacyRes.json();
+    const legacyContent = legacyData?.message?.content;
+    if (!legacyContent) throw new Error('No response from Ollama model');
+    return legacyContent;
   }, []);
 
   return {
