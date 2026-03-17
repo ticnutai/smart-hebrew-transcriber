@@ -48,13 +48,25 @@ const CLOUD_MODELS = [
   // Qwen
   { value: 'qwen2.5-14b', label: 'Qwen 2.5 14B', apiModel: 'qwen/qwen-2.5-14b-instruct', local: false },
   { value: 'qwen2.5-32b', label: 'Qwen 2.5 32B', apiModel: 'qwen/qwen-2.5-32b-instruct', local: false },
+  // Hebrew-optimized additions
+  { value: 'aya-expanse-32b', label: 'Aya Expanse 32B', apiModel: 'cohere/aya-expanse-32b', local: false },
+  { value: 'command-r-plus', label: 'Command R+', apiModel: 'cohere/command-r-plus', local: false },
+  { value: 'gemma2-27b', label: 'Gemma 2 27B', apiModel: 'google/gemma-2-27b-it', local: false },
+  { value: 'mistral-nemo', label: 'Mistral Nemo 12B', apiModel: 'mistralai/mistral-nemo', local: false },
+  { value: 'claude-4-haiku', label: 'Claude 4 Haiku', apiModel: 'anthropic/claude-4-haiku', local: false },
+  { value: 'deepseek-v3', label: 'DeepSeek V3', apiModel: 'deepseek/deepseek-chat', local: false },
+  { value: 'qwen2.5-72b', label: 'Qwen 2.5 72B', apiModel: 'qwen/qwen-2.5-72b-instruct', local: false },
 ];
 
 const RECOMMENDED_OLLAMA_MODELS = [
   'aya:8b',
+  'aya:35b',
   'qwen2.5:14b',
+  'qwen2.5:32b',
   'mistral-nemo:12b',
   'command-r:35b',
+  'gemma2:27b',
+  'deepseek-v2:16b',
 ];
 
 type CompareMetrics = {

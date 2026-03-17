@@ -29,6 +29,7 @@ import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { KeyboardShortcutsDialog } from "@/components/KeyboardShortcutsDialog";
 import { addNotification } from "@/hooks/useNotifications";
 import { getApiKey } from "@/lib/keyCrypto";
+import { applyLearnedCorrections } from "@/utils/correctionLearning";
 
 // Lazy-loaded heavy components
 const LiveTranscriber = lazy(() => import("@/components/LiveTranscriber").then(m => ({ default: m.LiveTranscriber })));
@@ -211,19 +212,26 @@ const Index = () => {
 
   // Save to cloud history (respects cloud save mode for CUDA engine)
   const saveToHistory = async (text: string, engineUsed: string, skipCloud?: boolean, timings?: Array<{word: string, start: number, end: number, probability?: number}>, audioFile?: File, folder?: string) => {
+    // Apply learned corrections to improve transcription
+    const correctionResult = applyLearnedCorrections(text, { engine: engineUsed });
+    const finalText = correctionResult.text;
+    if (correctionResult.appliedCount > 0) {
+      debugLog.info('Index', `Applied ${correctionResult.appliedCount} learned corrections`);
+    }
+
     if (skipCloud) {
       // Save only to localStorage, skip cloud upload entirely
       let history: any[] = [];
       try { history = JSON.parse(localStorage.getItem('transcript_history') || '[]'); } catch { /* corrupted */ }
-      const entry = { text, timestamp: Date.now(), engine: engineUsed, tags: [], notes: '', word_timings: timings || null, folder: folder || '' };
+      const entry = { text: finalText, timestamp: Date.now(), engine: engineUsed, tags: [], notes: '', word_timings: timings || null, folder: folder || '' };
       const updated = [entry, ...history].slice(0, 50);
       localStorage.setItem('transcript_history', JSON.stringify(updated));
       lastSavedTranscriptIdRef.current = null;
       return;
     }
-    const saved = await saveTranscript(text, engineUsed, undefined, audioFile || currentFileRef.current || undefined, timings || null, folder);
+    const saved = await saveTranscript(finalText, engineUsed, undefined, audioFile || currentFileRef.current || undefined, timings || null, folder);
     lastSavedTranscriptIdRef.current = saved?.id || null;
-    addNotification({ type: 'success', title: 'תמלול הושלם', description: `מנוע: ${engineUsed} — ${text.split(/\s+/).length} מילים` });
+    addNotification({ type: 'success', title: 'תמלול הושלם', description: `מנוע: ${engineUsed} — ${finalText.split(/\s+/).length} מילים` });
   };
 
   // Save text-only to cloud (deferred mode — upload text without audio file)

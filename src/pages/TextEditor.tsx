@@ -17,6 +17,7 @@ const TextEditHistory = lazy(() => import("@/components/TextEditHistory").then(m
 const PromptLibrary = lazy(() => import("@/components/PromptLibrary").then(m => ({ default: m.PromptLibrary })));
 const EditPipeline = lazy(() => import("@/components/EditPipeline").then(m => ({ default: m.EditPipeline })));
 const OllamaManager = lazy(() => import("@/components/OllamaManager").then(m => ({ default: m.OllamaManager })));
+const CorrectionLearningPanel = lazy(() => import("@/components/CorrectionLearningPanel").then(m => ({ default: m.CorrectionLearningPanel })));
 const SyncAudioPlayer = lazy(() => import("@/components/SyncAudioPlayer").then(m => ({ default: m.SyncAudioPlayer })));
 const SyncTranscriptView = lazy(() => import("@/components/SyncTranscriptView").then(m => ({ default: m.SyncTranscriptView })));
 import { ArrowRight, Home, Wand2, SplitSquareVertical, SpellCheck, Loader2, Columns2, Columns3, AlignJustify, LayoutGrid, Rows3 } from "lucide-react";
@@ -28,6 +29,7 @@ import { useCloudTranscripts } from "@/hooks/useCloudTranscripts";
 import { useCloudVersions } from "@/hooks/useCloudVersions";
 import { useOllama, isOllamaModel } from "@/hooks/useOllama";
 import { db } from "@/lib/localDb";
+import { useCorrectionLearning } from "@/hooks/useCorrectionLearning";
 
 const sourceLabels: Record<string, string> = {
   original: 'תמלול מקורי',
@@ -66,6 +68,8 @@ const TextEditor = () => {
   const [transcriptId, setTranscriptId] = useState<string | null>(null);
   const { versions: cloudVersions, isLoading: cloudVersionsLoading, saveVersion: saveCloudVersion } = useCloudVersions(transcriptId);
   const ollama = useOllama();
+  const { learn: learnCorrections, applyCorrections } = useCorrectionLearning();
+  const originalTextRef = useRef<string>("");
   
   // Cloud-synced style settings
   const { preferences, updatePreference } = useCloudPreferences();
@@ -110,6 +114,7 @@ const TextEditor = () => {
     const stateText = location.state?.text;
     if (stateText) {
       setText(stateText);
+      originalTextRef.current = stateText;
       const initialVersion: TextVersion = {
         id: crypto.randomUUID(),
         text: stateText,
@@ -410,7 +415,7 @@ const TextEditor = () => {
 
         {/* Main Content */}
         <Tabs defaultValue="edit" className="w-full" dir="rtl">
-          <TabsList className="grid w-full grid-cols-4 md:grid-cols-8 mb-6">
+          <TabsList className="grid w-full grid-cols-4 md:grid-cols-5 lg:grid-cols-10 mb-6">
             <TabsTrigger value="player">🎧 נגן</TabsTrigger>
             <TabsTrigger value="edit">עריכת טקסט</TabsTrigger>
             <TabsTrigger value="templates">תבניות</TabsTrigger>
@@ -418,6 +423,7 @@ const TextEditor = () => {
             <TabsTrigger value="pipeline">צינור עיבוד</TabsTrigger>
             <TabsTrigger value="prompts">ספריית פרומפטים</TabsTrigger>
             <TabsTrigger value="ollama">🖥️ Ollama</TabsTrigger>
+            <TabsTrigger value="learning">🧠 למידה</TabsTrigger>
             <TabsTrigger value="compare">השוואה</TabsTrigger>
             <TabsTrigger value="history">היסטוריה</TabsTrigger>
           </TabsList>
@@ -460,6 +466,10 @@ const TextEditor = () => {
                   if (manualVersionTimerRef.current) clearTimeout(manualVersionTimerRef.current);
                   manualVersionTimerRef.current = setTimeout(() => {
                     addVersion(newText, 'manual');
+                    // Learn from user corrections
+                    if (originalTextRef.current && newText !== originalTextRef.current) {
+                      learnCorrections(originalTextRef.current, newText, 'manual');
+                    }
                   }, 2000);
                 }}
                 columnStyle={columnStyle}
@@ -538,6 +548,10 @@ const TextEditor = () => {
 
           <TabsContent value="ollama" className="space-y-4">
             <OllamaManager />
+          </TabsContent>
+
+          <TabsContent value="learning" className="space-y-4">
+            <CorrectionLearningPanel />
           </TabsContent>
 
           <TabsContent value="history" className="space-y-4">

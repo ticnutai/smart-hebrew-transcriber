@@ -32,6 +32,13 @@ const RECOMMENDED_MODELS = [
   { name: 'qwen2.5:7b', label: 'Qwen 2.5 7B', description: 'תמיכה טובה בעברית — Alibaba', vram: '~4.5 GB' },
   { name: 'phi3:medium', label: 'Phi-3 Medium 14B', description: 'מודל חכם של Microsoft', vram: '~8 GB' },
   { name: 'llama3.1:70b', label: 'Llama 3.1 70B', description: 'הכי חזק — דורש VRAM גבוה', vram: '~40 GB' },
+  // Hebrew-optimized models
+  { name: 'aya:8b', label: 'Aya 8B', description: 'תמיכה מעולה בעברית — Cohere', vram: '~5 GB' },
+  { name: 'aya:35b', label: 'Aya 35B', description: 'הכי טוב לעברית — Cohere', vram: '~20 GB' },
+  { name: 'qwen2.5:14b', label: 'Qwen 2.5 14B', description: 'רב-שפתי חזק — Alibaba', vram: '~9 GB' },
+  { name: 'mistral-nemo:12b', label: 'Mistral Nemo 12B', description: 'מתקדם בשפות שמיות', vram: '~7 GB' },
+  { name: 'command-r:35b', label: 'Command R 35B', description: 'RAG + עברית — Cohere', vram: '~20 GB' },
+  { name: 'gemma2:27b', label: 'Gemma 2 27B', description: 'מודל חזק של Google', vram: '~16 GB' },
 ];
 
 export const OllamaManager = () => {
