@@ -1337,6 +1337,16 @@ def transcribe_live():
         audio_file.save(tmp)
         tmp_path = tmp.name
 
+    # Live requests should not run inference in parallel on a single GPU.
+    # A short lock timeout keeps latency predictable and avoids queue buildup.
+    live_lock_wait = time.time()
+    acquired = _transcribe_lock.acquire(timeout=2.0)
+    if not acquired:
+        return jsonify({
+            "error": "Server busy (GPU) — try again",
+            "retry_after_ms": 800,
+        }), 429
+
     try:
         model = load_model(resolved)
         start = time.time()
@@ -1387,6 +1397,7 @@ def transcribe_live():
             "wordTimings": word_timings,
             "processing_time": round(elapsed, 3),
             "audio_duration": round(info.duration, 2),
+            "lock_wait_ms": round((time.time() - live_lock_wait) * 1000, 1),
             "final": is_final,
         })
 
@@ -1394,6 +1405,10 @@ def transcribe_live():
         _log.error(f"Live transcription error: {e}")
         return jsonify({"error": str(e)}), 500
     finally:
+        try:
+            _transcribe_lock.release()
+        except RuntimeError:
+            pass
         try:
             os.unlink(tmp_path)
         except OSError:
