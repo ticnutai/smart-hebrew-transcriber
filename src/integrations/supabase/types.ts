@@ -136,6 +136,53 @@ export type Database = {
         }
         Relationships: []
       }
+      transcript_versions: {
+        Row: {
+          action_label: string | null
+          created_at: string
+          engine_label: string | null
+          id: string
+          source: string
+          text: string
+          transcript_id: string
+          user_id: string
+          version_number: number
+          word_count: number | null
+        }
+        Insert: {
+          action_label?: string | null
+          created_at?: string
+          engine_label?: string | null
+          id?: string
+          source?: string
+          text: string
+          transcript_id: string
+          user_id: string
+          version_number?: number
+          word_count?: number | null
+        }
+        Update: {
+          action_label?: string | null
+          created_at?: string
+          engine_label?: string | null
+          id?: string
+          source?: string
+          text?: string
+          transcript_id?: string
+          user_id?: string
+          version_number?: number
+          word_count?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "transcript_versions_transcript_id_fkey"
+            columns: ["transcript_id"]
+            isOneToOne: false
+            referencedRelation: "transcripts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       transcription_jobs: {
         Row: {
           completed_chunks: number | null
@@ -189,51 +236,6 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
-      }
-      transcript_versions: {
-        Row: {
-          id: string
-          transcript_id: string
-          user_id: string
-          text: string
-          source: string
-          engine_label: string | null
-          action_label: string | null
-          version_number: number
-          word_count: number | null
-          created_at: string
-        }
-        Insert: {
-          id?: string
-          transcript_id: string
-          user_id: string
-          text: string
-          source?: string
-          engine_label?: string | null
-          action_label?: string | null
-          version_number?: number
-          created_at?: string
-        }
-        Update: {
-          id?: string
-          transcript_id?: string
-          user_id?: string
-          text?: string
-          source?: string
-          engine_label?: string | null
-          action_label?: string | null
-          version_number?: number
-          created_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "transcript_versions_transcript_id_fkey"
-            columns: ["transcript_id"]
-            isOneToOne: false
-            referencedRelation: "transcripts"
-            referencedColumns: ["id"]
-          },
-        ]
       }
       transcripts: {
         Row: {
@@ -407,6 +409,17 @@ export type Database = {
     Functions: {
       deploy_edge_fn: {
         Args: { p_slug: string; p_source_code: string }
+        Returns: Json
+      }
+      edit_transcript_proxy: {
+        Args: {
+          p_action: string
+          p_custom_prompt?: string
+          p_model?: string
+          p_target_language?: string
+          p_text: string
+          p_tone_style?: string
+        }
         Returns: Json
       }
       exec_sql: { Args: { query: string }; Returns: Json }
