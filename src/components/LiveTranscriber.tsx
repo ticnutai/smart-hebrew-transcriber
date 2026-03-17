@@ -3,7 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Mic, Square, Copy, Trash2, Radio, Cpu, Globe } from "lucide-react";
+import { Mic, Square, Copy, Trash2, Radio, Cpu, Globe, Volume2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 
 type LiveMode = "browser" | "cuda";
@@ -34,6 +34,12 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
   const allChunksRef = useRef<Blob[]>([]);
   const processingRef = useRef(false);
   const gpuBusyToastAtRef = useRef(0);
+
+  // Audio level indicator refs
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const animFrameRef = useRef<number>(0);
+  const [audioLevel, setAudioLevel] = useState(0);
 
   const appendDedupText = useCallback((prev: string, nextRaw: string) => {
     const next = nextRaw.trim();
@@ -171,6 +177,17 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
         return;
       }
 
+      if (res.status === 500) {
+        // Server error — re-queue chunk for retry, warn user once
+        chunksRef.current.unshift(blob);
+        const now = Date.now();
+        if (now - gpuBusyToastAtRef.current > 5000) {
+          gpuBusyToastAtRef.current = now;
+          toast({ title: "שגיאת שרת", description: "מנסה שוב אוטומטית...", variant: "destructive" });
+        }
+        return;
+      }
+
       if (res.ok) {
         const data = await res.json();
         const text = data.text?.trim();
@@ -226,6 +243,30 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
       });
       streamRef.current = stream;
 
+      // Audio level monitoring
+      try {
+        const actx = new AudioContext();
+        const src = actx.createMediaStreamSource(stream);
+        const analyser = actx.createAnalyser();
+        analyser.fftSize = 256;
+        analyser.smoothingTimeConstant = 0.5;
+        src.connect(analyser);
+        audioCtxRef.current = actx;
+        analyserRef.current = analyser;
+        const dataArr = new Uint8Array(analyser.frequencyBinCount);
+        const tick = () => {
+          analyser.getByteFrequencyData(dataArr);
+          let sum = 0;
+          for (let i = 0; i < dataArr.length; i++) sum += dataArr[i];
+          const avg = sum / dataArr.length;
+          setAudioLevel(Math.min(100, Math.round((avg / 128) * 100)));
+          animFrameRef.current = requestAnimationFrame(tick);
+        };
+        tick();
+      } catch {
+        // AudioContext not critical — continue without level indicator
+      }
+
       const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
         ? "audio/webm;codecs=opus"
         : "audio/webm";
@@ -265,6 +306,16 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
       clearInterval(chunkIntervalRef.current);
       chunkIntervalRef.current = null;
     }
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = 0;
+    }
+    if (audioCtxRef.current) {
+      audioCtxRef.current.close().catch(() => {});
+      audioCtxRef.current = null;
+    }
+    analyserRef.current = null;
+    setAudioLevel(0);
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       mediaRecorderRef.current.stop();
     }
@@ -349,6 +400,22 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
               <span className="w-2 h-2 rounded-full bg-destructive-foreground" />
               מאזין
             </Badge>
+          )}
+          {isListening && mode === "cuda" && (
+            <div className="flex items-center gap-1.5" title={`רמת שמע: ${audioLevel}%`}>
+              <Volume2 className={`w-4 h-4 ${audioLevel > 5 ? 'text-green-500' : 'text-muted-foreground'}`} />
+              <div className="flex items-end gap-[2px] h-4">
+                {[0, 1, 2, 3, 4].map(i => (
+                  <div
+                    key={i}
+                    className={`w-[3px] rounded-sm transition-all duration-100 ${
+                      audioLevel > i * 20 ? 'bg-green-500' : 'bg-muted-foreground/30'
+                    }`}
+                    style={{ height: `${Math.max(4, (i + 1) * 3.2)}px` }}
+                  />
+                ))}
+              </div>
+            </div>
           )}
         </div>
         <div className="flex gap-2">

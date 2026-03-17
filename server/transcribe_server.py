@@ -1352,20 +1352,23 @@ def transcribe_live():
         start = time.time()
 
         def _run_live(m):
-            # Live mode keeps latency low; optional final mode improves quality after stop.
-            beam_size = 3 if is_final else 2
+            # Live mode: beam_size=1 for lowest latency.
+            # Final mode: beam_size=3 for best quality after stop.
+            beam_size = 3 if is_final else 1
             vad_filter = True if is_final else False
             with_timestamps = True if is_final else False
-            return m.transcribe(
+            segments, info = m.transcribe(
                 tmp_path,
                 language=language if language != "auto" else None,
                 word_timestamps=with_timestamps,
                 beam_size=beam_size,
-                best_of=beam_size,
                 vad_filter=vad_filter,
                 condition_on_previous_text=True if is_final else False,
                 without_timestamps=not with_timestamps,
             )
+            # Materialize segments to surface errors (e.g. flash attention)
+            # inside this function rather than during lazy iteration.
+            return list(segments), info
 
         try:
             segments, info = _run_live(model)
@@ -1991,8 +1994,33 @@ def main():
                 _model_loading_id = model_id
                 _model_loading_progress = 'Pre-loading model...'
             try:
-                load_model(model_id)
+                model = load_model(model_id)
                 print("  ✅ Background preload complete — model ready!")
+                # Warm-up: run a tiny silent transcription to trigger flash attention
+                # failure NOW instead of during the first real request.
+                try:
+                    import wave, struct
+                    warmup_path = os.path.join(tempfile.gettempdir(), "_whisper_warmup.wav")
+                    with wave.open(warmup_path, "w") as wf:
+                        wf.setnchannels(1)
+                        wf.setsampwidth(2)
+                        wf.setframerate(16000)
+                        wf.writeframes(struct.pack("<" + "h" * 16000, *([0] * 16000)))
+                    segments, _ = model.transcribe(warmup_path, language="he", beam_size=1)
+                    list(segments)  # Force iteration to trigger flash attention errors
+                    os.unlink(warmup_path)
+                    print("  ✅ Warm-up transcription OK (flash attention validated)")
+                except Exception as wu_err:
+                    if "flash attention" in str(wu_err).lower():
+                        print(f"  ⚠️  Flash Attention failed during warm-up — reloading without it...")
+                        _reload_model_without_flash(model_id)
+                        print("  ✅ Model reloaded without Flash Attention — ready!")
+                    else:
+                        print(f"  ⚠️  Warm-up transcription warning: {wu_err}")
+                    try:
+                        os.unlink(warmup_path)
+                    except OSError:
+                        pass
             except Exception as e:
                 print(f"  ⚠️  Background preload failed: {e}")
                 print("  Server will still run — model will load on first request.")
