@@ -67,7 +67,7 @@ export const RichTextEditor = ({ text, onChange, columnStyle }: RichTextEditorPr
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
-  const [htmlContent, setHtmlContent] = useState(() => prepareHtml(text));
+  const [htmlContent, setHtmlContent] = useState(() => sanitize(prepareHtml(text)));
   const isInternalUpdate = useRef(false);
 
   const highlightColors = [
@@ -78,13 +78,13 @@ export const RichTextEditor = ({ text, onChange, columnStyle }: RichTextEditorPr
     "#000000", "#ffffff", "#ff0000", "#0000ff", "#008000", "#800080", "#ff8c00", "#808080",
   ];
 
-  // Sync external text changes
+  // Sync external text changes (from parent / AI / version restore)
   useEffect(() => {
     if (!isInternalUpdate.current) {
-      const newHtml = prepareHtml(text);
+      const newHtml = sanitize(prepareHtml(text));
       setHtmlContent(newHtml);
       if (editorRef.current && editorRef.current.innerHTML !== newHtml) {
-        editorRef.current.innerHTML = sanitize(newHtml);
+        editorRef.current.innerHTML = newHtml;
       }
     }
     isInternalUpdate.current = false;
@@ -487,7 +487,7 @@ export const RichTextEditor = ({ text, onChange, columnStyle }: RichTextEditorPr
                     ...columnStyle,
                   }}
                   onInput={syncContent}
-                  dangerouslySetInnerHTML={{ __html: sanitize(htmlContent) }}
+                  dangerouslySetInnerHTML={{ __html: htmlContent }}
                   suppressContentEditableWarning
                 />
               </div>
