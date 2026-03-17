@@ -259,7 +259,7 @@ async function pushDirtyPreferences(userId: string): Promise<void> {
 /** Get preferences from local DB */
 export async function getLocalPreferences(): Promise<LocalPreferences | null> {
   if (!(await isDbAvailable())) return null;
-  return db.preferences.get('current') || null;
+  return (await db.preferences.get('current')) ?? null;
 }
 
 /** Save preferences locally */
