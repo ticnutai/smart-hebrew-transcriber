@@ -270,6 +270,43 @@ const Index = () => {
     });
   };
 
+  const getGroqApiKeyPool = (): string[] => {
+    const single = getApiKey("groq_api_key")?.trim();
+    const raw = localStorage.getItem("groq_api_keys_pool");
+    let pooled: string[] = [];
+
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) as string[];
+        if (Array.isArray(parsed)) {
+          pooled = parsed.map((k) => k.trim()).filter(Boolean);
+        }
+      } catch {
+        // Ignore malformed pool storage and fall back to single key.
+      }
+    }
+
+    const merged = [...pooled];
+    if (single && !merged.includes(single)) {
+      merged.unshift(single);
+    }
+    return Array.from(new Set(merged));
+  };
+
+  const shouldRotateGroqKey = (err: any): boolean => {
+    const msg = String(err?.message || err?.error || '').toLowerCase();
+    return (
+      msg.includes('rate_limit') ||
+      msg.includes('rate limit') ||
+      msg.includes('quota') ||
+      msg.includes('429') ||
+      msg.includes('invalid api key') ||
+      msg.includes('api key is invalid') ||
+      msg.includes('expired') ||
+      msg.includes('insufficient_quota')
+    );
+  };
+
   const handleFileSelect = async (file: File) => {
     currentFileRef.current = file;
     lastFileRef.current = file;
@@ -507,9 +544,9 @@ const Index = () => {
     setIsUploading(true);
 
     try {
-      const groqKey = getApiKey("groq_api_key");
-      
-      if (!groqKey) {
+      const keyPool = getGroqApiKeyPool();
+
+      if (keyPool.length === 0) {
         debugLog.error('Groq', 'No API key found in localStorage');
         toast({
           title: "נדרש מפתח API",
@@ -524,26 +561,67 @@ const Index = () => {
       setUploadProgress(0);
       toast({ title: "מעלה קובץ...", description: "מעבד עם Groq - מנוע מהיר במיוחד" });
 
-      const form = new FormData();
-      form.append('file', file, file.name);
-      form.append('fileName', file.name);
-      form.append('apiKey', groqKey);
-      form.append('language', sourceLanguage);
-      form.append('targetLanguage', 'he'); // Always Hebrew output
+      const activeIndexRaw = parseInt(localStorage.getItem('groq_api_key_active_index') || '0', 10);
+      const safeStartIndex = Number.isFinite(activeIndexRaw)
+        ? ((activeIndexRaw % keyPool.length) + keyPool.length) % keyPool.length
+        : 0;
 
-      debugLog.info('Groq', 'Uploading via XHR...');
-      const { data, error } = await xhrInvoke('transcribe-groq', form, (p) => setUploadProgress(p));
+      let data: any = null;
+      let lastError: any = null;
+      let usedIndex = safeStartIndex;
 
-      debugLog.info('Groq', 'Response received', { hasData: !!data, hasError: !!error });
+      for (let offset = 0; offset < keyPool.length; offset++) {
+        const idx = (safeStartIndex + offset) % keyPool.length;
+        const groqKey = keyPool[idx];
 
-      if (error) {
-        debugLog.error('Groq', 'Edge function error', error);
-        const errMsg = error.message || error.error || 'שגיאה לא ידועה';
-        if (errMsg === 'RATE_LIMIT' || error.retryAfter) {
-          const wait = error.retryAfter || 60;
-          throw new Error(`חרגת ממגבלת Groq. נסה שוב בעוד ${wait} שניות.`);
+        const form = new FormData();
+        form.append('file', file, file.name);
+        form.append('fileName', file.name);
+        form.append('apiKey', groqKey);
+        form.append('language', sourceLanguage);
+        form.append('targetLanguage', 'he');
+
+        debugLog.info('Groq', `Uploading via XHR with key #${idx + 1}/${keyPool.length}`);
+        const result = await xhrInvoke('transcribe-groq', form, (p) => setUploadProgress(p));
+        debugLog.info('Groq', 'Response received', { hasData: !!result.data, hasError: !!result.error, keyIndex: idx + 1 });
+
+        if (!result.error && result.data?.text) {
+          data = result.data;
+          usedIndex = idx;
+          break;
+        }
+
+        lastError = result.error || { message: 'No transcription received from Groq' };
+        const canRotate = shouldRotateGroqKey(lastError);
+        const hasNext = offset < keyPool.length - 1;
+
+        if (canRotate && hasNext) {
+          toast({
+            title: 'מעביר למפתח Groq הבא',
+            description: `מפתח ${idx + 1} נכשל/הוגבל. מנסה מפתח ${idx + 2}.`,
+          });
+          continue;
+        }
+
+        break;
+      }
+
+      if (!data?.text) {
+        const errMsg = lastError?.message || lastError?.error || 'שגיאה לא ידועה';
+        if (errMsg === 'RATE_LIMIT' || lastError?.retryAfter) {
+          const wait = lastError?.retryAfter || 60;
+          throw new Error(`כל מפתחות Groq נוצלו/הוגבלו. נסה שוב בעוד ${wait} שניות.`);
         }
         throw new Error(errMsg);
+      }
+
+      localStorage.setItem('groq_api_key_active_index', String(usedIndex));
+      localStorage.setItem('groq_api_key', keyPool[usedIndex]);
+      if (usedIndex !== safeStartIndex) {
+        toast({
+          title: 'בוצעה החלפת מפתח Groq',
+          description: `התמלול הושלם עם מפתח #${usedIndex + 1}.`,
+        });
       }
 
       if (data?.text) {
@@ -1159,6 +1237,43 @@ const Index = () => {
       if (error) throw error;
       if (!data?.text) throw new Error('No transcription received');
       return data.text;
+    }
+
+    if (engine === 'groq') {
+      const keyPool = getGroqApiKeyPool();
+      if (keyPool.length === 0) throw new Error('נדרש מפתח API - הגדר בהגדרות');
+
+      const activeIndexRaw = parseInt(localStorage.getItem('groq_api_key_active_index') || '0', 10);
+      const safeStartIndex = Number.isFinite(activeIndexRaw)
+        ? ((activeIndexRaw % keyPool.length) + keyPool.length) % keyPool.length
+        : 0;
+
+      let lastErr: any = null;
+      for (let offset = 0; offset < keyPool.length; offset++) {
+        const idx = (safeStartIndex + offset) % keyPool.length;
+        const form = new FormData();
+        form.append('file', file, file.name);
+        form.append('fileName', file.name);
+        form.append('apiKey', keyPool[idx]);
+        form.append('language', sourceLanguage);
+        form.append('targetLanguage', 'he');
+
+        const { data, error } = await xhrInvoke('transcribe-groq', form, onProgress);
+        if (!error && data?.text) {
+          localStorage.setItem('groq_api_key_active_index', String(idx));
+          localStorage.setItem('groq_api_key', keyPool[idx]);
+          return data.text;
+        }
+
+        lastErr = error || { message: 'שגיאה בתמלול' };
+        if (!(shouldRotateGroqKey(lastErr) && offset < keyPool.length - 1)) {
+          break;
+        }
+      }
+
+      const err = new Error(lastErr?.message || lastErr?.error || 'שגיאה בתמלול');
+      (err as any).retryAfter = lastErr?.retryAfter;
+      throw err;
     }
 
     // OpenAI, Groq, AssemblyAI, Deepgram

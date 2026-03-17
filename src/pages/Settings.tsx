@@ -21,6 +21,7 @@ const Settings = () => {
   const [openaiKey, setOpenaiKey] = useState("");
   const [googleKey, setGoogleKey] = useState("");
   const [groqKey, setGroqKey] = useState("");
+  const [groqKeysPoolText, setGroqKeysPoolText] = useState("");
   const [claudeKey, setClaudeKey] = useState("");
   const [assemblyaiKey, setAssemblyaiKey] = useState("");
   const [deepgramKey, setDeepgramKey] = useState("");
@@ -67,6 +68,21 @@ const Settings = () => {
         if (data.claude_key) setClaudeKey(data.claude_key);
         if (data.assemblyai_key) setAssemblyaiKey(data.assemblyai_key);
         if (data.deepgram_key) setDeepgramKey(data.deepgram_key);
+
+        // Groq multi-key pool is local-only for now (cloud table keeps one primary key).
+        const rawPool = localStorage.getItem("groq_api_keys_pool");
+        if (rawPool) {
+          try {
+            const parsed = JSON.parse(rawPool) as string[];
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setGroqKeysPoolText(parsed.join("\n"));
+            }
+          } catch {
+            // Ignore corrupted local pool and use single-key fallback.
+          }
+        } else if (data.groq_key) {
+          setGroqKeysPoolText(data.groq_key);
+        }
       } else {
         // Fallback to localStorage
         const savedOpenAI = getApiKey("openai_api_key");
@@ -82,6 +98,20 @@ const Settings = () => {
         if (savedClaude) setClaudeKey(savedClaude);
         if (savedAssemblyAI) setAssemblyaiKey(savedAssemblyAI);
         if (savedDeepgram) setDeepgramKey(savedDeepgram);
+
+        const rawPool = localStorage.getItem("groq_api_keys_pool");
+        if (rawPool) {
+          try {
+            const parsed = JSON.parse(rawPool) as string[];
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setGroqKeysPoolText(parsed.join("\n"));
+            }
+          } catch {
+            // Ignore corrupted local pool and use single-key fallback.
+          }
+        } else if (savedGroq) {
+          setGroqKeysPoolText(savedGroq);
+        }
       }
     } catch (error) {
       console.error("Error loading keys:", error);
@@ -91,6 +121,16 @@ const Settings = () => {
 
   const handleSave = async () => {
     try {
+      const groqPool = Array.from(
+        new Set(
+          groqKeysPoolText
+            .split(/\r?\n/)
+            .map((k) => k.trim())
+            .filter(Boolean)
+        )
+      );
+      const primaryGroq = groqPool[0] || groqKey.trim() || "";
+
       // Save to cloud (tied to user ID)
       const { error } = await supabase
         .from('user_api_keys')
@@ -98,7 +138,7 @@ const Settings = () => {
           user_identifier: userIdentifier,
           openai_key: openaiKey || null,
           google_key: googleKey || null,
-          groq_key: groqKey || null,
+          groq_key: primaryGroq || null,
           claude_key: claudeKey || null,
           assemblyai_key: assemblyaiKey || null,
           deepgram_key: deepgramKey || null,
@@ -115,10 +155,17 @@ const Settings = () => {
       // Also save locally for quick access
       if (openaiKey) localStorage.setItem("openai_api_key", openaiKey);
       if (googleKey) localStorage.setItem("google_api_key", googleKey);
-      if (groqKey) localStorage.setItem("groq_api_key", groqKey);
+      if (primaryGroq) {
+        localStorage.setItem("groq_api_key", primaryGroq);
+        localStorage.setItem("groq_api_keys_pool", JSON.stringify(groqPool));
+      }
       if (claudeKey) localStorage.setItem("claude_api_key", claudeKey);
       if (assemblyaiKey) localStorage.setItem("assemblyai_api_key", assemblyaiKey);
       if (deepgramKey) localStorage.setItem("deepgram_api_key", deepgramKey);
+
+      if (primaryGroq) {
+        setGroqKey(primaryGroq);
+      }
 
       toast.success("המפתחות נשמרו בהצלחה בענן! ☁️");
     } catch (error) {
@@ -275,6 +322,20 @@ const Settings = () => {
               </div>
               <p className="text-xs text-muted-foreground text-right">
                 מפתח API עבור Groq Whisper - מהיר במיוחד ואיכותי
+              </p>
+
+              <Label htmlFor="groq-pool" className="mt-2 block">Groq API Keys Pool (שורה לכל מפתח)</Label>
+              <textarea
+                id="groq-pool"
+                rows={4}
+                placeholder="gsk_key_1&#10;gsk_key_2&#10;gsk_key_3"
+                value={groqKeysPoolText}
+                onChange={(e) => setGroqKeysPoolText(e.target.value)}
+                dir="ltr"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              />
+              <p className="text-xs text-muted-foreground text-right">
+                כשהמפתח הראשון נכשל/מגיע למגבלה, המערכת תעבור אוטומטית למפתח הבא ותציג הודעה.
               </p>
             </div>
 
