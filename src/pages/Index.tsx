@@ -86,6 +86,10 @@ const Index = () => {
   // Pending file waiting for local server to come up
   const pendingServerFileRef = useRef<{ file: File; audioUrl: string } | null>(null);
 
+  // Audio element ref for queue item playback
+  const queueAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [queuePlayingId, setQueuePlayingId] = useState<string | null>(null);
+
   const { transcribe: localTranscribe, isLoading: isLocalLoading, progress: localProgress } = useLocalTranscription();
   const { transcribeStream: serverTranscribeStream, transcribeStreamParallel: serverTranscribeParallel, isLoading: isServerLoading, progress: serverProgress, phase: serverPhase, isConnected: serverConnected, modelReady: serverModelReady, recoverPartial, clearPartial, cancelStream: cancelServerStream, checkConnection, startPolling, stopPolling } = useLocalServer();
   const bgTask = useBackgroundTask();
@@ -166,19 +170,34 @@ const Index = () => {
       if (!file) {
         await localQueue.updateItemStatus(next.id, 'failed', 'הקובץ לא נמצא');
         localQueue.processingRef.current = false;
+        // Auto-advance to next item
+        setTimeout(processNextQueueItem, 500);
         return;
       }
 
       currentFileRef.current = file;
       try {
-        await bgTask.run(`local-server \u2014 ${next.fileName}`, async () => {
-          await transcribeWithLocalServer(file, next.audioUrl);
-        });
+        // Timeout protection: 10 minutes max per file
+        const timeoutMs = 10 * 60 * 1000;
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('QUEUE_TIMEOUT')), timeoutMs)
+        );
+        await Promise.race([
+          bgTask.run(`local-server \u2014 ${next.fileName}`, async () => {
+            await transcribeWithLocalServer(file, next.audioUrl);
+          }),
+          timeoutPromise,
+        ]);
         await localQueue.updateItemStatus(next.id, 'completed');
-      } catch {
-        await localQueue.updateItemStatus(next.id, 'failed', 'שגיאה בתמלול');
+      } catch (err) {
+        const msg = err instanceof Error && err.message === 'QUEUE_TIMEOUT'
+          ? 'תמלול חרג מזמן מקסימלי (10 דקות)'
+          : 'שגיאה בתמלול';
+        await localQueue.updateItemStatus(next.id, 'failed', msg);
       } finally {
         localQueue.processingRef.current = false;
+        // Auto-advance to next pending item
+        setTimeout(processNextQueueItem, 500);
       }
     };
 
@@ -1335,6 +1354,44 @@ const Index = () => {
     setIsUploading(false);
   };
 
+  // Cancel the currently processing queue item
+  const handleCancelQueueItem = () => {
+    cancelServerStream();
+    bgTask.reset();
+    setIsUploading(false);
+    const processing = localQueue.processingItem;
+    if (processing) {
+      localQueue.updateItemStatus(processing.id, 'failed', 'בוטל ידנית');
+      localQueue.processingRef.current = false;
+    }
+    toast({ title: "⏹ תמלול מהתור בוטל" });
+  };
+
+  // Play audio of a queue item
+  const handleQueuePlay = async (itemId: string) => {
+    // Stop if already playing this item
+    if (queuePlayingId === itemId && queueAudioRef.current) {
+      queueAudioRef.current.pause();
+      queueAudioRef.current.currentTime = 0;
+      setQueuePlayingId(null);
+      return;
+    }
+    const url = await localQueue.getPlaybackUrl(itemId);
+    if (!url) {
+      toast({ title: "הקובץ לא נמצא", variant: "destructive" });
+      return;
+    }
+    if (queueAudioRef.current) {
+      queueAudioRef.current.pause();
+      URL.revokeObjectURL(queueAudioRef.current.src);
+    }
+    const audio = new Audio(url);
+    audio.onended = () => { setQueuePlayingId(null); URL.revokeObjectURL(url); };
+    queueAudioRef.current = audio;
+    setQueuePlayingId(itemId);
+    audio.play().catch(() => setQueuePlayingId(null));
+  };
+
   const handleResumeTranscription = async (fileOverride?: File) => {
     const partial = recoverPartial();
     if (!partial || !partial.lastSegEnd) {
@@ -1812,11 +1869,34 @@ const Index = () => {
                     {item.status === 'failed' && (item.error || 'נכשל')}
                   </span>
                 </div>
-                {(item.status === 'pending' || item.status === 'failed') && (
-                  <Button variant="ghost" size="sm" className="text-xs h-6 text-destructive" onClick={() => localQueue.removeFromQueue(item.id)}>
-                    <X className="w-3 h-3" />
+                <div className="flex items-center gap-1 shrink-0">
+                  {/* Play / Stop-play button */}
+                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0" title={queuePlayingId === item.id ? 'עצור השמעה' : 'נגן'}
+                    onClick={() => handleQueuePlay(item.id)}>
+                    {queuePlayingId === item.id ? <Square className="w-3 h-3" /> : <Play className="w-3 h-3" />}
                   </Button>
-                )}
+                  {/* Stop transcription (only for processing item) */}
+                  {item.status === 'processing' && (
+                    <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-orange-500" title="עצור תמלול"
+                      onClick={handleCancelQueueItem}>
+                      <Pause className="w-3 h-3" />
+                    </Button>
+                  )}
+                  {/* Retry (only for failed items) */}
+                  {item.status === 'failed' && (
+                    <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-blue-500" title="נסה שוב"
+                      onClick={() => localQueue.retryItem(item.id)}>
+                      <Zap className="w-3 h-3" />
+                    </Button>
+                  )}
+                  {/* Delete (always available except when processing) */}
+                  {item.status !== 'processing' && (
+                    <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-destructive" title="מחק"
+                      onClick={() => localQueue.removeFromQueue(item.id)}>
+                      <X className="w-3 h-3" />
+                    </Button>
+                  )}
+                </div>
               </div>
             ))}
           </Card>

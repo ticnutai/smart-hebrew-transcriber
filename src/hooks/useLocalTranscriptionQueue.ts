@@ -114,8 +114,15 @@ export function useLocalTranscriptionQueue() {
     await dbPut(STORE_FILES, id, file);
     await dbPut(STORE_META, id, item);
 
+    // Verify the file was actually persisted
+    const verify = await dbGet<File>(STORE_FILES, id);
+    if (!verify) {
+      toast({ title: "שגיאה בשמירת קובץ", description: "הקובץ לא נשמר ב-IndexedDB", variant: "destructive" });
+      throw new Error('File not persisted to IndexedDB');
+    }
+
     setQueue(prev => [...prev, item]);
-    debugLog.info('Queue', `Added to queue: ${file.name} (${id})`);
+    debugLog.info('Queue', `Added to queue: ${file.name} (${id}) — verified in IndexedDB`);
     return id;
   }, []);
 
@@ -159,6 +166,19 @@ export function useLocalTranscriptionQueue() {
     setQueue(prev => prev.filter(item => item.status !== 'completed' && item.status !== 'failed'));
   }, [queue]);
 
+  /** Reset a failed item back to pending so it will be retried */
+  const retryItem = useCallback(async (id: string) => {
+    await updateItemStatus(id, 'pending', undefined);
+    debugLog.info('Queue', `Retried item: ${id}`);
+  }, [updateItemStatus]);
+
+  /** Create a temporary playback URL for a queued item's audio */
+  const getPlaybackUrl = useCallback(async (id: string): Promise<string | null> => {
+    const file = await getFile(id);
+    if (!file) return null;
+    return URL.createObjectURL(file);
+  }, [getFile]);
+
   return {
     queue,
     pendingCount,
@@ -169,6 +189,8 @@ export function useLocalTranscriptionQueue() {
     getFile,
     getNextPending,
     clearCompleted,
+    retryItem,
+    getPlaybackUrl,
     processingRef,
   };
 }
