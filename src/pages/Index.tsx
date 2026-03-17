@@ -270,9 +270,43 @@ const Index = () => {
     });
   };
 
-  const getGroqApiKeyPool = (): string[] => {
-    const single = getApiKey("groq_api_key")?.trim();
-    const raw = localStorage.getItem("groq_api_keys_pool");
+  type CloudProvider = 'openai' | 'groq' | 'google' | 'assemblyai' | 'deepgram';
+
+  const providerSingleKeyStorage: Record<CloudProvider, string> = {
+    openai: 'openai_api_key',
+    groq: 'groq_api_key',
+    google: 'google_api_key',
+    assemblyai: 'assemblyai_api_key',
+    deepgram: 'deepgram_api_key',
+  };
+
+  const providerPoolStorage: Record<CloudProvider, string> = {
+    openai: 'openai_api_keys_pool',
+    groq: 'groq_api_keys_pool',
+    google: 'google_api_keys_pool',
+    assemblyai: 'assemblyai_api_keys_pool',
+    deepgram: 'deepgram_api_keys_pool',
+  };
+
+  const providerActiveIndexStorage: Record<CloudProvider, string> = {
+    openai: 'openai_api_key_active_index',
+    groq: 'groq_api_key_active_index',
+    google: 'google_api_key_active_index',
+    assemblyai: 'assemblyai_api_key_active_index',
+    deepgram: 'deepgram_api_key_active_index',
+  };
+
+  const providerLabel: Record<CloudProvider, string> = {
+    openai: 'OpenAI',
+    groq: 'Groq',
+    google: 'Google',
+    assemblyai: 'AssemblyAI',
+    deepgram: 'Deepgram',
+  };
+
+  const getProviderApiKeyPool = (provider: CloudProvider): string[] => {
+    const single = getApiKey(providerSingleKeyStorage[provider])?.trim();
+    const raw = localStorage.getItem(providerPoolStorage[provider]);
     let pooled: string[] = [];
 
     if (raw) {
@@ -293,7 +327,7 @@ const Index = () => {
     return Array.from(new Set(merged));
   };
 
-  const shouldRotateGroqKey = (err: any): boolean => {
+  const shouldRotateProviderKey = (err: any): boolean => {
     const msg = String(err?.message || err?.error || '').toLowerCase();
     return (
       msg.includes('rate_limit') ||
@@ -303,8 +337,22 @@ const Index = () => {
       msg.includes('invalid api key') ||
       msg.includes('api key is invalid') ||
       msg.includes('expired') ||
-      msg.includes('insufficient_quota')
+      msg.includes('insufficient_quota') ||
+      msg.includes('unauthorized') ||
+      msg.includes('authentication')
     );
+  };
+
+  const getProviderStartIndex = (provider: CloudProvider, poolLength: number): number => {
+    if (poolLength <= 0) return 0;
+    const raw = parseInt(localStorage.getItem(providerActiveIndexStorage[provider]) || '0', 10);
+    if (!Number.isFinite(raw)) return 0;
+    return ((raw % poolLength) + poolLength) % poolLength;
+  };
+
+  const setProviderActiveKey = (provider: CloudProvider, pool: string[], index: number) => {
+    localStorage.setItem(providerActiveIndexStorage[provider], String(index));
+    localStorage.setItem(providerSingleKeyStorage[provider], pool[index]);
   };
 
   const handleFileSelect = async (file: File) => {
@@ -460,8 +508,8 @@ const Index = () => {
     try {
       debugLog.info('OpenAI', `Starting transcription: ${file.name} (${file.size} bytes)`);
       
-      const openaiKey = getApiKey("openai_api_key");
-      if (!openaiKey) {
+      const keyPool = getProviderApiKeyPool('openai');
+      if (keyPool.length === 0) {
         debugLog.error('OpenAI', 'No API key found in localStorage');
         toast({
           title: "נדרש מפתח API",
@@ -476,19 +524,52 @@ const Index = () => {
       setUploadProgress(0);
       toast({ title: "מעלה קובץ...", description: "מעבד את הקובץ שלך" });
 
-      const form = new FormData();
-      form.append('file', file, file.name);
-      form.append('fileName', file.name);
-      form.append('apiKey', openaiKey);
-      form.append('language', sourceLanguage);
-      form.append('targetLanguage', 'he'); // Always Hebrew output
+      const safeStartIndex = getProviderStartIndex('openai', keyPool.length);
+      let data: any = null;
+      let lastError: any = null;
+      let usedIndex = safeStartIndex;
 
-      debugLog.info('OpenAI', 'Uploading via XHR to edge function...');
-      const { data, error } = await xhrInvoke('transcribe-openai', form, (p) => setUploadProgress(p));
+      for (let offset = 0; offset < keyPool.length; offset++) {
+        const idx = (safeStartIndex + offset) % keyPool.length;
+        const form = new FormData();
+        form.append('file', file, file.name);
+        form.append('fileName', file.name);
+        form.append('apiKey', keyPool[idx]);
+        form.append('language', sourceLanguage);
+        form.append('targetLanguage', 'he');
 
-      debugLog.info('OpenAI', 'Response received', { hasData: !!data, hasError: !!error });
+        debugLog.info('OpenAI', `Uploading via XHR with key #${idx + 1}/${keyPool.length}`);
+        const result = await xhrInvoke('transcribe-openai', form, (p) => setUploadProgress(p));
+        debugLog.info('OpenAI', 'Response received', { hasData: !!result.data, hasError: !!result.error, keyIndex: idx + 1 });
 
-      if (error) throw error;
+        if (!result.error && result.data?.text) {
+          data = result.data;
+          usedIndex = idx;
+          break;
+        }
+
+        lastError = result.error || { message: 'No transcription received' };
+        if (shouldRotateProviderKey(lastError) && offset < keyPool.length - 1) {
+          toast({
+            title: `מעביר למפתח ${providerLabel.openai} הבא`,
+            description: `מפתח ${idx + 1} נכשל/הוגבל. מנסה מפתח ${idx + 2}.`,
+          });
+          continue;
+        }
+        break;
+      }
+
+      if (!data?.text) {
+        throw (lastError || new Error('No transcription received'));
+      }
+
+      setProviderActiveKey('openai', keyPool, usedIndex);
+      if (usedIndex !== safeStartIndex) {
+        toast({
+          title: `בוצעה החלפת מפתח ${providerLabel.openai}`,
+          description: `התמלול המשיך אוטומטית עם מפתח #${usedIndex + 1}.`,
+        });
+      }
 
       if (data?.text) {
         const timings = data.wordTimings || [];
@@ -544,7 +625,7 @@ const Index = () => {
     setIsUploading(true);
 
     try {
-      const keyPool = getGroqApiKeyPool();
+      const keyPool = getProviderApiKeyPool('groq');
 
       if (keyPool.length === 0) {
         debugLog.error('Groq', 'No API key found in localStorage');
@@ -561,10 +642,7 @@ const Index = () => {
       setUploadProgress(0);
       toast({ title: "מעלה קובץ...", description: "מעבד עם Groq - מנוע מהיר במיוחד" });
 
-      const activeIndexRaw = parseInt(localStorage.getItem('groq_api_key_active_index') || '0', 10);
-      const safeStartIndex = Number.isFinite(activeIndexRaw)
-        ? ((activeIndexRaw % keyPool.length) + keyPool.length) % keyPool.length
-        : 0;
+      const safeStartIndex = getProviderStartIndex('groq', keyPool.length);
 
       let data: any = null;
       let lastError: any = null;
@@ -592,7 +670,7 @@ const Index = () => {
         }
 
         lastError = result.error || { message: 'No transcription received from Groq' };
-        const canRotate = shouldRotateGroqKey(lastError);
+        const canRotate = shouldRotateProviderKey(lastError);
         const hasNext = offset < keyPool.length - 1;
 
         if (canRotate && hasNext) {
@@ -615,8 +693,7 @@ const Index = () => {
         throw new Error(errMsg);
       }
 
-      localStorage.setItem('groq_api_key_active_index', String(usedIndex));
-      localStorage.setItem('groq_api_key', keyPool[usedIndex]);
+      setProviderActiveKey('groq', keyPool, usedIndex);
       if (usedIndex !== safeStartIndex) {
         toast({
           title: 'בוצעה החלפת מפתח Groq',
@@ -679,9 +756,9 @@ const Index = () => {
     setIsUploading(true);
 
     try {
-      const googleKey = getApiKey("google_api_key");
+      const keyPool = getProviderApiKeyPool('google');
 
-      if (!googleKey) {
+      if (keyPool.length === 0) {
         debugLog.error('Google', 'No API key found in localStorage');
         toast({
           title: "נדרש מפתח API",
@@ -713,22 +790,54 @@ const Index = () => {
 
       const base64Audio = await base64Promise;
 
-      debugLog.info('Google', 'Calling edge function...');
-      const { data, error } = await supabase.functions.invoke('transcribe-google', {
-        body: {
-          audio: base64Audio,
-          fileName: file.name,
-          apiKey: googleKey,
-          language: sourceLanguage,
-          targetLanguage: 'he' // Always Hebrew output
+      const safeStartIndex = getProviderStartIndex('google', keyPool.length);
+      let data: any = null;
+      let lastError: any = null;
+      let usedIndex = safeStartIndex;
+
+      for (let offset = 0; offset < keyPool.length; offset++) {
+        const idx = (safeStartIndex + offset) % keyPool.length;
+        debugLog.info('Google', `Calling edge function with key #${idx + 1}/${keyPool.length}`);
+        const result = await supabase.functions.invoke('transcribe-google', {
+          body: {
+            audio: base64Audio,
+            fileName: file.name,
+            apiKey: keyPool[idx],
+            language: sourceLanguage,
+            targetLanguage: 'he'
+          }
+        });
+
+        debugLog.info('Google', 'Response received', { hasData: !!result.data, hasError: !!result.error, keyIndex: idx + 1 });
+
+        if (!result.error && result.data?.text) {
+          data = result.data;
+          usedIndex = idx;
+          break;
         }
-      });
 
-      debugLog.info('Google', 'Response received', { hasData: !!data, hasError: !!error });
+        lastError = result.error || { message: 'No transcription received from Google' };
+        if (shouldRotateProviderKey(lastError) && offset < keyPool.length - 1) {
+          toast({
+            title: `מעביר למפתח ${providerLabel.google} הבא`,
+            description: `מפתח ${idx + 1} נכשל/הוגבל. מנסה מפתח ${idx + 2}.`,
+          });
+          continue;
+        }
+        break;
+      }
 
-      if (error) {
-        debugLog.error('Google', 'Edge function error', error);
-        throw error;
+      if (!data?.text) {
+        debugLog.error('Google', 'Edge function error', lastError);
+        throw (lastError || new Error('No transcription received from Google'));
+      }
+
+      setProviderActiveKey('google', keyPool, usedIndex);
+      if (usedIndex !== safeStartIndex) {
+        toast({
+          title: `בוצעה החלפת מפתח ${providerLabel.google}`,
+          description: `התמלול המשיך אוטומטית עם מפתח #${usedIndex + 1}.`,
+        });
       }
 
       if (data?.text) {
@@ -948,9 +1057,9 @@ const Index = () => {
     setIsUploading(true);
     
     try {
-      const assemblyKey = getApiKey("assemblyai_api_key");
-      
-      if (!assemblyKey) {
+      const keyPool = getProviderApiKeyPool('assemblyai');
+
+      if (keyPool.length === 0) {
         toast({
           title: "נדרש מפתח API",
           description: "יש להגדיר מפתח AssemblyAI בהגדרות",
@@ -964,15 +1073,46 @@ const Index = () => {
       setUploadProgress(0);
       toast({ title: "מעלה קובץ...", description: "מעבד את הקובץ שלך" });
 
-      const form = new FormData();
-      form.append('file', file, file.name);
-      form.append('apiKey', assemblyKey);
-      form.append('language', sourceLanguage);
-      if (diarize) form.append('diarize', 'true');
+      const safeStartIndex = getProviderStartIndex('assemblyai', keyPool.length);
+      let data: any = null;
+      let lastError: any = null;
+      let usedIndex = safeStartIndex;
 
-      const { data, error } = await xhrInvoke('transcribe-assemblyai', form, (p) => setUploadProgress(p));
+      for (let offset = 0; offset < keyPool.length; offset++) {
+        const idx = (safeStartIndex + offset) % keyPool.length;
+        const form = new FormData();
+        form.append('file', file, file.name);
+        form.append('apiKey', keyPool[idx]);
+        form.append('language', sourceLanguage);
+        if (diarize) form.append('diarize', 'true');
 
-      if (error) throw error;
+        const result = await xhrInvoke('transcribe-assemblyai', form, (p) => setUploadProgress(p));
+        if (!result.error && result.data?.text) {
+          data = result.data;
+          usedIndex = idx;
+          break;
+        }
+
+        lastError = result.error || { message: 'No transcription received' };
+        if (shouldRotateProviderKey(lastError) && offset < keyPool.length - 1) {
+          toast({
+            title: `מעביר למפתח ${providerLabel.assemblyai} הבא`,
+            description: `מפתח ${idx + 1} נכשל/הוגבל. מנסה מפתח ${idx + 2}.`,
+          });
+          continue;
+        }
+        break;
+      }
+
+      if (!data?.text) throw (lastError || new Error('No transcription received'));
+
+      setProviderActiveKey('assemblyai', keyPool, usedIndex);
+      if (usedIndex !== safeStartIndex) {
+        toast({
+          title: `בוצעה החלפת מפתח ${providerLabel.assemblyai}`,
+          description: `התמלול המשיך אוטומטית עם מפתח #${usedIndex + 1}.`,
+        });
+      }
 
       if (data?.text) {
         const timings = data.wordTimings || [];
@@ -1025,9 +1165,9 @@ const Index = () => {
     setIsUploading(true);
     
     try {
-      const deepgramKey = getApiKey("deepgram_api_key");
-      
-      if (!deepgramKey) {
+      const keyPool = getProviderApiKeyPool('deepgram');
+
+      if (keyPool.length === 0) {
         toast({
           title: "נדרש מפתח API",
           description: "יש להגדיר מפתח Deepgram בהגדרות",
@@ -1041,15 +1181,46 @@ const Index = () => {
       setUploadProgress(0);
       toast({ title: "מעלה קובץ...", description: "מעבד את הקובץ שלך" });
 
-      const form = new FormData();
-      form.append('file', file, file.name);
-      form.append('apiKey', deepgramKey);
-      form.append('language', sourceLanguage);
-      if (diarize) form.append('diarize', 'true');
+      const safeStartIndex = getProviderStartIndex('deepgram', keyPool.length);
+      let data: any = null;
+      let lastError: any = null;
+      let usedIndex = safeStartIndex;
 
-      const { data, error } = await xhrInvoke('transcribe-deepgram', form, (p) => setUploadProgress(p));
+      for (let offset = 0; offset < keyPool.length; offset++) {
+        const idx = (safeStartIndex + offset) % keyPool.length;
+        const form = new FormData();
+        form.append('file', file, file.name);
+        form.append('apiKey', keyPool[idx]);
+        form.append('language', sourceLanguage);
+        if (diarize) form.append('diarize', 'true');
 
-      if (error) throw error;
+        const result = await xhrInvoke('transcribe-deepgram', form, (p) => setUploadProgress(p));
+        if (!result.error && result.data?.text) {
+          data = result.data;
+          usedIndex = idx;
+          break;
+        }
+
+        lastError = result.error || { message: 'No transcription received' };
+        if (shouldRotateProviderKey(lastError) && offset < keyPool.length - 1) {
+          toast({
+            title: `מעביר למפתח ${providerLabel.deepgram} הבא`,
+            description: `מפתח ${idx + 1} נכשל/הוגבל. מנסה מפתח ${idx + 2}.`,
+          });
+          continue;
+        }
+        break;
+      }
+
+      if (!data?.text) throw (lastError || new Error('No transcription received'));
+
+      setProviderActiveKey('deepgram', keyPool, usedIndex);
+      if (usedIndex !== safeStartIndex) {
+        toast({
+          title: `בוצעה החלפת מפתח ${providerLabel.deepgram}`,
+          description: `התמלול המשיך אוטומטית עם מפתח #${usedIndex + 1}.`,
+        });
+      }
 
       if (data?.text) {
         const timings = data.wordTimings || [];
@@ -1202,12 +1373,6 @@ const Index = () => {
   const batchTranscribeFile = async (file: File, onProgress: (p: number) => void): Promise<string> => {
     if (file.size > MAX_AUDIO_SIZE_MB * 1024 * 1024) throw new Error(`הקובץ גדול מדי (מקסימום ${MAX_AUDIO_SIZE_MB}MB)`);
 
-    const getKey = (name: string) => {
-      const key = localStorage.getItem(name);
-      if (!key) throw new Error(`נדרש מפתח API - הגדר בהגדרות`);
-      return key;
-    };
-
     const engineMap: Record<string, string> = {
       openai: 'transcribe-openai',
       groq: 'transcribe-groq',
@@ -1221,7 +1386,9 @@ const Index = () => {
     }
 
     if (engine === 'google') {
-      const googleKey = getKey('google_api_key');
+      const keyPool = getProviderApiKeyPool('google');
+      if (keyPool.length === 0) throw new Error('נדרש מפתח API - הגדר בהגדרות');
+
       const base64 = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => {
@@ -1231,42 +1398,21 @@ const Index = () => {
         reader.onerror = reject;
         reader.readAsDataURL(file);
       });
-      const { data, error } = await supabase.functions.invoke('transcribe-google', {
-        body: { audio: base64, fileName: file.name, apiKey: googleKey, language: sourceLanguage, targetLanguage: 'he' }
-      });
-      if (error) throw error;
-      if (!data?.text) throw new Error('No transcription received');
-      return data.text;
-    }
-
-    if (engine === 'groq') {
-      const keyPool = getGroqApiKeyPool();
-      if (keyPool.length === 0) throw new Error('נדרש מפתח API - הגדר בהגדרות');
-
-      const activeIndexRaw = parseInt(localStorage.getItem('groq_api_key_active_index') || '0', 10);
-      const safeStartIndex = Number.isFinite(activeIndexRaw)
-        ? ((activeIndexRaw % keyPool.length) + keyPool.length) % keyPool.length
-        : 0;
+      const safeStartIndex = getProviderStartIndex('google', keyPool.length);
 
       let lastErr: any = null;
       for (let offset = 0; offset < keyPool.length; offset++) {
         const idx = (safeStartIndex + offset) % keyPool.length;
-        const form = new FormData();
-        form.append('file', file, file.name);
-        form.append('fileName', file.name);
-        form.append('apiKey', keyPool[idx]);
-        form.append('language', sourceLanguage);
-        form.append('targetLanguage', 'he');
-
-        const { data, error } = await xhrInvoke('transcribe-groq', form, onProgress);
+        const { data, error } = await supabase.functions.invoke('transcribe-google', {
+          body: { audio: base64, fileName: file.name, apiKey: keyPool[idx], language: sourceLanguage, targetLanguage: 'he' }
+        });
         if (!error && data?.text) {
-          localStorage.setItem('groq_api_key_active_index', String(idx));
-          localStorage.setItem('groq_api_key', keyPool[idx]);
+          setProviderActiveKey('google', keyPool, idx);
           return data.text;
         }
 
         lastErr = error || { message: 'שגיאה בתמלול' };
-        if (!(shouldRotateGroqKey(lastErr) && offset < keyPool.length - 1)) {
+        if (!(shouldRotateProviderKey(lastErr) && offset < keyPool.length - 1)) {
           break;
         }
       }
@@ -1276,27 +1422,41 @@ const Index = () => {
       throw err;
     }
 
-    // OpenAI, Groq, AssemblyAI, Deepgram
-    const keyMap: Record<string, string> = {
-      openai: 'openai_api_key', groq: 'groq_api_key',
-      assemblyai: 'assemblyai_api_key', deepgram: 'deepgram_api_key',
-    };
-    const apiKey = getKey(keyMap[engine]);
-    const form = new FormData();
-    form.append('file', file, file.name);
-    form.append('fileName', file.name);
-    form.append('apiKey', apiKey);
-    form.append('language', sourceLanguage);
-    if (engine === 'openai' || engine === 'groq') form.append('targetLanguage', 'he');
+    if (engine === 'openai' || engine === 'groq' || engine === 'assemblyai' || engine === 'deepgram') {
+      const provider = engine as CloudProvider;
+      const keyPool = getProviderApiKeyPool(provider);
+      if (keyPool.length === 0) throw new Error('נדרש מפתח API - הגדר בהגדרות');
 
-    const { data, error } = await xhrInvoke(engineMap[engine], form, onProgress);
-    if (error) {
-      const err = new Error(error.message || error.error || 'שגיאה בתמלול');
-      (err as any).retryAfter = error.retryAfter;
+      const safeStartIndex = getProviderStartIndex(provider, keyPool.length);
+      let lastErr: any = null;
+
+      for (let offset = 0; offset < keyPool.length; offset++) {
+        const idx = (safeStartIndex + offset) % keyPool.length;
+        const form = new FormData();
+        form.append('file', file, file.name);
+        form.append('fileName', file.name);
+        form.append('apiKey', keyPool[idx]);
+        form.append('language', sourceLanguage);
+        if (provider === 'openai' || provider === 'groq') form.append('targetLanguage', 'he');
+
+        const { data, error } = await xhrInvoke(engineMap[provider], form, onProgress);
+        if (!error && data?.text) {
+          setProviderActiveKey(provider, keyPool, idx);
+          return data.text;
+        }
+
+        lastErr = error || { message: 'שגיאה בתמלול' };
+        if (!(shouldRotateProviderKey(lastErr) && offset < keyPool.length - 1)) {
+          break;
+        }
+      }
+
+      const err = new Error(lastErr?.message || lastErr?.error || 'שגיאה בתמלול');
+      (err as any).retryAfter = lastErr?.retryAfter;
       throw err;
     }
-    if (!data?.text) throw new Error('No transcription received');
-    return data.text;
+
+    throw new Error('Engine not supported for batch transcription');
   };
 
   const batchSaveTranscript = async (text: string, engineUsed: string, title: string) => {

@@ -21,10 +21,14 @@ const Settings = () => {
   const [openaiKey, setOpenaiKey] = useState("");
   const [googleKey, setGoogleKey] = useState("");
   const [groqKey, setGroqKey] = useState("");
+  const [openaiKeysPoolText, setOpenaiKeysPoolText] = useState("");
+  const [googleKeysPoolText, setGoogleKeysPoolText] = useState("");
   const [groqKeysPoolText, setGroqKeysPoolText] = useState("");
   const [claudeKey, setClaudeKey] = useState("");
   const [assemblyaiKey, setAssemblyaiKey] = useState("");
   const [deepgramKey, setDeepgramKey] = useState("");
+  const [assemblyaiKeysPoolText, setAssemblyaiKeysPoolText] = useState("");
+  const [deepgramKeysPoolText, setDeepgramKeysPoolText] = useState("");
   const [showOpenai, setShowOpenai] = useState(false);
   const [showGoogle, setShowGoogle] = useState(false);
   const [showGroq, setShowGroq] = useState(false);
@@ -61,6 +65,22 @@ const Settings = () => {
         console.error("Error loading keys from cloud:", error);
       }
 
+      const loadPoolOrFallback = (poolStorageKey: string, fallback?: string, setter?: (v: string) => void) => {
+        const rawPool = localStorage.getItem(poolStorageKey);
+        if (rawPool) {
+          try {
+            const parsed = JSON.parse(rawPool) as string[];
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setter?.(parsed.join("\n"));
+              return;
+            }
+          } catch {
+            // ignore malformed pool
+          }
+        }
+        if (fallback) setter?.(fallback);
+      };
+
       if (data) {
         if (data.openai_key) setOpenaiKey(data.openai_key);
         if (data.google_key) setGoogleKey(data.google_key);
@@ -69,20 +89,12 @@ const Settings = () => {
         if (data.assemblyai_key) setAssemblyaiKey(data.assemblyai_key);
         if (data.deepgram_key) setDeepgramKey(data.deepgram_key);
 
-        // Groq multi-key pool is local-only for now (cloud table keeps one primary key).
-        const rawPool = localStorage.getItem("groq_api_keys_pool");
-        if (rawPool) {
-          try {
-            const parsed = JSON.parse(rawPool) as string[];
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              setGroqKeysPoolText(parsed.join("\n"));
-            }
-          } catch {
-            // Ignore corrupted local pool and use single-key fallback.
-          }
-        } else if (data.groq_key) {
-          setGroqKeysPoolText(data.groq_key);
-        }
+        // Multi-key pools are local-only; cloud still stores one primary key per provider.
+        loadPoolOrFallback("openai_api_keys_pool", data.openai_key, setOpenaiKeysPoolText);
+        loadPoolOrFallback("google_api_keys_pool", data.google_key, setGoogleKeysPoolText);
+        loadPoolOrFallback("groq_api_keys_pool", data.groq_key, setGroqKeysPoolText);
+        loadPoolOrFallback("assemblyai_api_keys_pool", data.assemblyai_key, setAssemblyaiKeysPoolText);
+        loadPoolOrFallback("deepgram_api_keys_pool", data.deepgram_key, setDeepgramKeysPoolText);
       } else {
         // Fallback to localStorage
         const savedOpenAI = getApiKey("openai_api_key");
@@ -99,19 +111,11 @@ const Settings = () => {
         if (savedAssemblyAI) setAssemblyaiKey(savedAssemblyAI);
         if (savedDeepgram) setDeepgramKey(savedDeepgram);
 
-        const rawPool = localStorage.getItem("groq_api_keys_pool");
-        if (rawPool) {
-          try {
-            const parsed = JSON.parse(rawPool) as string[];
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              setGroqKeysPoolText(parsed.join("\n"));
-            }
-          } catch {
-            // Ignore corrupted local pool and use single-key fallback.
-          }
-        } else if (savedGroq) {
-          setGroqKeysPoolText(savedGroq);
-        }
+        loadPoolOrFallback("openai_api_keys_pool", savedOpenAI, setOpenaiKeysPoolText);
+        loadPoolOrFallback("google_api_keys_pool", savedGoogle, setGoogleKeysPoolText);
+        loadPoolOrFallback("groq_api_keys_pool", savedGroq, setGroqKeysPoolText);
+        loadPoolOrFallback("assemblyai_api_keys_pool", savedAssemblyAI, setAssemblyaiKeysPoolText);
+        loadPoolOrFallback("deepgram_api_keys_pool", savedDeepgram, setDeepgramKeysPoolText);
       }
     } catch (error) {
       console.error("Error loading keys:", error);
@@ -121,6 +125,9 @@ const Settings = () => {
 
   const handleSave = async () => {
     try {
+      const toPool = (txt: string) => Array.from(new Set(txt.split(/\r?\n/).map((k) => k.trim()).filter(Boolean)));
+      const openaiPool = toPool(openaiKeysPoolText);
+      const googlePool = toPool(googleKeysPoolText);
       const groqPool = Array.from(
         new Set(
           groqKeysPoolText
@@ -129,19 +136,26 @@ const Settings = () => {
             .filter(Boolean)
         )
       );
+      const assemblyPool = toPool(assemblyaiKeysPoolText);
+      const deepgramPool = toPool(deepgramKeysPoolText);
+
+      const primaryOpenAI = openaiPool[0] || openaiKey.trim() || "";
+      const primaryGoogle = googlePool[0] || googleKey.trim() || "";
       const primaryGroq = groqPool[0] || groqKey.trim() || "";
+      const primaryAssembly = assemblyPool[0] || assemblyaiKey.trim() || "";
+      const primaryDeepgram = deepgramPool[0] || deepgramKey.trim() || "";
 
       // Save to cloud (tied to user ID)
       const { error } = await supabase
         .from('user_api_keys')
         .upsert({
           user_identifier: userIdentifier,
-          openai_key: openaiKey || null,
-          google_key: googleKey || null,
+          openai_key: primaryOpenAI || null,
+          google_key: primaryGoogle || null,
           groq_key: primaryGroq || null,
           claude_key: claudeKey || null,
-          assemblyai_key: assemblyaiKey || null,
-          deepgram_key: deepgramKey || null,
+          assemblyai_key: primaryAssembly || null,
+          deepgram_key: primaryDeepgram || null,
         }, {
           onConflict: 'user_identifier'
         });
@@ -153,19 +167,35 @@ const Settings = () => {
       }
 
       // Also save locally for quick access
-      if (openaiKey) localStorage.setItem("openai_api_key", openaiKey);
-      if (googleKey) localStorage.setItem("google_api_key", googleKey);
+      if (primaryOpenAI) {
+        localStorage.setItem("openai_api_key", primaryOpenAI);
+        localStorage.setItem("openai_api_keys_pool", JSON.stringify(openaiPool));
+      }
+      if (primaryGoogle) {
+        localStorage.setItem("google_api_key", primaryGoogle);
+        localStorage.setItem("google_api_keys_pool", JSON.stringify(googlePool));
+      }
       if (primaryGroq) {
         localStorage.setItem("groq_api_key", primaryGroq);
         localStorage.setItem("groq_api_keys_pool", JSON.stringify(groqPool));
       }
       if (claudeKey) localStorage.setItem("claude_api_key", claudeKey);
-      if (assemblyaiKey) localStorage.setItem("assemblyai_api_key", assemblyaiKey);
-      if (deepgramKey) localStorage.setItem("deepgram_api_key", deepgramKey);
+      if (primaryAssembly) {
+        localStorage.setItem("assemblyai_api_key", primaryAssembly);
+        localStorage.setItem("assemblyai_api_keys_pool", JSON.stringify(assemblyPool));
+      }
+      if (primaryDeepgram) {
+        localStorage.setItem("deepgram_api_key", primaryDeepgram);
+        localStorage.setItem("deepgram_api_keys_pool", JSON.stringify(deepgramPool));
+      }
 
+      if (primaryOpenAI) setOpenaiKey(primaryOpenAI);
+      if (primaryGoogle) setGoogleKey(primaryGoogle);
       if (primaryGroq) {
         setGroqKey(primaryGroq);
       }
+      if (primaryAssembly) setAssemblyaiKey(primaryAssembly);
+      if (primaryDeepgram) setDeepgramKey(primaryDeepgram);
 
       toast.success("המפתחות נשמרו בהצלחה בענן! ☁️");
     } catch (error) {
@@ -296,6 +326,17 @@ const Settings = () => {
               <p className="text-xs text-muted-foreground text-right">
                 מפתח API עבור Whisper של OpenAI
               </p>
+
+              <Label htmlFor="openai-pool" className="mt-2 block">OpenAI API Keys Pool (שורה לכל מפתח)</Label>
+              <textarea
+                id="openai-pool"
+                rows={3}
+                placeholder="sk-key-1&#10;sk-key-2"
+                value={openaiKeysPoolText}
+                onChange={(e) => setOpenaiKeysPoolText(e.target.value)}
+                dir="ltr"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              />
             </div>
 
             <div className="space-y-2">
@@ -364,6 +405,17 @@ const Settings = () => {
               <p className="text-xs text-muted-foreground text-right">
                 מפתח API עבור Google Speech-to-Text
               </p>
+
+              <Label htmlFor="google-pool" className="mt-2 block">Google API Keys Pool (שורה לכל מפתח)</Label>
+              <textarea
+                id="google-pool"
+                rows={3}
+                placeholder="AIzaKey1&#10;AIzaKey2"
+                value={googleKeysPoolText}
+                onChange={(e) => setGoogleKeysPoolText(e.target.value)}
+                dir="ltr"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              />
             </div>
 
             <div className="space-y-2">
@@ -391,6 +443,17 @@ const Settings = () => {
               <p className="text-xs text-muted-foreground text-right">
                 מפתח API עבור AssemblyAI - תמלול מהיר ואיכותי
               </p>
+
+              <Label htmlFor="assembly-pool" className="mt-2 block">AssemblyAI API Keys Pool (שורה לכל מפתח)</Label>
+              <textarea
+                id="assembly-pool"
+                rows={3}
+                placeholder="asm_key_1&#10;asm_key_2"
+                value={assemblyaiKeysPoolText}
+                onChange={(e) => setAssemblyaiKeysPoolText(e.target.value)}
+                dir="ltr"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              />
             </div>
 
             <div className="space-y-2">
@@ -418,6 +481,17 @@ const Settings = () => {
               <p className="text-xs text-muted-foreground text-right">
                 מפתח API עבור Deepgram - מהיר במיוחד
               </p>
+
+              <Label htmlFor="deepgram-pool" className="mt-2 block">Deepgram API Keys Pool (שורה לכל מפתח)</Label>
+              <textarea
+                id="deepgram-pool"
+                rows={3}
+                placeholder="dg_key_1&#10;dg_key_2"
+                value={deepgramKeysPoolText}
+                onChange={(e) => setDeepgramKeysPoolText(e.target.value)}
+                dir="ltr"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              />
             </div>
 
             <div className="space-y-2">
