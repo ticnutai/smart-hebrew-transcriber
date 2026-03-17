@@ -39,6 +39,8 @@ const RECOMMENDED_MODELS = [
   { name: 'mistral-nemo:12b', label: 'Mistral Nemo 12B', description: 'מתקדם בשפות שמיות', vram: '~7 GB' },
   { name: 'command-r:35b', label: 'Command R 35B', description: 'RAG + עברית — Cohere', vram: '~20 GB' },
   { name: 'gemma2:27b', label: 'Gemma 2 27B', description: 'מודל חזק של Google', vram: '~16 GB' },
+  { name: 'qwen2.5:32b', label: 'Qwen 2.5 32B', description: 'רב-שפתי מתקדם — Alibaba', vram: '~19 GB' },
+  { name: 'deepseek-v2:16b', label: 'DeepSeek V2 Lite 16B', description: 'MoE יעיל — DeepSeek', vram: '~10 GB' },
 ];
 
 export const OllamaManager = () => {
