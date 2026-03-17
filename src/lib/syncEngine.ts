@@ -326,7 +326,7 @@ async function pushDirtyApiKeys(userId: string): Promise<void> {
 /** Get API keys from local DB */
 export async function getLocalApiKeys(): Promise<LocalApiKeys | null> {
   if (!(await isDbAvailable())) return null;
-  return db.apiKeys.get('current') || null;
+  return (await db.apiKeys.get('current')) ?? null;
 }
 
 /** Save API keys locally */
