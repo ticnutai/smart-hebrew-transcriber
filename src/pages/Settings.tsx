@@ -90,11 +90,11 @@ const Settings = () => {
         if (data.deepgram_key) setDeepgramKey(data.deepgram_key);
 
         // Multi-key pools are local-only; cloud still stores one primary key per provider.
-        loadPoolOrFallback("openai_api_keys_pool", data.openai_key, setOpenaiKeysPoolText);
-        loadPoolOrFallback("google_api_keys_pool", data.google_key, setGoogleKeysPoolText);
-        loadPoolOrFallback("groq_api_keys_pool", data.groq_key, setGroqKeysPoolText);
-        loadPoolOrFallback("assemblyai_api_keys_pool", data.assemblyai_key, setAssemblyaiKeysPoolText);
-        loadPoolOrFallback("deepgram_api_keys_pool", data.deepgram_key, setDeepgramKeysPoolText);
+        loadPoolOrFallback("openai_api_keys_pool", data.openai_key ?? undefined, setOpenaiKeysPoolText);
+        loadPoolOrFallback("google_api_keys_pool", data.google_key ?? undefined, setGoogleKeysPoolText);
+        loadPoolOrFallback("groq_api_keys_pool", data.groq_key ?? undefined, setGroqKeysPoolText);
+        loadPoolOrFallback("assemblyai_api_keys_pool", data.assemblyai_key ?? undefined, setAssemblyaiKeysPoolText);
+        loadPoolOrFallback("deepgram_api_keys_pool", data.deepgram_key ?? undefined, setDeepgramKeysPoolText);
       } else {
         // Fallback to localStorage
         const savedOpenAI = getApiKey("openai_api_key");
