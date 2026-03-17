@@ -91,7 +91,7 @@ export const FolderManager = ({ transcripts, onUpdate, onDelete, onGetAudioUrl }
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       result = result.filter(t =>
-        t.text.toLowerCase().includes(q) ||
+        (t.text ?? '').toLowerCase().includes(q) ||
         t.title?.toLowerCase().includes(q) ||
         t.engine.toLowerCase().includes(q) ||
         t.tags?.some(tag => tag.toLowerCase().includes(q))
@@ -540,12 +540,12 @@ const TranscriptItem = ({
       ) : (
         <p className="text-sm font-medium truncate mb-1 cursor-pointer hover:text-primary text-right"
           onDoubleClick={onStartEditTitle}>
-          {t.title || t.text.substring(0, 60)}
+          {t.title || (t.text ?? '').substring(0, 60) || 'ללא כותרת'}
         </p>
       )}
 
       {viewMode === 'list' && (
-        <p className="text-xs text-muted-foreground line-clamp-1 mb-1">{t.text.substring(0, 100)}</p>
+        <p className="text-xs text-muted-foreground line-clamp-1 mb-1">{(t.text ?? '').substring(0, 100)}</p>
       )}
 
       {/* Notes inline */}
