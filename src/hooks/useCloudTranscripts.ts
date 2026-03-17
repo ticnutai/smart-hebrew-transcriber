@@ -194,11 +194,12 @@ export const useCloudTranscripts = () => {
     engine: string,
     title?: string,
     audioFile?: File,
-    wordTimings?: Array<{word: string; start: number; end: number; probability?: number}> | null
+    wordTimings?: Array<{word: string; start: number; end: number; probability?: number}> | null,
+    folder?: string
   ): Promise<CloudTranscript | null> => {
     if (!user) {
       const history = JSON.parse(localStorage.getItem('transcript_history') || '[]');
-      const entry = { text, timestamp: Date.now(), engine, tags: [], notes: '', word_timings: wordTimings || null };
+      const entry = { text, timestamp: Date.now(), engine, tags: [], notes: '', word_timings: wordTimings || null, folder: folder || '' };
       const updated = [entry, ...history].slice(0, 50);
       localStorage.setItem('transcript_history', JSON.stringify(updated));
       return null;
@@ -216,7 +217,7 @@ export const useCloudTranscripts = () => {
         title: autoTitle,
         tags: [] as string[],
         notes: '',
-        folder: '',
+        folder: folder || '',
         category: '',
         is_favorite: false,
         audio_file_path: null as string | null,
@@ -241,7 +242,7 @@ export const useCloudTranscripts = () => {
           title: autoTitle,
           tags: [],
           notes: '',
-          folder: '',
+          folder: folder || '',
           word_timings: wordTimings || null,
         })
         .select()

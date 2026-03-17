@@ -3,7 +3,14 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Mic, Square, Copy, Trash2, Radio, Cpu, Globe, Volume2, Clock, Zap, AlertTriangle } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
+} from "@/components/ui/select";
+import {
+  Mic, Square, Copy, Trash2, Radio, Cpu, Globe, Volume2, Clock, Zap,
+  AlertTriangle, Pause, Play, Save, FolderOpen, FolderPlus, Download
+} from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 
 type LiveMode = "browser" | "cuda";
@@ -22,20 +29,45 @@ interface LiveStats {
   silenceSkips: number;
 }
 
+export interface LiveTranscriptResult {
+  text: string;
+  audioBlob?: Blob;
+  wordTimings?: Array<{word: string; start: number; end: number; probability?: number}>;
+  folder?: string;
+  durationSec?: number;
+}
+
 interface LiveTranscriberProps {
-  onTranscriptComplete: (text: string) => void;
+  onTranscriptComplete: (result: LiveTranscriptResult) => void;
   serverConnected?: boolean;
 }
 
 export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveTranscriberProps) => {
   const [isListening, setIsListening] = useState(false);
   const isListeningRef = useRef(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const isPausedRef = useRef(false);
   const [interimText, setInterimText] = useState("");
   const [finalText, setFinalText] = useState("");
   const [isSupported, setIsSupported] = useState(true);
   const [mode, setMode] = useState<LiveMode>(serverConnected ? "cuda" : "browser");
   const recognitionRef = useRef<any>(null);
   const [isRefining, setIsRefining] = useState(false);
+
+  // Folder selector
+  const [selectedFolder, setSelectedFolder] = useState("");
+  const [showNewFolder, setShowNewFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [customFolders, setCustomFolders] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('local_folders') || '[]'); } catch { return []; }
+  });
+
+  // Pause timer tracking
+  const pausedAtRef = useRef(0);
+  const totalPausedMsRef = useRef(0);
+
+  // Word timings from refine pass
+  const wordTimingsRef = useRef<Array<{word: string; start: number; end: number; probability?: number}>>([]);
 
   // CUDA live mode refs
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -59,6 +91,7 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
   const startTimeRef = useRef(0);
   const [elapsedSec, setElapsedSec] = useState(0);
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const mimeTypeRef = useRef("audio/webm");
   const [stats, setStats] = useState<LiveStats>({
     chunksProcessed: 0, totalLatencyMs: 0, wordsTranscribed: 0, errorsCount: 0, silenceSkips: 0,
   });
@@ -264,7 +297,7 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
     setIsRefining(true);
     setInterimText("משפר דיוק — refine pass...");
     try {
-      const mimeType = mediaRecorderRef.current?.mimeType || "audio/webm";
+      const mimeType = mimeTypeRef.current;
       const fullBlob = new Blob(allChunksRef.current, { type: mimeType });
 
       const formData = new FormData();
@@ -281,6 +314,10 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
       if (!res.ok) return null;
       const data = await res.json();
       const refinedText = data.text?.trim();
+      // Capture word timings from the refine pass
+      if (data.wordTimings && Array.isArray(data.wordTimings)) {
+        wordTimingsRef.current = data.wordTimings;
+      }
       if (refinedText) {
         toast({ title: "✅ שופר דיוק", description: `refine הושלם — ${data.wordTimings?.length || '?'} מילים | ${data.processing_time || '?'}s` });
         return refinedText;
@@ -346,6 +383,7 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
       const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
         ? "audio/webm;codecs=opus"
         : "audio/webm";
+      mimeTypeRef.current = mimeType;
 
       const recorder = new MediaRecorder(stream, { mimeType });
       mediaRecorderRef.current = recorder;
@@ -418,14 +456,99 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
       streamRef.current = null;
     }
     chunksRef.current = [];
-    allChunksRef.current = [];
+    // NOTE: allChunksRef is NOT cleared here — used to build audio file
     headerChunkRef.current = null;
     processingRef.current = false;
     consecutiveErrorsRef.current = 0;
     isListeningRef.current = false;
+    isPausedRef.current = false;
+    setIsPaused(false);
     setIsListening(false);
     setInterimText("");
+    totalPausedMsRef.current = 0;
+    pausedAtRef.current = 0;
   }, []);
+
+  // ─── Pause / Resume (CUDA only) ───
+  const pauseCuda = useCallback(() => {
+    if (!isListeningRef.current || isPausedRef.current) return;
+    isPausedRef.current = true;
+    setIsPaused(true);
+    pausedAtRef.current = Date.now();
+    // Stop sending new chunks
+    if (chunkIntervalRef.current) {
+      clearInterval(chunkIntervalRef.current);
+      chunkIntervalRef.current = null;
+    }
+    // Pause MediaRecorder
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+      mediaRecorderRef.current.pause();
+    }
+    // Pause timer
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
+    // Stop audio level animation
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = 0;
+    }
+    setAudioLevel(0);
+    setInterimText("מושהה ⏸");
+    toast({ title: "⏸ תמלול מושהה", description: "לחץ המשך כדי לחזור להקלטה" });
+  }, []);
+
+  const resumeCuda = useCallback(() => {
+    if (!isListeningRef.current || !isPausedRef.current) return;
+    isPausedRef.current = false;
+    setIsPaused(false);
+    // Track total paused time
+    if (pausedAtRef.current > 0) {
+      totalPausedMsRef.current += Date.now() - pausedAtRef.current;
+      pausedAtRef.current = 0;
+    }
+    // Resume MediaRecorder
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "paused") {
+      mediaRecorderRef.current.resume();
+    }
+    // Restart timer
+    timerIntervalRef.current = setInterval(() => {
+      setElapsedSec(Math.floor((Date.now() - startTimeRef.current - totalPausedMsRef.current) / 1000));
+    }, 1000);
+    // Restart audio level monitoring
+    if (analyserRef.current) {
+      const analyser = analyserRef.current;
+      const dataArr = new Uint8Array(analyser.frequencyBinCount);
+      const tick = () => {
+        analyser.getByteFrequencyData(dataArr);
+        let sum = 0;
+        for (let i = 0; i < dataArr.length; i++) sum += dataArr[i];
+        const avg = sum / dataArr.length;
+        const level = Math.min(100, Math.round((avg / 128) * 100));
+        setAudioLevel(level);
+        audioLevelRef.current = level;
+        animFrameRef.current = requestAnimationFrame(tick);
+      };
+      tick();
+    }
+    // Restart chunk sending
+    const mimeType = mimeTypeRef.current;
+    chunkIntervalRef.current = setInterval(() => {
+      if (chunksRef.current.length > 0 && !processingRef.current) {
+        const parts: Blob[] = [];
+        if (headerChunkRef.current && chunksRef.current[0] !== headerChunkRef.current) {
+          parts.push(headerChunkRef.current);
+        }
+        parts.push(...chunksRef.current);
+        const blob = new Blob(parts, { type: mimeType });
+        chunksRef.current = [];
+        sendChunk(blob);
+      }
+    }, LIVE_CHUNK_MS);
+    setInterimText("מאזין...");
+    toast({ title: "▶ תמלול ממשיך" });
+  }, [sendChunk]);
 
   // ─── Unified controls ───
   const startListening = useCallback(() => {
@@ -438,6 +561,14 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
 
   const stopListening = useCallback(async () => {
     if (mode === "cuda") {
+      // Build audio blob from all chunks BEFORE cleanup clears allChunksRef
+      const mimeType = mimeTypeRef.current;
+      const audioBlob = allChunksRef.current.length > 0
+        ? new Blob(allChunksRef.current, { type: mimeType })
+        : undefined;
+      const duration = Math.floor((Date.now() - startTimeRef.current - totalPausedMsRef.current) / 1000);
+
+      wordTimingsRef.current = [];
       const refinedText = await runFinalRefinePass();
       const merged = refinedText
         ? (refinedText.length >= Math.max(20, Math.floor(finalText.length * 0.8))
@@ -448,16 +579,26 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
         setFinalText(merged);
       }
       stopCudaCleanup();
+      allChunksRef.current = [];
       if (merged.trim()) {
-        onTranscriptComplete(merged.trim());
+        onTranscriptComplete({
+          text: merged.trim(),
+          audioBlob,
+          wordTimings: wordTimingsRef.current.length > 0 ? wordTimingsRef.current : undefined,
+          folder: selectedFolder || undefined,
+          durationSec: duration,
+        });
       }
     } else {
       stopBrowser();
       if (finalText.trim()) {
-        onTranscriptComplete(finalText.trim());
+        onTranscriptComplete({
+          text: finalText.trim(),
+          folder: selectedFolder || undefined,
+        });
       }
     }
-  }, [appendDedupText, mode, finalText, onTranscriptComplete, runFinalRefinePass, stopCudaCleanup, stopBrowser]);
+  }, [appendDedupText, mode, finalText, selectedFolder, onTranscriptComplete, runFinalRefinePass, stopCudaCleanup, stopBrowser]);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(finalText);
@@ -467,6 +608,49 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
   const handleClear = () => {
     setFinalText("");
     setInterimText("");
+    wordTimingsRef.current = [];
+  };
+
+  // Save current transcription without stopping
+  const handleSaveIntermediate = () => {
+    if (!finalText.trim()) return;
+    onTranscriptComplete({
+      text: finalText.trim(),
+      folder: selectedFolder || undefined,
+    });
+    toast({ title: "✅ תמלול נשמר", description: "ניתן להמשיך להקליט" });
+  };
+
+  // Download audio recording locally
+  const handleDownloadAudio = () => {
+    if (allChunksRef.current.length === 0) {
+      toast({ title: "אין הקלטה לשמירה", variant: "destructive" });
+      return;
+    }
+    const blob = new Blob(allChunksRef.current, { type: mimeTypeRef.current });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `live-recording-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.webm`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast({ title: "✅ הקלטה הורדה" });
+  };
+
+  const handleAddFolder = () => {
+    const name = newFolderName.trim();
+    if (!name) return;
+    if (customFolders.includes(name)) {
+      toast({ title: "תיקייה כבר קיימת", variant: "destructive" });
+      return;
+    }
+    const updated = [...customFolders, name];
+    setCustomFolders(updated);
+    localStorage.setItem('local_folders', JSON.stringify(updated));
+    setSelectedFolder(name);
+    setNewFolderName("");
+    setShowNewFolder(false);
+    toast({ title: `📁 תיקייה "${name}" נוצרה` });
   };
 
   const browserSupported = !!(
@@ -515,12 +699,18 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <Radio className={`w-5 h-5 ${isListening ? 'text-red-500 animate-pulse' : 'text-primary'}`} />
+          <Radio className={`w-5 h-5 ${isListening && !isPaused ? 'text-red-500 animate-pulse' : isPaused ? 'text-yellow-500' : 'text-primary'}`} />
           <h3 className="text-lg font-semibold">תמלול בזמן אמת</h3>
-          {isListening && (
+          {isListening && !isPaused && (
             <Badge variant="destructive" className="animate-pulse text-xs gap-1">
               <span className="w-2 h-2 rounded-full bg-destructive-foreground" />
               מאזין
+            </Badge>
+          )}
+          {isPaused && (
+            <Badge variant="secondary" className="text-xs gap-1 bg-yellow-100 text-yellow-800">
+              <Pause className="w-3 h-3" />
+              מושהה
             </Badge>
           )}
           {isRefining && (
@@ -540,6 +730,14 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
           )}
           {finalText && (
             <>
+              <Button variant="ghost" size="sm" onClick={handleSaveIntermediate} title="שמור תמלול נוכחי">
+                <Save className="w-4 h-4" />
+              </Button>
+              {isListening && mode === "cuda" && (
+                <Button variant="ghost" size="sm" onClick={handleDownloadAudio} title="הורד הקלטה">
+                  <Download className="w-4 h-4" />
+                </Button>
+              )}
               <Button variant="ghost" size="sm" onClick={handleCopy} title="העתק">
                 <Copy className="w-4 h-4" />
               </Button>
@@ -551,8 +749,8 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
         </div>
       </div>
 
-      {/* Audio Level Bar + Stats (CUDA only, while listening) */}
-      {isListening && mode === "cuda" && (
+      {/* Audio Level Bar + Stats (CUDA only, while listening & not paused) */}
+      {isListening && mode === "cuda" && !isPaused && (
         <div className="mb-3 space-y-2">
           {/* Waveform-style VU meter */}
           <div className="flex items-center gap-2">
@@ -584,29 +782,65 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
         </div>
       )}
 
-      {/* Mode selector */}
+      {/* Mode selector + Folder selector */}
       {!isListening && (
-        <div className="flex gap-2 mb-4 justify-center">
-          {browserSupported && (
+        <div className="space-y-3 mb-4">
+          <div className="flex gap-2 justify-center">
+            {browserSupported && (
+              <Button
+                variant={mode === "browser" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setMode("browser")}
+              >
+                <Globe className="w-4 h-4 ml-1" />
+                Web Speech
+              </Button>
+            )}
             <Button
-              variant={mode === "browser" ? "default" : "outline"}
+              variant={mode === "cuda" ? "default" : "outline"}
               size="sm"
-              onClick={() => setMode("browser")}
+              onClick={() => setMode("cuda")}
+              disabled={!serverConnected}
+              title={!serverConnected ? "שרת CUDA לא מחובר" : "תמלול עם Whisper GPU"}
             >
-              <Globe className="w-4 h-4 ml-1" />
-              Web Speech
+              <Cpu className="w-4 h-4 ml-1" />
+              CUDA Whisper
             </Button>
-          )}
-          <Button
-            variant={mode === "cuda" ? "default" : "outline"}
-            size="sm"
-            onClick={() => setMode("cuda")}
-            disabled={!serverConnected}
-            title={!serverConnected ? "שרת CUDA לא מחובר" : "תמלול עם Whisper GPU"}
-          >
-            <Cpu className="w-4 h-4 ml-1" />
-            CUDA Whisper
-          </Button>
+          </div>
+
+          {/* Folder selector */}
+          <div className="flex items-center gap-2 justify-center">
+            <FolderOpen className="w-4 h-4 text-muted-foreground" />
+            <Select value={selectedFolder || "__none__"} onValueChange={v => setSelectedFolder(v === "__none__" ? "" : v)}>
+              <SelectTrigger className="w-[180px] h-8 text-sm">
+                <SelectValue placeholder="בחר תיקייה..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">ללא תיקייה</SelectItem>
+                {customFolders.map(f => (
+                  <SelectItem key={f} value={f}>{f}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {!showNewFolder ? (
+              <Button variant="ghost" size="sm" onClick={() => setShowNewFolder(true)} title="תיקייה חדשה">
+                <FolderPlus className="w-4 h-4" />
+              </Button>
+            ) : (
+              <div className="flex items-center gap-1">
+                <Input
+                  value={newFolderName}
+                  onChange={e => setNewFolderName(e.target.value)}
+                  placeholder="שם תיקייה..."
+                  className="h-8 w-[120px] text-sm"
+                  onKeyDown={e => e.key === 'Enter' && handleAddFolder()}
+                  autoFocus
+                />
+                <Button variant="ghost" size="sm" onClick={handleAddFolder}>✓</Button>
+                <Button variant="ghost" size="sm" onClick={() => { setShowNewFolder(false); setNewFolderName(""); }}>✕</Button>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -638,16 +872,31 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
             התחל תמלול חי
           </Button>
         ) : (
-          <Button onClick={stopListening} variant="destructive" className="gap-2 rounded-full px-8 h-12 text-base">
-            <Square className="w-5 h-5" />
-            עצור
-          </Button>
+          <>
+            {/* Pause / Resume (CUDA only) */}
+            {mode === "cuda" && !isPaused && (
+              <Button onClick={pauseCuda} variant="outline" className="gap-2 rounded-full px-6 h-12 text-base border-yellow-400 text-yellow-700 hover:bg-yellow-50">
+                <Pause className="w-5 h-5" />
+                השהה
+              </Button>
+            )}
+            {mode === "cuda" && isPaused && (
+              <Button onClick={resumeCuda} variant="outline" className="gap-2 rounded-full px-6 h-12 text-base border-green-400 text-green-700 hover:bg-green-50">
+                <Play className="w-5 h-5" />
+                המשך
+              </Button>
+            )}
+            <Button onClick={stopListening} variant="destructive" className="gap-2 rounded-full px-8 h-12 text-base">
+              <Square className="w-5 h-5" />
+              עצור ושמור
+            </Button>
+          </>
         )}
       </div>
 
       <p className="text-xs text-muted-foreground text-center mt-3">
         {mode === "cuda"
-          ? `Whisper + GPU — chunks כל ${LIVE_CHUNK_MS / 1000}s + refine בעצירה | רווח להתחלה/עצירה`
+          ? `Whisper + GPU — chunks כל ${LIVE_CHUNK_MS / 1000}s + refine בעצירה | השהה/המשך | שמירת הקלטה`
           : "Web Speech API — עובד ישירות בדפדפן, ללא מפתח API"
         }
       </p>

@@ -32,6 +32,7 @@ import { getApiKey } from "@/lib/keyCrypto";
 
 // Lazy-loaded heavy components
 const LiveTranscriber = lazy(() => import("@/components/LiveTranscriber").then(m => ({ default: m.LiveTranscriber })));
+import type { LiveTranscriptResult } from "@/components/LiveTranscriber";
 const TranscriptEditor = lazy(() => import("@/components/TranscriptEditor").then(m => ({ default: m.TranscriptEditor })));
 const CloudTranscriptHistory = lazy(() => import("@/components/CloudTranscriptHistory").then(m => ({ default: m.CloudTranscriptHistory })));
 const TranscriptSummary = lazy(() => import("@/components/TranscriptSummary").then(m => ({ default: m.TranscriptSummary })));
@@ -209,18 +210,18 @@ const Index = () => {
   const lastSavedTranscriptIdRef = useRef<string | null>(null);
 
   // Save to cloud history (respects cloud save mode for CUDA engine)
-  const saveToHistory = async (text: string, engineUsed: string, skipCloud?: boolean, timings?: Array<{word: string, start: number, end: number, probability?: number}>) => {
+  const saveToHistory = async (text: string, engineUsed: string, skipCloud?: boolean, timings?: Array<{word: string, start: number, end: number, probability?: number}>, audioFile?: File, folder?: string) => {
     if (skipCloud) {
       // Save only to localStorage, skip cloud upload entirely
       let history: any[] = [];
       try { history = JSON.parse(localStorage.getItem('transcript_history') || '[]'); } catch { /* corrupted */ }
-      const entry = { text, timestamp: Date.now(), engine: engineUsed, tags: [], notes: '', word_timings: timings || null };
+      const entry = { text, timestamp: Date.now(), engine: engineUsed, tags: [], notes: '', word_timings: timings || null, folder: folder || '' };
       const updated = [entry, ...history].slice(0, 50);
       localStorage.setItem('transcript_history', JSON.stringify(updated));
       lastSavedTranscriptIdRef.current = null;
       return;
     }
-    const saved = await saveTranscript(text, engineUsed, undefined, currentFileRef.current || undefined, timings || null);
+    const saved = await saveTranscript(text, engineUsed, undefined, audioFile || currentFileRef.current || undefined, timings || null, folder);
     lastSavedTranscriptIdRef.current = saved?.id || null;
     addNotification({ type: 'success', title: 'תמלול הושלם', description: `מנוע: ${engineUsed} — ${text.split(/\s+/).length} מילים` });
   };
@@ -1905,16 +1906,22 @@ const Index = () => {
         {/* Live Transcription */}
         <LiveTranscriber
           serverConnected={serverConnected}
-          onTranscriptComplete={(text) => {
+          onTranscriptComplete={(result: LiveTranscriptResult) => {
+            const { text, audioBlob, wordTimings, folder, durationSec } = result;
             setTranscript(text);
-            saveToHistory(text, 'Live (Web Speech API)').then(() => {
+            const engineLabel = audioBlob ? 'Live (CUDA Whisper)' : 'Live (Web Speech API)';
+            const audioFile = audioBlob
+              ? new File([audioBlob], `live-${Date.now()}.webm`, { type: audioBlob.type })
+              : undefined;
+            saveToHistory(text, engineLabel, undefined, wordTimings, audioFile, folder).then(() => {
               setTimeout(() => navigate('/text-editor', { state: { text, transcriptId: lastSavedTranscriptIdRef.current } }), 1000);
             });
             addAnalyticsRecord({
-              engine: 'Live (Web Speech API)', status: 'success',
+              engine: engineLabel, status: 'success',
               charCount: text.length, wordCount: text.split(/\s+/).length,
+              duration: durationSec,
             });
-            toast({ title: "תמלול חי הושלם!" });
+            toast({ title: "תמלול חי הושלם!", description: audioFile ? "הקלטה + תמלול נשמרו" : undefined });
           }}
         />
 
