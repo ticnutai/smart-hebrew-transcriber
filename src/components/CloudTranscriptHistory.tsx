@@ -6,8 +6,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { History, Trash2, FileText, Search, Tag, X, Edit, Cloud, HardDrive, Loader2, Calendar, Filter, FolderOpen, FolderPlus, Folder, Download } from "lucide-react";
+import { History, Trash2, FileText, Search, Tag, X, Edit, Cloud, HardDrive, Loader2, Calendar, Filter, FolderOpen, FolderPlus, Folder, Download, Brain } from "lucide-react";
 import type { CloudTranscript } from "@/hooks/useCloudTranscripts";
+import { semanticSearch } from "@/utils/semanticSearch";
 
 interface CloudTranscriptHistoryProps {
   transcripts: CloudTranscript[];
@@ -38,6 +39,7 @@ export const CloudTranscriptHistory = memo(({
   const [dateFilter, setDateFilter] = useState<string>("all");
   const [folderFilter, setFolderFilter] = useState<string>(initialFolderFilter || "all");
   const [showFilters, setShowFilters] = useState(false);
+  const [useSemanticSearch, setUseSemanticSearch] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [assigningFolderId, setAssigningFolderId] = useState<string | null>(null);
@@ -76,19 +78,28 @@ export const CloudTranscriptHistory = memo(({
     const q = searchQuery.toLowerCase();
     const dateThreshold = getDateThreshold(dateFilter);
 
-    return transcripts.filter(t => {
-      const matchesSearch = !q || 
+    let result = transcripts.filter(t => {
+      const matchesSearch = !q || !useSemanticSearch && (
         t.text.toLowerCase().includes(q) ||
         t.engine.toLowerCase().includes(q) ||
         t.title.toLowerCase().includes(q) ||
-        t.tags?.some(tag => tag.toLowerCase().includes(q));
+        t.tags?.some(tag => tag.toLowerCase().includes(q)));
       const matchesEngine = engineFilter === "all" || t.engine === engineFilter;
       const matchesDate = !dateThreshold || new Date(t.created_at) >= dateThreshold;
       const matchesFolder = folderFilter === "all" || 
         (folderFilter === "__none__" ? (!t.folder || t.folder.trim() === '') : t.folder === folderFilter);
-      return matchesSearch && matchesEngine && matchesDate && matchesFolder;
+      return (useSemanticSearch ? true : matchesSearch) && matchesEngine && matchesDate && matchesFolder;
     });
-  }, [transcripts, searchQuery, engineFilter, dateFilter, folderFilter]);
+
+    // Apply semantic search reranking
+    if (useSemanticSearch && q.length >= 2) {
+      const docs = result.map(t => `${t.title} ${t.text}`);
+      const ranked = semanticSearch(q, docs, result.length, 0.01);
+      result = ranked.map(r => result[r.index]);
+    }
+
+    return result;
+  }, [transcripts, searchQuery, engineFilter, dateFilter, folderFilter, useSemanticSearch]);
 
   if (transcripts.length === 0 && !isLoading) return null;
 
@@ -225,6 +236,14 @@ export const CloudTranscriptHistory = memo(({
             dir="rtl"
           />
         </div>
+        <Button
+          variant={useSemanticSearch ? "default" : "outline"}
+          size="icon"
+          onClick={() => setUseSemanticSearch(!useSemanticSearch)}
+          title={useSemanticSearch ? "חיפוש סמנטי פעיל" : "הפעל חיפוש סמנטי"}
+        >
+          <Brain className="w-4 h-4" />
+        </Button>
         <Button
           variant={showFilters ? "default" : "outline"}
           size="icon"

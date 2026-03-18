@@ -3,10 +3,11 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { Wand2, BookOpen, FileText, Copy, Download, Loader2, Upload, Settings2, CheckCheck, AlignJustify, Quote, Users, Search, ChevronUp, ChevronDown, X, PenLine, Save } from "lucide-react";
+import { Wand2, BookOpen, FileText, Copy, Download, Loader2, Upload, Settings2, CheckCheck, AlignJustify, Quote, Users, Search, ChevronUp, ChevronDown, X, PenLine, Save, Volume2, VolumeX } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { editTranscriptCloud } from "@/utils/editTranscriptApi";
 import { ExportButton } from "@/components/ExportButton";
+import { speakHebrew, stopSpeaking, isSpeaking, isHebrewTtsAvailable } from "@/utils/hebrewTts";
 import {
   Dialog,
   DialogContent,
@@ -44,6 +45,7 @@ const TranscriptEditorInner = ({ transcript, onTranscriptChange, wordTimings, se
   const [textCorrectionOriginal, setTextCorrectionOriginal] = useState("");
   const [textCorrectionPos, setTextCorrectionPos] = useState<{wordStart: number, wordEnd: number} | null>(null);
   const [showWordMode, setShowWordMode] = useState(false);
+  const [ttsPlaying, setTtsPlaying] = useState(false);
   const correctionInputRef = useRef<HTMLInputElement>(null);
 
   const handleWordCorrection = useCallback((original: string, corrected: string, wordIdx?: number) => {
@@ -294,6 +296,29 @@ const TranscriptEditorInner = ({ transcript, onTranscriptChange, wordTimings, se
             העתק
           </Button>
           <ExportButton text={transcript} disabled={isEditing} wordTimings={wordTimings} />
+          {isHebrewTtsAvailable() && (
+            <Button
+              variant={ttsPlaying ? "default" : "outline"}
+              size="sm"
+              onClick={() => {
+                if (isSpeaking()) {
+                  stopSpeaking();
+                  setTtsPlaying(false);
+                } else {
+                  speakHebrew(transcript, {
+                    onEnd: () => setTtsPlaying(false),
+                    onError: () => setTtsPlaying(false),
+                  });
+                  setTtsPlaying(true);
+                }
+              }}
+              disabled={!transcript.trim() || isEditing}
+              title={ttsPlaying ? "עצור הקראה" : "הקרא בעברית"}
+            >
+              {ttsPlaying ? <VolumeX className="w-4 h-4 ml-2" /> : <Volume2 className="w-4 h-4 ml-2" />}
+              {ttsPlaying ? "עצור" : "הקרא"}
+            </Button>
+          )}
           {wordTimings && wordTimings.some(w => w.probability != null) && (
             <Button
               variant={showConfidence ? "default" : "outline"}

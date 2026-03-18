@@ -342,10 +342,14 @@ MODEL_REGISTRY = {
     "distil-small.en": "Systran/faster-distil-whisper-small.en",
     # Ivrit.ai Hebrew-optimized models (pre-converted CT2 format on HuggingFace)
     "ivrit-ai/faster-whisper-v2-d4": "ivrit-ai/faster-whisper-v2-d4",
+    "ivrit-ai/whisper-large-v3-ct2": "ivrit-ai/whisper-large-v3-ct2",
     # ivrit-ai/whisper-large-v3-turbo — requires local HF→CT2 conversion (see MODELS_NEEDING_CONVERSION)
+    # Yiddish-optimized (ivrit-ai fine-tune)
+    "ivrit-ai/yi-whisper-large-v3-turbo": "ivrit-ai/yi-whisper-large-v3-turbo",
 }
 
-DEFAULT_MODEL = "large-v3-turbo"
+# Default: ivrit-ai CT2 — best Hebrew accuracy, pre-converted, fast loading
+DEFAULT_MODEL = "ivrit-ai/whisper-large-v3-ct2"
 
 
 def get_device() -> str:
@@ -436,6 +440,7 @@ def convert_hf_to_ct2(model_id: str) -> str:
 # Models that need HF→CT2 conversion (not available as pre-converted on HF Hub)
 MODELS_NEEDING_CONVERSION = {
     "ivrit-ai/whisper-large-v3-turbo",
+    "ivrit-ai/yi-whisper-large-v3-turbo",
 }
 
 

@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { Settings as SettingsIcon, ArrowRight, LogOut, Eye, EyeOff, Wrench, Cpu, Palette, Key, Download, Upload } from "lucide-react";
+import { Settings as SettingsIcon, ArrowRight, LogOut, Eye, EyeOff, Wrench, Cpu, Palette, Key, Download, Upload, ExternalLink } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import DevToolsPanel from "@/components/DevToolsPanel";
 import { OllamaManager } from "@/components/OllamaManager";
@@ -604,6 +604,54 @@ const Settings = () => {
 
         {/* Ollama Local AI */}
         <OllamaManager />
+
+        {/* Hebrew NLP Resources */}
+        <Card className="mt-4">
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              🇮🇱 משאבי NLP עברי
+            </CardTitle>
+            <CardDescription>
+              כלים ומודלים מומלצים לעברית
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <a href="https://huggingface.co/ivrit-ai" target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-2 p-3 border rounded-lg hover:bg-accent transition-colors">
+                <ExternalLink className="w-4 h-4 flex-shrink-0" />
+                <div>
+                  <div className="font-medium text-sm">Ivrit.ai — מודלי Whisper</div>
+                  <div className="text-xs text-muted-foreground">המודלים המדויקים ביותר לעברית</div>
+                </div>
+              </a>
+              <a href="https://huggingface.co/dicta-il" target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-2 p-3 border rounded-lg hover:bg-accent transition-colors">
+                <ExternalLink className="w-4 h-4 flex-shrink-0" />
+                <div>
+                  <div className="font-medium text-sm">DICTA — NLP עברי</div>
+                  <div className="text-xs text-muted-foreground">ניקוד, מורפולוגיה, DictaLM 3.0</div>
+                </div>
+              </a>
+              <a href="https://huggingface.co/spaces/ivrit-ai/whisper-leaderboard" target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-2 p-3 border rounded-lg hover:bg-accent transition-colors">
+                <ExternalLink className="w-4 h-4 flex-shrink-0" />
+                <div>
+                  <div className="font-medium text-sm">Hebrew Transcription Leaderboard</div>
+                  <div className="text-xs text-muted-foreground">טבלת השוואה בין מודלי תמלול</div>
+                </div>
+              </a>
+              <a href="https://github.com/NNLP-IL/Hebrew-Resources" target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-2 p-3 border rounded-lg hover:bg-accent transition-colors">
+                <ExternalLink className="w-4 h-4 flex-shrink-0" />
+                <div>
+                  <div className="font-medium text-sm">Hebrew NLP Resources</div>
+                  <div className="text-xs text-muted-foreground">רשימה מקיפה של כלי NLP לעברית</div>
+                </div>
+              </a>
+            </div>
+          </CardContent>
+        </Card>
           </TabsContent>
         </Tabs>
       </div>

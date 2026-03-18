@@ -33,6 +33,7 @@ const RECOMMENDED_MODELS = [
   { name: 'phi3:medium', label: 'Phi-3 Medium 14B', description: 'מודל חכם של Microsoft', vram: '~8 GB' },
   { name: 'llama3.1:70b', label: 'Llama 3.1 70B', description: 'הכי חזק — דורש VRAM גבוה', vram: '~40 GB' },
   // Hebrew-optimized models
+  { name: 'dicta-il/dictalm3.0-instruct:12b-q4_K_M', label: 'DictaLM 3.0 12B 🇮🇱⭐', description: 'הכי טוב לעברית — DICTA Israel! GGUF מותאם', vram: '~8 GB' },
   { name: 'aya:8b', label: 'Aya 8B', description: 'תמיכה מעולה בעברית — Cohere', vram: '~5 GB' },
   { name: 'aya:35b', label: 'Aya 35B', description: 'הכי טוב לעברית — Cohere', vram: '~20 GB' },
   { name: 'qwen2.5:14b', label: 'Qwen 2.5 14B', description: 'רב-שפתי חזק — Alibaba', vram: '~9 GB' },
