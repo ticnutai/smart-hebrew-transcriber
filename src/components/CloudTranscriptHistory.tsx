@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, memo } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef, memo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { History, Trash2, FileText, Search, Tag, X, Edit, Cloud, HardDrive, Loader2, Calendar, Filter, FolderOpen, FolderPlus, Folder, Download, Brain } from "lucide-react";
 import type { CloudTranscript } from "@/hooks/useCloudTranscripts";
 import { semanticSearch } from "@/utils/semanticSearch";
+import { VariableSizeList as List } from "react-window";
 
 interface CloudTranscriptHistoryProps {
   transcripts: CloudTranscript[];
@@ -43,6 +44,7 @@ export const CloudTranscriptHistory = memo(({
   const [newFolderName, setNewFolderName] = useState("");
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [assigningFolderId, setAssigningFolderId] = useState<string | null>(null);
+  const listRef = useRef<List>(null);
 
   // Sync folder filter from URL when it changes
   useEffect(() => {
@@ -158,6 +160,34 @@ export const CloudTranscriptHistory = memo(({
   };
 
   const activeFilters = (engineFilter !== "all" ? 1 : 0) + (dateFilter !== "all" ? 1 : 0) + (folderFilter !== "all" ? 1 : 0);
+  const shouldVirtualize = filtered.length >= 80;
+
+  const getVirtualItemSize = useCallback((index: number) => {
+    const entry = filtered[index];
+    if (!entry) return 220;
+
+    let height = 168; // Base card height
+    if (entry.title) height += 20;
+    if (entry.folder && entry.folder.trim() !== '') height += 28;
+    if (entry.tags && entry.tags.length > 0) {
+      const tagRows = Math.ceil(entry.tags.length / 4);
+      height += 26 * tagRows;
+    }
+    if (assigningFolderId === entry.id) {
+      const folderButtons = Math.min(Math.max(folders.length, 1), 6);
+      height += folderButtons * 30 + 42;
+      if (showNewFolder) height += 44;
+    }
+    if (editingTagId === entry.id) height += 44;
+
+    return Math.max(200, Math.min(height, 520));
+  }, [filtered, assigningFolderId, folders.length, showNewFolder, editingTagId]);
+
+  useEffect(() => {
+    if (shouldVirtualize) {
+      listRef.current?.resetAfterIndex(0, true);
+    }
+  }, [shouldVirtualize, filtered.length, assigningFolderId, editingTagId, showNewFolder, searchQuery, engineFilter, dateFilter, folderFilter]);
 
   const handleCreateFolder = () => {
     if (!newFolderName.trim()) return;
@@ -175,6 +205,202 @@ export const CloudTranscriptHistory = memo(({
     onUpdate(id, { folder });
     setAssigningFolderId(null);
   };
+
+  const renderEntryCard = (entry: CloudTranscript, key?: string) => (
+    <div
+      key={key}
+      className="p-4 rounded-lg border hover:bg-accent/50 transition-colors text-right"
+    >
+      <div className="flex items-center justify-between mb-2 flex-row-reverse">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground font-medium">{entry.engine}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+            onClick={() => onDelete(entry.id)}
+          >
+            <Trash2 className="w-3 h-3" />
+          </Button>
+          <span className="text-xs text-muted-foreground">{formatDate(entry.created_at)}</span>
+        </div>
+      </div>
+
+      {entry.title && (
+        <p className="text-sm font-medium mb-1 text-right">{entry.title}</p>
+      )}
+
+      <div className="flex items-start gap-2 mb-3 flex-row-reverse">
+        <FileText className="w-4 h-4 mt-1 flex-shrink-0 text-muted-foreground" />
+        <p className="text-sm line-clamp-2 text-right flex-1 text-muted-foreground">
+          {highlightText(entry.text, searchQuery)}
+        </p>
+      </div>
+
+      <div className="flex gap-1 mt-2 flex-row-reverse">
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 w-7 p-0"
+          onClick={() => navigate('/text-editor', { state: {
+            text: entry.edited_text || entry.text,
+            wordTimings: entry.word_timings || undefined,
+            transcriptId: entry.id,
+            audioFilePath: entry.audio_file_path || undefined,
+          } })}
+          title="ערוך"
+        >
+          <Edit className="w-3.5 h-3.5" />
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 w-7 p-0"
+          onClick={() => onSelect(entry.text)}
+          title="טען"
+        >
+          <FileText className="w-3.5 h-3.5" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 w-7 p-0"
+          onClick={() => {
+            setEditingTagId(editingTagId === entry.id ? null : entry.id);
+            setNewTag("");
+          }}
+          title="הוסף תגית"
+        >
+          <Tag className="w-3.5 h-3.5" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 w-7 p-0"
+          onClick={() => {
+            setAssigningFolderId(assigningFolderId === entry.id ? null : entry.id);
+            setShowNewFolder(false);
+          }}
+          title="שייך לתיקיה"
+        >
+          <FolderPlus className="w-3.5 h-3.5" />
+        </Button>
+      </div>
+
+      {entry.folder && entry.folder.trim() !== '' && (
+        <div className="mt-1">
+          <Badge variant="outline" className="text-[10px] gap-1">
+            <Folder className="w-2.5 h-2.5" />
+            {entry.folder}
+            <X
+              className="w-2.5 h-2.5 cursor-pointer hover:text-destructive"
+              onClick={(e) => {
+                e.stopPropagation();
+                onUpdate(entry.id, { folder: '' });
+              }}
+            />
+          </Badge>
+        </div>
+      )}
+
+      {assigningFolderId === entry.id && (
+        <div className="mt-2 p-2 rounded border bg-background space-y-1">
+          {folders.map(f => (
+            <Button
+              key={f}
+              variant={entry.folder === f ? "default" : "ghost"}
+              size="sm"
+              className="w-full justify-start text-xs h-7 gap-1"
+              onClick={() => handleAssignFolder(entry.id, f)}
+            >
+              <Folder className="w-3 h-3" />
+              {f}
+            </Button>
+          ))}
+          {entry.folder && entry.folder.trim() !== '' && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start text-xs h-7 gap-1 text-destructive"
+              onClick={() => handleAssignFolder(entry.id, '')}
+            >
+              <X className="w-3 h-3" />
+              הסר מתיקיה
+            </Button>
+          )}
+          {showNewFolder ? (
+            <div className="flex gap-1 mt-1">
+              <Input
+                placeholder="שם תיקיה..."
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleCreateFolder(); }}
+                className="text-xs h-7"
+                dir="rtl"
+                autoFocus
+              />
+              <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={handleCreateFolder}>
+                צור
+              </Button>
+            </div>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start text-xs h-7 gap-1"
+              onClick={() => setShowNewFolder(true)}
+            >
+              <FolderPlus className="w-3 h-3" />
+              תיקיה חדשה...
+            </Button>
+          )}
+        </div>
+      )}
+
+      {entry.tags && entry.tags.length > 0 && (
+        <div className="flex flex-wrap gap-1 mt-2">
+          {entry.tags.map((tag, tagIndex) => (
+            <Badge key={tagIndex} variant="secondary" className="text-xs">
+              {tag}
+              <X
+                className="w-3 h-3 mr-1 cursor-pointer hover:text-destructive"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleRemoveTag(entry.id, tag);
+                }}
+              />
+            </Badge>
+          ))}
+        </div>
+      )}
+
+      {editingTagId === entry.id && (
+        <div className="flex gap-2 mt-2">
+          <Input
+            placeholder="הוסף תגית..."
+            value={newTag}
+            onChange={(e) => setNewTag(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleAddTag(entry.id, newTag);
+            }}
+            className="text-xs h-7 text-right"
+            dir="rtl"
+            autoFocus
+          />
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2"
+            onClick={() => handleAddTag(entry.id, newTag)}
+          >
+            הוסף
+          </Button>
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <Card className="p-6" dir="rtl">
@@ -343,207 +569,34 @@ export const CloudTranscriptHistory = memo(({
           )}
 
           {/* Transcript list */}
-          <ScrollArea className="h-[400px] flex-1">
-          <div className="space-y-3">
-            {filtered.map((entry) => (
-              <div
-                key={entry.id}
-                className="p-4 rounded-lg border hover:bg-accent/50 transition-colors text-right"
+          {shouldVirtualize ? (
+            <div className="h-[400px] flex-1">
+              <List
+                ref={listRef}
+                height={400}
+                width="100%"
+                itemCount={filtered.length}
+                itemSize={getVirtualItemSize}
+                overscanCount={5}
+                itemData={filtered}
               >
-                <div className="flex items-center justify-between mb-2 flex-row-reverse">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground font-medium">{entry.engine}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
-                      onClick={() => onDelete(entry.id)}
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </Button>
-                    <span className="text-xs text-muted-foreground">{formatDate(entry.created_at)}</span>
-                  </div>
-                </div>
-
-                {entry.title && (
-                  <p className="text-sm font-medium mb-1 text-right">{entry.title}</p>
-                )}
-
-                <div className="flex items-start gap-2 mb-3 flex-row-reverse">
-                  <FileText className="w-4 h-4 mt-1 flex-shrink-0 text-muted-foreground" />
-                  <p className="text-sm line-clamp-2 text-right flex-1 text-muted-foreground">
-                    {highlightText(entry.text, searchQuery)}
-                  </p>
-                </div>
-
-                <div className="flex gap-1 mt-2 flex-row-reverse">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 w-7 p-0"
-                    onClick={() => navigate('/text-editor', { state: { 
-                      text: entry.edited_text || entry.text,
-                      wordTimings: entry.word_timings || undefined,
-                      transcriptId: entry.id,
-                      audioFilePath: entry.audio_file_path || undefined,
-                    } })}
-                    title="ערוך"
-                  >
-                    <Edit className="w-3.5 h-3.5" />
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 w-7 p-0"
-                    onClick={() => onSelect(entry.text)}
-                    title="טען"
-                  >
-                    <FileText className="w-3.5 h-3.5" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 w-7 p-0"
-                    onClick={() => {
-                      setEditingTagId(editingTagId === entry.id ? null : entry.id);
-                      setNewTag("");
-                    }}
-                    title="הוסף תגית"
-                  >
-                    <Tag className="w-3.5 h-3.5" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 w-7 p-0"
-                    onClick={() => {
-                      setAssigningFolderId(assigningFolderId === entry.id ? null : entry.id);
-                      setShowNewFolder(false);
-                    }}
-                    title="שייך לתיקיה"
-                  >
-                    <FolderPlus className="w-3.5 h-3.5" />
-                  </Button>
-                </div>
-
-                {/* Folder badge */}
-                {entry.folder && entry.folder.trim() !== '' && (
-                  <div className="mt-1">
-                    <Badge variant="outline" className="text-[10px] gap-1">
-                      <Folder className="w-2.5 h-2.5" />
-                      {entry.folder}
-                      <X
-                        className="w-2.5 h-2.5 cursor-pointer hover:text-destructive"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onUpdate(entry.id, { folder: '' });
-                        }}
-                      />
-                    </Badge>
-                  </div>
-                )}
-
-                {/* Folder assignment dropdown */}
-                {assigningFolderId === entry.id && (
-                  <div className="mt-2 p-2 rounded border bg-background space-y-1">
-                    {folders.map(f => (
-                      <Button
-                        key={f}
-                        variant={entry.folder === f ? "default" : "ghost"}
-                        size="sm"
-                        className="w-full justify-start text-xs h-7 gap-1"
-                        onClick={() => handleAssignFolder(entry.id, f)}
-                      >
-                        <Folder className="w-3 h-3" />
-                        {f}
-                      </Button>
-                    ))}
-                    {entry.folder && entry.folder.trim() !== '' && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="w-full justify-start text-xs h-7 gap-1 text-destructive"
-                        onClick={() => handleAssignFolder(entry.id, '')}
-                      >
-                        <X className="w-3 h-3" />
-                        הסר מתיקיה
-                      </Button>
-                    )}
-                    {showNewFolder ? (
-                      <div className="flex gap-1 mt-1">
-                        <Input
-                          placeholder="שם תיקיה..."
-                          value={newFolderName}
-                          onChange={(e) => setNewFolderName(e.target.value)}
-                          onKeyDown={(e) => { if (e.key === 'Enter') handleCreateFolder(); }}
-                          className="text-xs h-7"
-                          dir="rtl"
-                          autoFocus
-                        />
-                        <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={handleCreateFolder}>
-                          צור
-                        </Button>
-                      </div>
-                    ) : (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="w-full justify-start text-xs h-7 gap-1"
-                        onClick={() => setShowNewFolder(true)}
-                      >
-                        <FolderPlus className="w-3 h-3" />
-                        תיקיה חדשה...
-                      </Button>
-                    )}
-                  </div>
-                )}
-
-                {entry.tags && entry.tags.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-2">
-                    {entry.tags.map((tag, tagIndex) => (
-                      <Badge key={tagIndex} variant="secondary" className="text-xs">
-                        {tag}
-                        <X
-                          className="w-3 h-3 mr-1 cursor-pointer hover:text-destructive"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleRemoveTag(entry.id, tag);
-                          }}
-                        />
-                      </Badge>
-                    ))}
-                  </div>
-                )}
-
-                {editingTagId === entry.id && (
-                  <div className="flex gap-2 mt-2">
-                    <Input
-                      placeholder="הוסף תגית..."
-                      value={newTag}
-                      onChange={(e) => setNewTag(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') handleAddTag(entry.id, newTag);
-                      }}
-                      className="text-xs h-7 text-right"
-                      dir="rtl"
-                      autoFocus
-                    />
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 px-2"
-                      onClick={() => handleAddTag(entry.id, newTag)}
-                    >
-                      הוסף
-                    </Button>
-                  </div>
-                )}
+                {({ index, style, data }) => {
+                  const entry = data[index] as CloudTranscript;
+                  return (
+                    <div style={{ ...style, paddingBottom: 12, paddingInline: 2 }}>
+                      {renderEntryCard(entry)}
+                    </div>
+                  );
+                }}
+              </List>
+            </div>
+          ) : (
+            <ScrollArea className="h-[400px] flex-1">
+              <div className="space-y-3">
+                {filtered.map((entry) => renderEntryCard(entry, entry.id))}
               </div>
-            ))}
-          </div>
-        </ScrollArea>
+            </ScrollArea>
+          )}
         </div>
       )}
     </Card>

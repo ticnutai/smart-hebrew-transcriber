@@ -21,10 +21,13 @@ jobs:
         run: npm ci
 
       - name: TypeScript check
-        run: npx tsc --noEmit
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm run test:unit
 
       - name: Vite build
-        run: npx vite build
+        run: npm run build
 
   e2e:
     runs-on: ubuntu-latest
@@ -44,7 +47,7 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run Playwright tests
-        run: npx playwright test
+        run: npm run test:e2e
         env:
           CI: true
 
