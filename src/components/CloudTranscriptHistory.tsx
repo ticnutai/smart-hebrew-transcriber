@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback, useRef, memo } from "react";
+import { useState, useMemo, useEffect, memo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { History, Trash2, FileText, Search, Tag, X, Edit, Cloud, HardDrive, Loader2, Calendar, Filter, FolderOpen, FolderPlus, Folder, Download, Brain } from "lucide-react";
 import type { CloudTranscript } from "@/hooks/useCloudTranscripts";
 import { semanticSearch } from "@/utils/semanticSearch";
-import { VariableSizeList as List } from "react-window";
 
 interface CloudTranscriptHistoryProps {
   transcripts: CloudTranscript[];
@@ -44,7 +43,6 @@ export const CloudTranscriptHistory = memo(({
   const [newFolderName, setNewFolderName] = useState("");
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [assigningFolderId, setAssigningFolderId] = useState<string | null>(null);
-  const listRef = useRef<List>(null);
 
   // Sync folder filter from URL when it changes
   useEffect(() => {
@@ -160,34 +158,6 @@ export const CloudTranscriptHistory = memo(({
   };
 
   const activeFilters = (engineFilter !== "all" ? 1 : 0) + (dateFilter !== "all" ? 1 : 0) + (folderFilter !== "all" ? 1 : 0);
-  const shouldVirtualize = filtered.length >= 80;
-
-  const getVirtualItemSize = useCallback((index: number) => {
-    const entry = filtered[index];
-    if (!entry) return 220;
-
-    let height = 168; // Base card height
-    if (entry.title) height += 20;
-    if (entry.folder && entry.folder.trim() !== '') height += 28;
-    if (entry.tags && entry.tags.length > 0) {
-      const tagRows = Math.ceil(entry.tags.length / 4);
-      height += 26 * tagRows;
-    }
-    if (assigningFolderId === entry.id) {
-      const folderButtons = Math.min(Math.max(folders.length, 1), 6);
-      height += folderButtons * 30 + 42;
-      if (showNewFolder) height += 44;
-    }
-    if (editingTagId === entry.id) height += 44;
-
-    return Math.max(200, Math.min(height, 520));
-  }, [filtered, assigningFolderId, folders.length, showNewFolder, editingTagId]);
-
-  useEffect(() => {
-    if (shouldVirtualize) {
-      listRef.current?.resetAfterIndex(0, true);
-    }
-  }, [shouldVirtualize, filtered.length, assigningFolderId, editingTagId, showNewFolder, searchQuery, engineFilter, dateFilter, folderFilter]);
 
   const handleCreateFolder = () => {
     if (!newFolderName.trim()) return;
@@ -210,6 +180,7 @@ export const CloudTranscriptHistory = memo(({
     <div
       key={key}
       className="p-4 rounded-lg border hover:bg-accent/50 transition-colors text-right"
+      style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 220px' }}
     >
       <div className="flex items-center justify-between mb-2 flex-row-reverse">
         <div className="flex items-center gap-2">
@@ -569,34 +540,11 @@ export const CloudTranscriptHistory = memo(({
           )}
 
           {/* Transcript list */}
-          {shouldVirtualize ? (
-            <div className="h-[400px] flex-1">
-              <List
-                ref={listRef}
-                height={400}
-                width="100%"
-                itemCount={filtered.length}
-                itemSize={getVirtualItemSize}
-                overscanCount={5}
-                itemData={filtered}
-              >
-                {({ index, style, data }) => {
-                  const entry = data[index] as CloudTranscript;
-                  return (
-                    <div style={{ ...style, paddingBottom: 12, paddingInline: 2 }}>
-                      {renderEntryCard(entry)}
-                    </div>
-                  );
-                }}
-              </List>
+          <ScrollArea className="h-[400px] flex-1">
+            <div className="space-y-3">
+              {filtered.map((entry) => renderEntryCard(entry, entry.id))}
             </div>
-          ) : (
-            <ScrollArea className="h-[400px] flex-1">
-              <div className="space-y-3">
-                {filtered.map((entry) => renderEntryCard(entry, entry.id))}
-              </div>
-            </ScrollArea>
-          )}
+          </ScrollArea>
         </div>
       )}
     </Card>
