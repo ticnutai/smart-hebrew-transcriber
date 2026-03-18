@@ -274,8 +274,8 @@ const TranscriptEditorInner = ({ transcript, onTranscriptChange, wordTimings, se
 
       {/* Search bar */}
       {searchOpen && (
-        <div className="flex items-center gap-2 mb-3 p-2 bg-muted/50 rounded-md border">
-          <Search className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+        <div className="flex items-center gap-2 mb-3 p-2 bg-muted/50 rounded-md border" role="search" aria-label="חיפוש בתמלול">
+          <Search className="w-4 h-4 text-muted-foreground flex-shrink-0" aria-hidden="true" />
           <Input
             ref={searchInputRef}
             value={searchQuery}
@@ -290,17 +290,18 @@ const TranscriptEditorInner = ({ transcript, onTranscriptChange, wordTimings, se
             placeholder="חפש בתמלול..."
             className="h-8 text-sm flex-1"
             dir="rtl"
+            aria-label="חפש בתמלול"
           />
-          <span className="text-xs text-muted-foreground whitespace-nowrap min-w-[60px] text-center">
+          <span className="text-xs text-muted-foreground whitespace-nowrap min-w-[60px] text-center" aria-live="polite">
             {searchQuery ? `${matches.length > 0 ? currentMatch + 1 : 0}/${matches.length}` : ''}
           </span>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={prevMatch} disabled={matches.length === 0} title="הקודם">
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={prevMatch} disabled={matches.length === 0} title="הקודם" aria-label="התאמה הקודמת">
             <ChevronUp className="w-4 h-4" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={nextMatch} disabled={matches.length === 0} title="הבא">
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={nextMatch} disabled={matches.length === 0} title="הבא" aria-label="התאמה הבאה">
             <ChevronDown className="w-4 h-4" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={closeSearch} title="סגור">
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={closeSearch} title="סגור" aria-label="סגור חיפוש">
             <X className="w-4 h-4" />
           </Button>
         </div>

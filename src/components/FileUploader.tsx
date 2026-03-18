@@ -263,6 +263,10 @@ export const FileUploader = ({
 
         {/* Drop zone */}
         <div
+          role="button"
+          tabIndex={0}
+          aria-label="גרור קובץ לכאן או לחץ לבחירה"
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); !isLoading && fileInputRef.current?.click(); } }}
           className={`flex flex-col items-center gap-3 py-6 rounded-lg border-2 border-dashed transition-colors cursor-pointer ${
             isDragOver ? 'border-primary bg-primary/10' : 'border-muted-foreground/20 hover:border-primary/40'
           }`}
@@ -305,6 +309,7 @@ export const FileUploader = ({
             onChange={handleFileChange}
             className="hidden"
             disabled={isLoading}
+            aria-label="בחר קובץ אודיו או וידאו"
           />
           <Button
             onClick={() => fileInputRef.current?.click()}

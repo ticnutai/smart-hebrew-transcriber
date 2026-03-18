@@ -200,6 +200,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
               <Zap className="w-8 h-8 text-primary mb-2" />
               <span className="font-medium text-sm">Groq</span>
               <span className="text-[10px] text-muted-foreground mt-0.5">whisper-large-v3-turbo</span>
+              {getApiKey('groq_api_key') ? <Badge variant="secondary" className="mt-1 text-[10px] bg-green-100 dark:bg-green-900/30">מוכן</Badge> : <Badge variant="outline" className="mt-1 text-[10px] text-muted-foreground">חסר מפתח</Badge>}
             </Label>
 
             <Label 
@@ -212,6 +213,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
               <Globe className="w-8 h-8 text-primary mb-2" />
               <span className="font-medium text-sm">OpenAI</span>
               <span className="text-[10px] text-muted-foreground mt-0.5">whisper-1</span>
+              {getApiKey('openai_api_key') ? <Badge variant="secondary" className="mt-1 text-[10px] bg-green-100 dark:bg-green-900/30">מוכן</Badge> : <Badge variant="outline" className="mt-1 text-[10px] text-muted-foreground">חסר מפתח</Badge>}
             </Label>
 
             <Label 
@@ -224,6 +226,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
               <Chrome className="w-8 h-8 text-blue-500 mb-2" />
               <span className="font-medium text-sm">Google</span>
               <span className="text-[10px] text-muted-foreground mt-0.5">Speech-to-Text</span>
+              {getApiKey('google_api_key') ? <Badge variant="secondary" className="mt-1 text-[10px] bg-green-100 dark:bg-green-900/30">מוכן</Badge> : <Badge variant="outline" className="mt-1 text-[10px] text-muted-foreground">חסר מפתח</Badge>}
             </Label>
 
             <Label 
@@ -236,6 +239,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
               <Mic className="w-8 h-8 text-green-500 mb-2" />
               <span className="font-medium text-sm">AssemblyAI</span>
               <span className="text-[10px] text-muted-foreground mt-0.5">Universal</span>
+              {getApiKey('assemblyai_api_key') ? <Badge variant="secondary" className="mt-1 text-[10px] bg-green-100 dark:bg-green-900/30">מוכן</Badge> : <Badge variant="outline" className="mt-1 text-[10px] text-muted-foreground">חסר מפתח</Badge>}
             </Label>
 
             <Label 
@@ -248,6 +252,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
               <Waves className="w-8 h-8 text-purple-500 mb-2" />
               <span className="font-medium text-sm">Deepgram</span>
               <span className="text-[10px] text-muted-foreground mt-0.5">nova-2</span>
+              {getApiKey('deepgram_api_key') ? <Badge variant="secondary" className="mt-1 text-[10px] bg-green-100 dark:bg-green-900/30">מוכן</Badge> : <Badge variant="outline" className="mt-1 text-[10px] text-muted-foreground">חסר מפתח</Badge>}
             </Label>
           </div>
         </RadioGroup>

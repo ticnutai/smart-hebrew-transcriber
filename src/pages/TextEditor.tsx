@@ -34,6 +34,7 @@ import { useCloudVersions } from "@/hooks/useCloudVersions";
 import { useOllama, isOllamaModel } from "@/hooks/useOllama";
 import { db } from "@/lib/localDb";
 import { useCorrectionLearning } from "@/hooks/useCorrectionLearning";
+import { LazyErrorBoundary } from "@/components/LazyErrorBoundary";
 
 const sourceLabels: Record<string, string> = {
   original: 'תמלול מקורי',
@@ -437,6 +438,7 @@ const TextEditor = () => {
           </TabsList>
 
           <TabsContent value="player" className="space-y-4">
+            <LazyErrorBoundary label="נגן מסונכרן">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <SyncAudioPlayer
                 audioUrl={audioUrl}
@@ -455,6 +457,7 @@ const TextEditor = () => {
                 syncEnabled={syncEnabled}
               />
             </div>
+            </LazyErrorBoundary>
           </TabsContent>
 
           <TabsContent value="edit" className="space-y-4">
@@ -486,12 +489,12 @@ const TextEditor = () => {
           </TabsContent>
 
           <TabsContent value="templates" className="space-y-4">
-            <EditingTemplates
+            <LazyErrorBoundary label="תבניות עריכה"><EditingTemplates
               text={text}
               onApply={(newText, templateName) => {
                 addVersion(newText, 'ai-custom', templateName);
               }}
-            />
+            /></LazyErrorBoundary>
           </TabsContent>
 
           <TabsContent value="ai" className="space-y-4">
@@ -504,20 +507,20 @@ const TextEditor = () => {
                 ...columnStyle,
               }}
             >
-              <AIEditorDual 
+              <LazyErrorBoundary label="עורך AI"><AIEditorDual 
                 text={text} 
                 onTextChange={(newText, source, customPrompt) => {
                   setText(newText);
                   addVersion(newText, source as TextVersion['source'], customPrompt);
                 }}
                 onSaveVersion={handleSaveVersion}
-              />
+              /></LazyErrorBoundary>
             </div>
           </TabsContent>
 
           <TabsContent value="compare" className="space-y-4">
             {versions.length >= 2 ? (
-              <AdvancedDiffView 
+              <LazyErrorBoundary label="השוואה מתקדמת"><AdvancedDiffView 
                 versions={versions}
                 fontSize={fontSize}
                 fontFamily={fontFamily}
@@ -526,7 +529,7 @@ const TextEditor = () => {
                 onApplyVersion={(newText) => {
                   setText(newText);
                 }}
-              />
+              /></LazyErrorBoundary>
             ) : (
               <div className="text-center py-12 text-muted-foreground">
                 יש צורך בלפחות שתי גרסאות כדי להשוות
@@ -535,56 +538,56 @@ const TextEditor = () => {
           </TabsContent>
 
           <TabsContent value="pipeline" className="space-y-4">
-            <EditPipeline
+            <LazyErrorBoundary label="צינור עריכה"><EditPipeline
               text={text}
               onTextChange={(newText, source, customPrompt) => {
                 setText(newText);
                 addVersion(newText, source as TextVersion['source'], customPrompt);
               }}
-            />
+            /></LazyErrorBoundary>
           </TabsContent>
 
           <TabsContent value="prompts" className="space-y-4">
-            <PromptLibrary
+            <LazyErrorBoundary label="ספריית פרומפטים"><PromptLibrary
               text={text}
               onTextChange={(newText, source, customPrompt) => {
                 setText(newText);
                 addVersion(newText, source as TextVersion['source'], customPrompt);
               }}
-            />
+            /></LazyErrorBoundary>
           </TabsContent>
 
           <TabsContent value="ollama" className="space-y-4">
-            <OllamaManager />
+            <LazyErrorBoundary label="Ollama"><OllamaManager /></LazyErrorBoundary>
           </TabsContent>
 
           <TabsContent value="learning" className="space-y-4">
-            <CorrectionLearningPanel />
+            <LazyErrorBoundary label="למידת תיקונים"><CorrectionLearningPanel /></LazyErrorBoundary>
           </TabsContent>
           <TabsContent value="vocab" className="space-y-4">
-            <VocabularyPanel />
+            <LazyErrorBoundary label="אוצר מילים"><VocabularyPanel /></LazyErrorBoundary>
           </TabsContent>
 
           <TabsContent value="summary" className="space-y-4">
-            <AutoSummaryCard text={text} />
+            <LazyErrorBoundary label="סיכום"><AutoSummaryCard text={text} /></LazyErrorBoundary>
           </TabsContent>
 
           <TabsContent value="ab" className="space-y-4">
-            <EngineCompare text={text} />
+            <LazyErrorBoundary label="השוואת מנועים"><EngineCompare text={text} /></LazyErrorBoundary>
           </TabsContent>
 
           <TabsContent value="analytics" className="space-y-4">
-            <AnalyticsDashboard />
+            <LazyErrorBoundary label="אנליטיקס"><AnalyticsDashboard /></LazyErrorBoundary>
           </TabsContent>
           <TabsContent value="history" className="space-y-4">
-            <TextEditHistory 
+            <LazyErrorBoundary label="היסטוריית עריכה"><TextEditHistory 
               versions={versions}
               onSelectVersion={handleVersionSelect}
               selectedVersionId={selectedVersionId}
               cloudVersions={cloudVersions}
               cloudLoading={cloudVersionsLoading}
               onRestoreVersion={handleRestoreVersion}
-            />
+            /></LazyErrorBoundary>
           </TabsContent>
         </Tabs>
 

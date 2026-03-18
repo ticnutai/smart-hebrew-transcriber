@@ -7,7 +7,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Download, FileText, File, Loader2, Braces } from "lucide-react";
+import { Download, FileText, File, Loader2, Braces, Table2, Hash } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 
 
@@ -227,6 +227,44 @@ export const ExportButton = ({ text, title = "תמלול", disabled, wordTimings
     toast({ title: "VTT הורד בהצלחה" });
   };
 
+  const exportToCSV = async () => {
+    setIsExporting(true);
+    try {
+      const { saveAs } = await import("file-saver");
+      const lines = text.split(/\n/).filter(Boolean);
+      const csvRows = ['"#","text"'];
+      lines.forEach((line, i) => {
+        csvRows.push(`"${i + 1}","${line.replace(/"/g, '""')}"`);
+      });
+      const bom = '\uFEFF'; // UTF-8 BOM for Excel Hebrew
+      const blob = new Blob([bom + csvRows.join('\n')], { type: "text/csv;charset=utf-8" });
+      saveAs(blob, `${title}-${Date.now()}.csv`);
+      toast({ title: "CSV הורד בהצלחה" });
+    } catch (error) {
+      console.error('CSV export error:', error);
+      toast({ title: "שגיאה בייצוא CSV", variant: "destructive" });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const exportToMarkdown = async () => {
+    setIsExporting(true);
+    try {
+      const { saveAs } = await import("file-saver");
+      const dateStr = new Date().toLocaleString('he-IL');
+      const md = `# ${title}\n\n> תאריך: ${dateStr}\n\n---\n\n${text}\n`;
+      const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+      saveAs(blob, `${title}-${Date.now()}.md`);
+      toast({ title: "Markdown הורד בהצלחה" });
+    } catch (error) {
+      console.error('Markdown export error:', error);
+      toast({ title: "שגיאה בייצוא Markdown", variant: "destructive" });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   return (
     <DropdownMenu dir="rtl">
       <DropdownMenuTrigger asChild>
@@ -255,6 +293,15 @@ export const ExportButton = ({ text, title = "תמלול", disabled, wordTimings
         <DropdownMenuItem onClick={exportToJSON}>
           <Braces className="w-4 h-4 ml-2" />
           ייצוא ל-JSON (מטא-דאטה)
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={exportToCSV}>
+          <Table2 className="w-4 h-4 ml-2" />
+          ייצוא ל-CSV
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={exportToMarkdown}>
+          <Hash className="w-4 h-4 ml-2" />
+          ייצוא ל-Markdown
         </DropdownMenuItem>
         {wordTimings && wordTimings.length > 0 && (
           <>

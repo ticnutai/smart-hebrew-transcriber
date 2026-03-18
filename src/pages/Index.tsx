@@ -29,8 +29,11 @@ import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { KeyboardShortcutsDialog } from "@/components/KeyboardShortcutsDialog";
 import { addNotification } from "@/hooks/useNotifications";
 import { getApiKey } from "@/lib/keyCrypto";
+import { useKeyRotation } from "@/hooks/useKeyRotation";
+import type { CloudProvider } from "@/hooks/useKeyRotation";
 import { applyLearnedCorrections } from "@/utils/correctionLearning";
 import { getHotwordsString, applyVocabularyCorrections } from "@/utils/customVocabulary";
+import { LazyErrorBoundary } from "@/components/LazyErrorBoundary";
 
 // Lazy-loaded heavy components
 const LiveTranscriber = lazy(() => import("@/components/LiveTranscriber").then(m => ({ default: m.LiveTranscriber })));
@@ -53,6 +56,7 @@ const Index = () => {
   const [searchParams] = useSearchParams();
   const folderFromUrl = searchParams.get('folder') || undefined;
   const { isAuthenticated } = useAuth();
+  const { getPool: getProviderApiKeyPool, shouldRotate: shouldRotateProviderKey, getStartIndex: getProviderStartIndex, setActiveKey: setProviderActiveKey, getLabel: getProviderLabel } = useKeyRotation();
 
   // Cloud-synced preferences
   const { preferences, updatePreference, isLoaded: prefsLoaded } = useCloudPreferences();
@@ -301,91 +305,6 @@ const Index = () => {
     });
   };
 
-  type CloudProvider = 'openai' | 'groq' | 'google' | 'assemblyai' | 'deepgram';
-
-  const providerSingleKeyStorage: Record<CloudProvider, string> = {
-    openai: 'openai_api_key',
-    groq: 'groq_api_key',
-    google: 'google_api_key',
-    assemblyai: 'assemblyai_api_key',
-    deepgram: 'deepgram_api_key',
-  };
-
-  const providerPoolStorage: Record<CloudProvider, string> = {
-    openai: 'openai_api_keys_pool',
-    groq: 'groq_api_keys_pool',
-    google: 'google_api_keys_pool',
-    assemblyai: 'assemblyai_api_keys_pool',
-    deepgram: 'deepgram_api_keys_pool',
-  };
-
-  const providerActiveIndexStorage: Record<CloudProvider, string> = {
-    openai: 'openai_api_key_active_index',
-    groq: 'groq_api_key_active_index',
-    google: 'google_api_key_active_index',
-    assemblyai: 'assemblyai_api_key_active_index',
-    deepgram: 'deepgram_api_key_active_index',
-  };
-
-  const providerLabel: Record<CloudProvider, string> = {
-    openai: 'OpenAI',
-    groq: 'Groq',
-    google: 'Google',
-    assemblyai: 'AssemblyAI',
-    deepgram: 'Deepgram',
-  };
-
-  const getProviderApiKeyPool = (provider: CloudProvider): string[] => {
-    const single = getApiKey(providerSingleKeyStorage[provider])?.trim();
-    const raw = localStorage.getItem(providerPoolStorage[provider]);
-    let pooled: string[] = [];
-
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw) as string[];
-        if (Array.isArray(parsed)) {
-          pooled = parsed.map((k) => k.trim()).filter(Boolean);
-        }
-      } catch {
-        // Ignore malformed pool storage and fall back to single key.
-      }
-    }
-
-    const merged = [...pooled];
-    if (single && !merged.includes(single)) {
-      merged.unshift(single);
-    }
-    return Array.from(new Set(merged));
-  };
-
-  const shouldRotateProviderKey = (err: any): boolean => {
-    const msg = String(err?.message || err?.error || '').toLowerCase();
-    return (
-      msg.includes('rate_limit') ||
-      msg.includes('rate limit') ||
-      msg.includes('quota') ||
-      msg.includes('429') ||
-      msg.includes('invalid api key') ||
-      msg.includes('api key is invalid') ||
-      msg.includes('expired') ||
-      msg.includes('insufficient_quota') ||
-      msg.includes('unauthorized') ||
-      msg.includes('authentication')
-    );
-  };
-
-  const getProviderStartIndex = (provider: CloudProvider, poolLength: number): number => {
-    if (poolLength <= 0) return 0;
-    const raw = parseInt(localStorage.getItem(providerActiveIndexStorage[provider]) || '0', 10);
-    if (!Number.isFinite(raw)) return 0;
-    return ((raw % poolLength) + poolLength) % poolLength;
-  };
-
-  const setProviderActiveKey = (provider: CloudProvider, pool: string[], index: number) => {
-    localStorage.setItem(providerActiveIndexStorage[provider], String(index));
-    localStorage.setItem(providerSingleKeyStorage[provider], pool[index]);
-  };
-
   const handleFileSelect = async (file: File) => {
     currentFileRef.current = file;
     lastFileRef.current = file;
@@ -582,7 +501,7 @@ const Index = () => {
         lastError = result.error || { message: 'No transcription received' };
         if (shouldRotateProviderKey(lastError) && offset < keyPool.length - 1) {
           toast({
-            title: `מעביר למפתח ${providerLabel.openai} הבא`,
+            title: `מעביר למפתח ${getProviderLabel('openai')} הבא`,
             description: `מפתח ${idx + 1} נכשל/הוגבל. מנסה מפתח ${idx + 2}.`,
           });
           continue;
@@ -597,7 +516,7 @@ const Index = () => {
       setProviderActiveKey('openai', keyPool, usedIndex);
       if (usedIndex !== safeStartIndex) {
         toast({
-          title: `בוצעה החלפת מפתח ${providerLabel.openai}`,
+          title: `בוצעה החלפת מפתח ${getProviderLabel('openai')}`,
           description: `התמלול המשיך אוטומטית עם מפתח #${usedIndex + 1}.`,
         });
       }
@@ -850,7 +769,7 @@ const Index = () => {
         lastError = result.error || { message: 'No transcription received from Google' };
         if (shouldRotateProviderKey(lastError) && offset < keyPool.length - 1) {
           toast({
-            title: `מעביר למפתח ${providerLabel.google} הבא`,
+            title: `מעביר למפתח ${getProviderLabel('google')} הבא`,
             description: `מפתח ${idx + 1} נכשל/הוגבל. מנסה מפתח ${idx + 2}.`,
           });
           continue;
@@ -866,7 +785,7 @@ const Index = () => {
       setProviderActiveKey('google', keyPool, usedIndex);
       if (usedIndex !== safeStartIndex) {
         toast({
-          title: `בוצעה החלפת מפתח ${providerLabel.google}`,
+          title: `בוצעה החלפת מפתח ${getProviderLabel('google')}`,
           description: `התמלול המשיך אוטומטית עם מפתח #${usedIndex + 1}.`,
         });
       }
@@ -1131,7 +1050,7 @@ const Index = () => {
         lastError = result.error || { message: 'No transcription received' };
         if (shouldRotateProviderKey(lastError) && offset < keyPool.length - 1) {
           toast({
-            title: `מעביר למפתח ${providerLabel.assemblyai} הבא`,
+            title: `מעביר למפתח ${getProviderLabel('assemblyai')} הבא`,
             description: `מפתח ${idx + 1} נכשל/הוגבל. מנסה מפתח ${idx + 2}.`,
           });
           continue;
@@ -1144,7 +1063,7 @@ const Index = () => {
       setProviderActiveKey('assemblyai', keyPool, usedIndex);
       if (usedIndex !== safeStartIndex) {
         toast({
-          title: `בוצעה החלפת מפתח ${providerLabel.assemblyai}`,
+          title: `בוצעה החלפת מפתח ${getProviderLabel('assemblyai')}`,
           description: `התמלול המשיך אוטומטית עם מפתח #${usedIndex + 1}.`,
         });
       }
@@ -1239,7 +1158,7 @@ const Index = () => {
         lastError = result.error || { message: 'No transcription received' };
         if (shouldRotateProviderKey(lastError) && offset < keyPool.length - 1) {
           toast({
-            title: `מעביר למפתח ${providerLabel.deepgram} הבא`,
+            title: `מעביר למפתח ${getProviderLabel('deepgram')} הבא`,
             description: `מפתח ${idx + 1} נכשל/הוגבל. מנסה מפתח ${idx + 2}.`,
           });
           continue;
@@ -1252,7 +1171,7 @@ const Index = () => {
       setProviderActiveKey('deepgram', keyPool, usedIndex);
       if (usedIndex !== safeStartIndex) {
         toast({
-          title: `בוצעה החלפת מפתח ${providerLabel.deepgram}`,
+          title: `בוצעה החלפת מפתח ${getProviderLabel('deepgram')}`,
           description: `התמלול המשיך אוטומטית עם מפתח #${usedIndex + 1}.`,
         });
       }
@@ -1919,6 +1838,7 @@ const Index = () => {
         )}
 
         {/* Live Transcription */}
+        <LazyErrorBoundary label="תמלול חי">
         <LiveTranscriber
           serverConnected={serverConnected}
           onTranscriptComplete={(result: LiveTranscriptResult) => {
@@ -1939,6 +1859,7 @@ const Index = () => {
             toast({ title: "תמלול חי הושלם!", description: audioFile ? "הקלטה + תמלול נשמרו" : undefined });
           }}
         />
+        </LazyErrorBoundary>
 
 
 
@@ -1952,11 +1873,12 @@ const Index = () => {
               </Button>
             </CollapsibleTrigger>
             <CollapsibleContent className="mb-4">
-              <LocalModelManager />
+              <LazyErrorBoundary label="ניהול מודלים"><LocalModelManager /></LazyErrorBoundary>
             </CollapsibleContent>
           </Collapsible>
         )}
 
+        <LazyErrorBoundary label="היסטוריית תמלולים">
         <CloudTranscriptHistory
           transcripts={transcripts}
           isCloud={isCloud}
@@ -1970,6 +1892,7 @@ const Index = () => {
           onUpdate={(id, updates) => updateTranscript(id, updates)}
           initialFolderFilter={folderFromUrl}
         />
+        </LazyErrorBoundary>
 
         {transcript && (
           <>
@@ -1992,9 +1915,9 @@ const Index = () => {
                 {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                 {copied ? "הועתק!" : "העתק תמלול"}
               </Button>
-              <ShareTranscript transcript={transcript} />
+              <LazyErrorBoundary label="שיתוף"><ShareTranscript transcript={transcript} /></LazyErrorBoundary>
             </div>
-            <TranscriptSummary transcript={transcript} />
+            <LazyErrorBoundary label="סיכום תמלול"><TranscriptSummary transcript={transcript} /></LazyErrorBoundary>
           </>
         )}
 
@@ -2007,6 +1930,7 @@ const Index = () => {
               lineHeight: lineHeight,
             }}
           >
+            <LazyErrorBoundary label="עורך תמלול">
             <TranscriptEditor 
               transcript={transcript}
               onTranscriptChange={setTranscript}
@@ -2014,11 +1938,13 @@ const Index = () => {
               searchOpen={searchOpen}
               onSearchOpenChange={setSearchOpen}
             />
+            </LazyErrorBoundary>
           </div>
         )}
 
         {/* YouTube Transcription — available when local server is connected */}
         {serverConnected && (
+          <LazyErrorBoundary label="YouTube">
           <YouTubeTranscriber
             onTranscriptComplete={(text) => {
               setTranscript(text);
@@ -2032,11 +1958,12 @@ const Index = () => {
               toast({ title: "תמלול YouTube הושלם!" });
             }}
           />
+          </LazyErrorBoundary>
         )}
 
         {/* Speaker Diarization — available when local server is connected */}
         {serverConnected && (
-          <SpeakerDiarization />
+          <LazyErrorBoundary label="זיהוי דוברים"><SpeakerDiarization /></LazyErrorBoundary>
         )}
       </div>
     </div>
