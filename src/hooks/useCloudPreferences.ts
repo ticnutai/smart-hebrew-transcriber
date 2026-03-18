@@ -132,6 +132,8 @@ export const useCloudPreferences = () => {
         .maybeSingle();
 
       if (data) {
+        // Cast once — Supabase types don't include dynamic columns
+        const d = data as Record<string, unknown>;
         const loaded: UserPreferences = {
           font_size: data.font_size ?? DEFAULT_PREFERENCES.font_size,
           font_family: data.font_family ?? DEFAULT_PREFERENCES.font_family,
@@ -139,22 +141,22 @@ export const useCloudPreferences = () => {
           line_height: Number(data.line_height) || DEFAULT_PREFERENCES.line_height,
           sidebar_pinned: data.sidebar_pinned ?? DEFAULT_PREFERENCES.sidebar_pinned,
           theme: data.theme ?? DEFAULT_PREFERENCES.theme,
-          engine: (data as any).engine ?? DEFAULT_PREFERENCES.engine,
-          source_language: (data as any).source_language ?? DEFAULT_PREFERENCES.source_language,
-          custom_themes: typeof (data as any).custom_themes === 'string'
-            ? (data as any).custom_themes
-            : JSON.stringify((data as any).custom_themes ?? []),
-          editor_columns: (data as any).editor_columns ?? DEFAULT_PREFERENCES.editor_columns,
-          cuda_preset: (data as any).cuda_preset ?? DEFAULT_PREFERENCES.cuda_preset,
-          cuda_fast_mode: (data as any).cuda_fast_mode ?? DEFAULT_PREFERENCES.cuda_fast_mode,
-          cuda_compute_type: (data as any).cuda_compute_type ?? DEFAULT_PREFERENCES.cuda_compute_type,
-          cuda_beam_size: (data as any).cuda_beam_size ?? DEFAULT_PREFERENCES.cuda_beam_size,
-          cuda_no_condition_prev: (data as any).cuda_no_condition_prev ?? DEFAULT_PREFERENCES.cuda_no_condition_prev,
-          cuda_vad_aggressive: (data as any).cuda_vad_aggressive ?? DEFAULT_PREFERENCES.cuda_vad_aggressive,
-          cuda_hotwords: (data as any).cuda_hotwords ?? DEFAULT_PREFERENCES.cuda_hotwords,
-          cuda_paragraph_threshold: (data as any).cuda_paragraph_threshold ?? DEFAULT_PREFERENCES.cuda_paragraph_threshold,
-          cuda_preload_mode: (data as any).cuda_preload_mode ?? DEFAULT_PREFERENCES.cuda_preload_mode,
-          cuda_cloud_save: (data as any).cuda_cloud_save ?? DEFAULT_PREFERENCES.cuda_cloud_save,
+          engine: (d.engine as string) ?? DEFAULT_PREFERENCES.engine,
+          source_language: (d.source_language as string) ?? DEFAULT_PREFERENCES.source_language,
+          custom_themes: typeof d.custom_themes === 'string'
+            ? d.custom_themes
+            : JSON.stringify(d.custom_themes ?? []),
+          editor_columns: (d.editor_columns as number) ?? DEFAULT_PREFERENCES.editor_columns,
+          cuda_preset: (d.cuda_preset as string) ?? DEFAULT_PREFERENCES.cuda_preset,
+          cuda_fast_mode: (d.cuda_fast_mode as boolean) ?? DEFAULT_PREFERENCES.cuda_fast_mode,
+          cuda_compute_type: (d.cuda_compute_type as string) ?? DEFAULT_PREFERENCES.cuda_compute_type,
+          cuda_beam_size: (d.cuda_beam_size as number) ?? DEFAULT_PREFERENCES.cuda_beam_size,
+          cuda_no_condition_prev: (d.cuda_no_condition_prev as boolean) ?? DEFAULT_PREFERENCES.cuda_no_condition_prev,
+          cuda_vad_aggressive: (d.cuda_vad_aggressive as boolean) ?? DEFAULT_PREFERENCES.cuda_vad_aggressive,
+          cuda_hotwords: (d.cuda_hotwords as string) ?? DEFAULT_PREFERENCES.cuda_hotwords,
+          cuda_paragraph_threshold: (d.cuda_paragraph_threshold as number) ?? DEFAULT_PREFERENCES.cuda_paragraph_threshold,
+          cuda_preload_mode: (d.cuda_preload_mode as string) ?? DEFAULT_PREFERENCES.cuda_preload_mode,
+          cuda_cloud_save: (d.cuda_cloud_save as string) ?? DEFAULT_PREFERENCES.cuda_cloud_save,
         };
         setPreferences(loaded);
         // Mirror to localStorage so useTheme picks up cloud values
@@ -266,7 +268,7 @@ export const useCloudPreferences = () => {
           cuda_preload_mode: updated.cuda_preload_mode,
           cuda_cloud_save: updated.cuda_cloud_save,
           updated_at: new Date().toISOString(),
-        } as any, { onConflict: 'user_id' });
+        } as Record<string, unknown>, { onConflict: 'user_id' });
 
       // Fallback: if CUDA columns don't exist yet, save without them
       if (error) {
@@ -285,7 +287,7 @@ export const useCloudPreferences = () => {
             custom_themes: customThemesParsed,
             editor_columns: updated.editor_columns,
             updated_at: new Date().toISOString(),
-          } as any, { onConflict: 'user_id' });
+          } as Record<string, unknown>, { onConflict: 'user_id' });
 
         // Last resort: save only original columns
         if (error2) {

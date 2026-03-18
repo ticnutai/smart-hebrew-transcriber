@@ -8,32 +8,16 @@ import { Card } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { toast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
-import { useLocalTranscription } from "@/hooks/useLocalTranscription";
-import { useLocalServer, type TranscriptionStats, type CudaOptions } from "@/hooks/useLocalServer";
-import { useBackgroundTask } from "@/hooks/useBackgroundTask";
 import { debugLog } from "@/lib/debugLogger";
-import { useCloudTranscripts } from "@/hooks/useCloudTranscripts";
-import { useTranscriptionAnalytics } from "@/hooks/useTranscriptionAnalytics";
 import { Settings, FileEdit, ChevronDown, X, Zap, Globe, Chrome, Mic, Waves, Server, Cpu, Film, Pause, Play, Square, Copy, Check, Keyboard, Activity, Users } from "lucide-react";
-import { usePerfMonitor } from "@/hooks/usePerfMonitor";
 import { PerfMonitorPanel } from "@/components/PerfMonitorPanel";
-import { db } from "@/lib/localDb";
-import { useTranscriptionJobs } from "@/hooks/useTranscriptionJobs";
-import { useLocalTranscriptionQueue } from "@/hooks/useLocalTranscriptionQueue";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCloudPreferences } from "@/hooks/useCloudPreferences";
-import { isVideoFile, extractAudioFromVideo, VIDEO_NEEDS_EXTRACTION, MAX_VIDEO_SIZE_MB, MAX_AUDIO_SIZE_MB } from "@/lib/videoUtils";
-import { compressAudio, needsCompression, formatFileSize, CLOUD_API_LIMIT } from "@/lib/audioCompression";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { KeyboardShortcutsDialog } from "@/components/KeyboardShortcutsDialog";
-import { addNotification } from "@/hooks/useNotifications";
-import { getApiKey } from "@/lib/keyCrypto";
-import { useKeyRotation } from "@/hooks/useKeyRotation";
-import type { CloudProvider } from "@/hooks/useKeyRotation";
-import { applyLearnedCorrections } from "@/utils/correctionLearning";
-import { getHotwordsString, applyVocabularyCorrections } from "@/utils/customVocabulary";
 import { LazyErrorBoundary } from "@/components/LazyErrorBoundary";
+import { useTranscriptionEngines } from "@/hooks/useTranscriptionEngines";
+import { MAX_AUDIO_SIZE_MB } from "@/lib/videoUtils";
 
 // Lazy-loaded heavy components
 const LiveTranscriber = lazy(() => import("@/components/LiveTranscriber").then(m => ({ default: m.LiveTranscriber })));
@@ -56,7 +40,6 @@ const Index = () => {
   const [searchParams] = useSearchParams();
   const folderFromUrl = searchParams.get('folder') || undefined;
   const { isAuthenticated } = useAuth();
-  const { getPool: getProviderApiKeyPool, shouldRotate: shouldRotateProviderKey, getStartIndex: getProviderStartIndex, setActiveKey: setProviderActiveKey, getLabel: getProviderLabel } = useKeyRotation();
 
   // Cloud-synced preferences
   const { preferences, updatePreference, isLoaded: prefsLoaded } = useCloudPreferences();
@@ -76,73 +59,56 @@ const Index = () => {
   const [transcript, setTranscript] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-
-  // Audio & word timing state for sync player
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [wordTimings, setWordTimings] = useState<Array<{word: string, start: number, end: number, probability?: number}>>([]);
   const [recoveredPartialInfo, setRecoveredPartialInfo] = useState<{progress: number, wordCount: number, lastSegEnd?: number} | null>(null);
-  const [lastStats, setLastStats] = useState<TranscriptionStats | null>(null);
+  const [lastStats, setLastStats] = useState<{processing_time: number, rtf: number, compute_type: string, beam_size: number, fast_mode: boolean, file_size: number, duration: number} | null>(null);
   const [copied, setCopied] = useState(false);
   const [diarize, setDiarize] = useState(false);
 
-  // Save reference to last uploaded file for resume functionality
-  const lastFileRef = useRef<File | null>(null);
-  const lastAudioUrlRef = useRef<string | null>(null);
-  const resumeFileInputRef = useRef<HTMLInputElement | null>(null);
+  const txState = {
+    transcript, setTranscript, wordTimings, setWordTimings,
+    isUploading, setIsUploading, uploadProgress, setUploadProgress,
+    lastStats, setLastStats, audioUrl, setAudioUrl,
+    recoveredPartialInfo, setRecoveredPartialInfo, diarize,
+  };
 
-  // Pending file waiting for local server to come up
-  const pendingServerFileRef = useRef<{ file: File; audioUrl: string } | null>(null);
+  const tx = useTranscriptionEngines(txState, preferences);
 
   // Audio element ref for queue item playback
   const queueAudioRef = useRef<HTMLAudioElement | null>(null);
   const [queuePlayingId, setQueuePlayingId] = useState<string | null>(null);
+  const resumeFileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const { transcribe: localTranscribe, isLoading: isLocalLoading, progress: localProgress } = useLocalTranscription();
-  const { transcribeStream: serverTranscribeStream, transcribeStreamParallel: serverTranscribeParallel, isLoading: isServerLoading, progress: serverProgress, phase: serverPhase, isConnected: serverConnected, modelReady: serverModelReady, recoverPartial, clearPartial, cancelStream: cancelServerStream, checkConnection, startPolling, stopPolling } = useLocalServer();
-  const bgTask = useBackgroundTask();
-  const { transcripts, isLoading: isCloudLoading, saveTranscript, updateTranscript, deleteTranscript, deleteAll, isCloud, getAudioUrl } = useCloudTranscripts();
-  const { jobs, submitJob, submitBatchJobs, retryJob, deleteJob } = useTranscriptionJobs();
-  const localQueue = useLocalTranscriptionQueue();
-  const { addRecord: addAnalyticsRecord } = useTranscriptionAnalytics();
-  const perfMonitor = usePerfMonitor();
+  const {
+    isLocalLoading, localProgress, isServerLoading, serverProgress, serverPhase,
+    serverConnected, bgTask, transcripts, isCloudLoading, updateTranscript,
+    deleteTranscript, deleteAll, isCloud, jobs, submitJob, submitBatchJobs,
+    retryJob, deleteJob, localQueue, perfMonitor,
+    handleFileSelect, handleCancelTranscription, handleCancelQueueItem,
+    handleResumeTranscription, batchSaveTranscript, saveToHistory,
+    currentFileRef, lastFileRef, lastSavedTranscriptIdRef, pendingServerFileRef,
+    recoverPartial, clearPartial, checkConnection, startPolling, stopPolling,
+    addAnalyticsRecord, transcribeWithLocalServer,
+  } = tx;
+
+  const isLoading = isUploading || isLocalLoading || isServerLoading || bgTask.isRunning;
+  const progress = engine === 'local' ? localProgress : engine === 'local-server' ? serverProgress : (isUploading ? uploadProgress : undefined);
   const [showPerfPanel, setShowPerfPanel] = useState(false);
 
-  // Helper to track the start time of each transcription for analytics
-  const transcriptionStartRef = useRef<number>(0);
-
   useEffect(() => {
-    // Keep Index's serverConnected in sync (used by LiveTranscriber and resume flow).
-    // TranscriptionEngine has its own hook instance, so we also poll here.
-    if (engine === 'local-server') {
-      checkConnection();
-      startPolling(10000);
-    } else {
-      stopPolling();
-    }
+    if (engine === 'local-server') { checkConnection(); startPolling(10000); }
+    else { stopPolling(); }
     return () => stopPolling();
   }, [engine, checkConnection, startPolling, stopPolling]);
 
-  // Cleanup audio Object URL on unmount
-  useEffect(() => {
-    return () => {
-      if (lastAudioUrlRef.current) {
-        URL.revokeObjectURL(lastAudioUrlRef.current);
-      }
-    };
-  }, []);
-
-  // Recover partial transcription on mount (runs once)
   useEffect(() => {
     const partial = recoverPartial();
     if (partial && partial.text) {
       setTranscript(partial.text);
       setWordTimings(partial.wordTimings || []);
       setRecoveredPartialInfo({ progress: partial.progress, wordCount: partial.wordTimings?.length || 0, lastSegEnd: partial.lastSegEnd });
-      toast({
-        title: "🔄 שוחזר תמלול חלקי",
-        description: `נמצא תמלול שהופסק (${partial.progress}%) — ${partial.wordTimings?.length || 0} מילים. אפשר להמשיך מאותו מקום`,
-      });
-      debugLog.info('Recovery', `Restored partial transcript: ${partial.progress}%, ${partial.text.length} chars`);
+      toast({ title: "🔄 שוחזר תמלול חלקי", description: `נמצא תמלול שהופסק (${partial.progress}%) — ${partial.wordTimings?.length || 0} מילים` });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -150,1208 +116,67 @@ const Index = () => {
   // Auto-process persistent queue when server comes up
   useEffect(() => {
     if (!serverConnected || engine !== 'local-server') return;
-
-    // Also handle legacy in-memory pending file
     if (pendingServerFileRef.current) {
-      const { file, audioUrl } = pendingServerFileRef.current;
+      const { file, audioUrl: au } = pendingServerFileRef.current;
       pendingServerFileRef.current = null;
       toast({ title: "\u2705 \u05d4\u05e9\u05e8\u05ea \u05e2\u05dc\u05d4!", description: `\u05de\u05ea\u05d7\u05d9\u05dc \u05ea\u05de\u05dc\u05d5\u05dc: ${file.name}` });
       currentFileRef.current = file;
-      bgTask.run(`local-server \u2014 ${file.name}`, async () => {
-        await transcribeWithLocalServer(file, audioUrl);
-      }).catch(() => {});
+      bgTask.run(`local-server \u2014 ${file.name}`, async () => { await transcribeWithLocalServer(file, au); }).catch(() => {});
       return;
     }
-
-    // Process next item from persistent queue
     const processNextQueueItem = async () => {
       if (localQueue.processingRef.current) return;
       const next = localQueue.getNextPending();
       if (!next) return;
-
       localQueue.processingRef.current = true;
       await localQueue.updateItemStatus(next.id, 'processing');
-      toast({ title: "\u2705 \u05d4\u05e9\u05e8\u05ea \u05e2\u05dc\u05d4!", description: `\u05de\u05ea\u05d7\u05d9\u05dc \u05ea\u05de\u05dc\u05d5\u05dc \u05de\u05d4\u05ea\u05d5\u05e8: ${next.fileName}` });
-
-      const file = await localQueue.getFile(next.id);
-      if (!file) {
-        await localQueue.updateItemStatus(next.id, 'failed', 'הקובץ לא נמצא');
-        localQueue.processingRef.current = false;
-        // Auto-advance to next item
-        setTimeout(processNextQueueItem, 500);
-        return;
-      }
-
-      currentFileRef.current = file;
       try {
-        // Timeout protection: 10 minutes max per file
-        const timeoutMs = 10 * 60 * 1000;
-        const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('QUEUE_TIMEOUT')), timeoutMs)
-        );
-        await Promise.race([
-          bgTask.run(`local-server \u2014 ${next.fileName}`, async () => {
-            await transcribeWithLocalServer(file, next.audioUrl);
-          }),
-          timeoutPromise,
-        ]);
+        const blob = await localQueue.getBlob(next.id);
+        if (!blob) { await localQueue.updateItemStatus(next.id, 'failed', 'קובץ לא נמצא'); localQueue.processingRef.current = false; return; }
+        const file = new File([blob], next.fileName, { type: blob.type });
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('QUEUE_TIMEOUT')), 600000));
+        await Promise.race([transcribeWithLocalServer(file, next.audioUrl), timeoutPromise]);
         await localQueue.updateItemStatus(next.id, 'completed');
       } catch (err) {
-        const msg = err instanceof Error && err.message === 'QUEUE_TIMEOUT'
-          ? 'תמלול חרג מזמן מקסימלי (10 דקות)'
-          : 'שגיאה בתמלול';
+        const msg = err instanceof Error && err.message === 'QUEUE_TIMEOUT' ? 'תמלול חרג מזמן מקסימלי (10 דקות)' : 'שגיאה בתמלול';
         await localQueue.updateItemStatus(next.id, 'failed', msg);
       } finally {
         localQueue.processingRef.current = false;
-        // Auto-advance to next pending item
         setTimeout(processNextQueueItem, 500);
       }
     };
-
     processNextQueueItem();
   }, [serverConnected, engine, localQueue.queue]);
-
-  // Keep reference to current file for saving with transcript
-  const currentFileRef = useRef<File | null>(null);
-  const lastSavedTranscriptIdRef = useRef<string | null>(null);
-
-  // Save to cloud history (respects cloud save mode for CUDA engine)
-  const saveToHistory = async (text: string, engineUsed: string, skipCloud?: boolean, timings?: Array<{word: string, start: number, end: number, probability?: number}>, audioFile?: File, folder?: string) => {
-    // Apply learned corrections to improve transcription
-    const correctionResult = applyLearnedCorrections(text, { engine: engineUsed });
-    // Apply vocabulary corrections (known variants → correct terms)
-    const vocabResult = applyVocabularyCorrections(correctionResult.text);
-    const finalText = vocabResult.text;
-    if (correctionResult.appliedCount > 0 || vocabResult.appliedCount > 0) {
-      debugLog.info('Index', `Applied ${correctionResult.appliedCount} learned + ${vocabResult.appliedCount} vocabulary corrections`);
-    }
-
-    if (skipCloud) {
-      // Save only to localStorage, skip cloud upload entirely
-      let history: any[] = [];
-      try { history = JSON.parse(localStorage.getItem('transcript_history') || '[]'); } catch { /* corrupted */ }
-      const entry = { text: finalText, timestamp: Date.now(), engine: engineUsed, tags: [], notes: '', word_timings: timings || null, folder: folder || '' };
-      const updated = [entry, ...history].slice(0, 50);
-      localStorage.setItem('transcript_history', JSON.stringify(updated));
-      lastSavedTranscriptIdRef.current = null;
-      return;
-    }
-    const saved = await saveTranscript(finalText, engineUsed, undefined, audioFile || currentFileRef.current || undefined, timings || null, folder);
-    lastSavedTranscriptIdRef.current = saved?.id || null;
-    addNotification({ type: 'success', title: 'תמלול הושלם', description: `מנוע: ${engineUsed} — ${finalText.split(/\s+/).length} מילים` });
-  };
-
-  // Save text-only to cloud (deferred mode — upload text without audio file)
-  const saveTextOnlyToCloud = async (text: string, engineUsed: string, timings?: Array<{word: string, start: number, end: number, probability?: number}>) => {
-    const saved = await saveTranscript(text, engineUsed, undefined, undefined, timings || null);
-    lastSavedTranscriptIdRef.current = saved?.id || null;
-  };
-
-  // Helper: invoke edge function with real upload progress via XHR and multipart form
-  const xhrInvoke = (functionName: string, formData: FormData, onProgress: (p: number) => void) => {
-    return new Promise<{ data?: any; error?: any }>((resolve) => {
-      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${functionName}`;
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', url, true);
-      xhr.setRequestHeader('Authorization', `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`);
-      xhr.setRequestHeader('x-client-info', 'xhr-upload');
-
-      // Upload progress = 0-50%
-      xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable) {
-          const percent = Math.round((e.loaded / e.total) * 50);
-          onProgress(percent);
-        }
-      };
-
-      // Once upload is done, animate processing progress 50-90%
-      let processingInterval: ReturnType<typeof setInterval> | null = null;
-      xhr.upload.onloadend = () => {
-        onProgress(50);
-        let current = 50;
-        processingInterval = setInterval(() => {
-          current = Math.min(current + 2, 90);
-          onProgress(current);
-          if (current >= 90 && processingInterval) {
-            clearInterval(processingInterval);
-          }
-        }, 500);
-      };
-
-      xhr.onload = () => {
-        if (processingInterval) clearInterval(processingInterval);
-        onProgress(100);
-        try {
-          const json = JSON.parse(xhr.responseText || '{}');
-          if (xhr.status >= 200 && xhr.status < 300) {
-            resolve({ data: json });
-          } else if (xhr.status === 429) {
-            const retryAfter = parseInt(xhr.getResponseHeader('Retry-After') || '60', 10);
-            resolve({ error: { message: `RATE_LIMIT`, retryAfter } });
-          } else {
-            resolve({ error: json || { message: `HTTP ${xhr.status}` } });
-          }
-        } catch (e) {
-          resolve({ error: { message: 'Invalid JSON response' } });
-        }
-      };
-
-      xhr.onerror = () => {
-        if (processingInterval) clearInterval(processingInterval);
-        resolve({ error: { message: 'Network error' } });
-      };
-
-      xhr.send(formData);
-    });
-  };
-
-  const handleFileSelect = async (file: File) => {
-    currentFileRef.current = file;
-    lastFileRef.current = file;
-    pendingServerFileRef.current = null; // Clear pending queue when new file is selected
-    setRecoveredPartialInfo(null); // Clear recovery banner on new transcription
-    
-    const isVideo = isVideoFile(file);
-    const maxMB = isVideo ? MAX_VIDEO_SIZE_MB : MAX_AUDIO_SIZE_MB;
-    
-    // Check file size (500MB hard limit)
-    if (file.size > maxMB * 1024 * 1024) {
-      debugLog.error('Upload', 'קובץ גדול מדי', { size: file.size, maxMB });
-      toast({
-        title: "שגיאה",
-        description: `הקובץ גדול מדי. גודל מקסימלי: ${maxMB}MB`,
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // Preserve media URL for playback
-    if (audioUrl) URL.revokeObjectURL(audioUrl);
-    const url = URL.createObjectURL(file);
-    setAudioUrl(url);
-
-    // Persist audio blob to IndexedDB (Dexie) for text-editor recovery
-    try {
-      await db.audioBlobs.put({
-        id: 'last_audio',
-        blob: file,
-        type: file.type,
-        name: file.name,
-        saved_at: Date.now(),
-      });
-    } catch { /* IndexedDB not available — ok */ }
-
-    // Show audio/video duration after file select
-    try {
-      const mediaEl = isVideo ? document.createElement('video') : new Audio();
-      mediaEl.preload = 'metadata';
-      mediaEl.src = url;
-      mediaEl.onloadedmetadata = () => {
-        const dur = mediaEl.duration;
-        if (dur && isFinite(dur)) {
-          const mins = Math.floor(dur / 60);
-          const secs = Math.round(dur % 60);
-          toast({ title: `${isVideo ? '🎬' : '🎵'} ${file.name}`, description: `משך: ${mins}:${secs.toString().padStart(2, '0')} | ${formatFileSize(file.size)}` });
-        }
-      };
-    } catch { /* ignore duration detection errors */ }
-
-    // Step 1: If video file and engine requires audio-only → extract audio
-    let fileToTranscribe = file;
-    if (isVideo && VIDEO_NEEDS_EXTRACTION.has(engine)) {
-      debugLog.info('Video', `מחלץ אודיו מוידאו: ${file.name} (${formatFileSize(file.size)})`);
-      toast({
-        title: "🎬 מחלץ אודיו מוידאו...",
-        description: `${engine === 'google' ? 'Google Speech-to-Text' : engine} דורש קובץ אודיו — מחלץ אוטומטית`,
-      });
-      try {
-        fileToTranscribe = await extractAudioFromVideo(file, (p) => {
-          setUploadProgress(Math.round(p * 0.2)); // 0-20% for extraction
-        });
-        debugLog.info('Video', `חילוץ אודיו הושלם: ${fileToTranscribe.name} (${formatFileSize(fileToTranscribe.size)})`);
-      } catch (err) {
-        debugLog.error('Video', 'שגיאה בחילוץ אודיו', err);
-        toast({
-          title: "שגיאה בחילוץ אודיו",
-          description: err instanceof Error ? err.message : "לא ניתן לחלץ אודיו מהווידאו",
-          variant: "destructive",
-        });
-        return;
-      }
-    } else if (isVideo) {
-      debugLog.info('Video', `שולח וידאו ישירות ל-${engine} (תומך וידאו)`);
-      toast({ title: "🎬 וידאו זוהה", description: `${engine} מעבד וידאו ישירות — מחלץ אודיו בצד השרת` });
-    }
-
-    // Step 2: Auto-compress if file too large for cloud APIs (>25MB)
-    // Skip compression for local-server (no limit) and local (ONNX)
-    const isCloudEngine = !['local-server', 'local'].includes(engine);
-    if (isCloudEngine && needsCompression(fileToTranscribe)) {
-      const originalSize = formatFileSize(fileToTranscribe.size);
-      debugLog.info('Compression', `כיווץ אודיו: ${fileToTranscribe.name} (${originalSize}) — מנוע ענן דורש <25MB`);
-      toast({
-        title: "🗜️ מכווץ אודיו...",
-        description: `${originalSize} → מכווץ ל-16kHz מונו לשליחה ל-${engine}`,
-      });
-      try {
-        fileToTranscribe = await compressAudio(fileToTranscribe, (p) => {
-          setUploadProgress(20 + Math.round(p * 0.3)); // 20-50% for compression
-        });
-        const compressedSize = formatFileSize(fileToTranscribe.size);
-        debugLog.info('Compression', `כיווץ הושלם: ${originalSize} → ${compressedSize}`);
-        toast({
-          title: "✅ כיווץ הושלם",
-          description: `${originalSize} → ${compressedSize}`,
-        });
-
-        // If still too large after compression, warn but try anyway
-        if (fileToTranscribe.size > CLOUD_API_LIMIT) {
-          debugLog.warn('Compression', `הקובץ עדיין גדול לאחר כיווץ: ${compressedSize}`);
-          toast({
-            title: "⚠️ קובץ עדיין גדול",
-            description: `${compressedSize} — ייתכן שה-API ידו חה. מומלץ להשתמש בשרת CUDA מקומי`,
-            variant: "destructive",
-          });
-        }
-      } catch (err) {
-        debugLog.error('Compression', 'שגיאה בכיווץ', err);
-        toast({
-          title: "שגיאה בכיווץ",
-          description: err instanceof Error ? err.message : "לא ניתן לכווץ את הקובץ",
-          variant: "destructive",
-        });
-        return;
-      }
-    }
-
-    debugLog.info('Transcription', `התחלת תמלול: ${fileToTranscribe.name} (${formatFileSize(fileToTranscribe.size)}) עם ${engine}`);
-
-    // Track start time for analytics
-    transcriptionStartRef.current = Date.now();
-    perfMonitor.startTimer();
-
-    // Run in background — doesn't block tab, sends notification on complete
-    bgTask.run(`${engine} — ${file.name}`, async () => {
-      if (engine === 'openai') {
-        await transcribeWithOpenAI(fileToTranscribe, url);
-      } else if (engine === 'groq') {
-        await transcribeWithGroq(fileToTranscribe, url);
-      } else if (engine === 'google') {
-        await transcribeWithGoogle(fileToTranscribe, url);
-      } else if (engine === 'assemblyai') {
-        await transcribeWithAssemblyAI(fileToTranscribe, url);
-      } else if (engine === 'deepgram') {
-        await transcribeWithDeepgram(fileToTranscribe, url);
-      } else if (engine === 'local-server') {
-        await transcribeWithLocalServer(fileToTranscribe, url);
-      } else {
-        await transcribeLocally(fileToTranscribe, url);
-      }
-    }).catch(() => {
-      // Already logged by bgTask
-    });
-  };
-
-  const transcribeWithOpenAI = async (file: File, fileAudioUrl?: string) => {
-    setIsUploading(true);
-    
-    try {
-      debugLog.info('OpenAI', `Starting transcription: ${file.name} (${file.size} bytes)`);
-      
-      const keyPool = getProviderApiKeyPool('openai');
-      if (keyPool.length === 0) {
-        debugLog.error('OpenAI', 'No API key found in localStorage');
-        toast({
-          title: "נדרש מפתח API",
-          description: "יש להגדיר מפתח OpenAI בהגדרות",
-          variant: "destructive",
-        });
-        navigate("/login");
-        setIsUploading(false);
-        return;
-      }
-
-      setUploadProgress(0);
-      toast({ title: "מעלה קובץ...", description: "מעבד את הקובץ שלך" });
-
-      const safeStartIndex = getProviderStartIndex('openai', keyPool.length);
-      let data: any = null;
-      let lastError: any = null;
-      let usedIndex = safeStartIndex;
-
-      for (let offset = 0; offset < keyPool.length; offset++) {
-        const idx = (safeStartIndex + offset) % keyPool.length;
-        const form = new FormData();
-        form.append('file', file, file.name);
-        form.append('fileName', file.name);
-        form.append('apiKey', keyPool[idx]);
-        form.append('language', sourceLanguage);
-        form.append('targetLanguage', 'he');
-
-        debugLog.info('OpenAI', `Uploading via XHR with key #${idx + 1}/${keyPool.length}`);
-        const result = await xhrInvoke('transcribe-openai', form, (p) => setUploadProgress(p));
-        debugLog.info('OpenAI', 'Response received', { hasData: !!result.data, hasError: !!result.error, keyIndex: idx + 1 });
-
-        if (!result.error && result.data?.text) {
-          data = result.data;
-          usedIndex = idx;
-          break;
-        }
-
-        lastError = result.error || { message: 'No transcription received' };
-        if (shouldRotateProviderKey(lastError) && offset < keyPool.length - 1) {
-          toast({
-            title: `מעביר למפתח ${getProviderLabel('openai')} הבא`,
-            description: `מפתח ${idx + 1} נכשל/הוגבל. מנסה מפתח ${idx + 2}.`,
-          });
-          continue;
-        }
-        break;
-      }
-
-      if (!data?.text) {
-        throw (lastError || new Error('No transcription received'));
-      }
-
-      setProviderActiveKey('openai', keyPool, usedIndex);
-      if (usedIndex !== safeStartIndex) {
-        toast({
-          title: `בוצעה החלפת מפתח ${getProviderLabel('openai')}`,
-          description: `התמלול המשיך אוטומטית עם מפתח #${usedIndex + 1}.`,
-        });
-      }
-
-      if (data?.text) {
-        const timings = data.wordTimings || [];
-        setTranscript(data.text);
-        setWordTimings(timings);
-        await saveToHistory(data.text, 'OpenAI Whisper', undefined, timings);
-        addAnalyticsRecord({
-          engine: 'OpenAI Whisper', status: 'success',
-          fileName: file.name, fileSize: file.size,
-          processingTime: (Date.now() - transcriptionStartRef.current) / 1000,
-          charCount: data.text.length, wordCount: data.text.split(/\s+/).length,
-        });
-        perfMonitor.record({
-          engine: 'OpenAI Whisper', status: 'success',
-          fileName: file.name, fileSize: file.size,
-          audioDuration: data.duration || 0,
-          processingTime: (Date.now() - transcriptionStartRef.current) / 1000,
-          text: data.text, wordTimings: timings,
-        });
-        toast({
-          title: "הצלחה!",
-          description: "התמלול הושלם בהצלחה - עובר לעריכת טקסט",
-        });
-        // Persist word timings for text-editor recovery
-        if (timings.length > 0) localStorage.setItem('last_word_timings', JSON.stringify(timings));
-        // Auto-navigate to text editor
-        setTimeout(() => {
-          navigate('/text-editor', { state: { text: data.text, audioUrl: fileAudioUrl, wordTimings: timings, transcriptId: lastSavedTranscriptIdRef.current } });
-        }, 1000);
-      } else {
-        throw new Error('No transcription received');
-      }
-    } catch (error) {
-      debugLog.error('OpenAI', 'Transcription failed', error instanceof Error ? error.message : error);
-      addAnalyticsRecord({
-        engine: 'OpenAI Whisper', status: 'failed',
-        fileName: file.name, fileSize: file.size,
-        errorMessage: error instanceof Error ? error.message : 'Unknown error',
-      });
-      toast({
-        title: "שגיאה",
-        description: error instanceof Error ? error.message : "שגיאה בתמלול הקובץ",
-        variant: "destructive",
-      });
-      throw error;
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
-  const transcribeWithGroq = async (file: File, fileAudioUrl?: string) => {
-    debugLog.info('Groq', `Starting transcription: ${file.name} (${file.size} bytes)`);
-    setIsUploading(true);
-
-    try {
-      const keyPool = getProviderApiKeyPool('groq');
-
-      if (keyPool.length === 0) {
-        debugLog.error('Groq', 'No API key found in localStorage');
-        toast({
-          title: "נדרש מפתח API",
-          description: "יש להגדיר מפתח Groq בהגדרות (לחץ על כפתור ההגדרות בראש העמוד)",
-          variant: "destructive",
-        });
-        navigate("/login");
-        setIsUploading(false);
-        return;
-      }
-
-      setUploadProgress(0);
-      toast({ title: "מעלה קובץ...", description: "מעבד עם Groq - מנוע מהיר במיוחד" });
-
-      const safeStartIndex = getProviderStartIndex('groq', keyPool.length);
-
-      let data: any = null;
-      let lastError: any = null;
-      let usedIndex = safeStartIndex;
-
-      for (let offset = 0; offset < keyPool.length; offset++) {
-        const idx = (safeStartIndex + offset) % keyPool.length;
-        const groqKey = keyPool[idx];
-
-        const form = new FormData();
-        form.append('file', file, file.name);
-        form.append('fileName', file.name);
-        form.append('apiKey', groqKey);
-        form.append('language', sourceLanguage);
-        form.append('targetLanguage', 'he');
-
-        debugLog.info('Groq', `Uploading via XHR with key #${idx + 1}/${keyPool.length}`);
-        const result = await xhrInvoke('transcribe-groq', form, (p) => setUploadProgress(p));
-        debugLog.info('Groq', 'Response received', { hasData: !!result.data, hasError: !!result.error, keyIndex: idx + 1 });
-
-        if (!result.error && result.data?.text) {
-          data = result.data;
-          usedIndex = idx;
-          break;
-        }
-
-        lastError = result.error || { message: 'No transcription received from Groq' };
-        const canRotate = shouldRotateProviderKey(lastError);
-        const hasNext = offset < keyPool.length - 1;
-
-        if (canRotate && hasNext) {
-          toast({
-            title: 'מעביר למפתח Groq הבא',
-            description: `מפתח ${idx + 1} נכשל/הוגבל. מנסה מפתח ${idx + 2}.`,
-          });
-          continue;
-        }
-
-        break;
-      }
-
-      if (!data?.text) {
-        const errMsg = lastError?.message || lastError?.error || 'שגיאה לא ידועה';
-        if (errMsg === 'RATE_LIMIT' || lastError?.retryAfter) {
-          const wait = lastError?.retryAfter || 60;
-          throw new Error(`כל מפתחות Groq נוצלו/הוגבלו. נסה שוב בעוד ${wait} שניות.`);
-        }
-        throw new Error(errMsg);
-      }
-
-      setProviderActiveKey('groq', keyPool, usedIndex);
-      if (usedIndex !== safeStartIndex) {
-        toast({
-          title: 'בוצעה החלפת מפתח Groq',
-          description: `התמלול הושלם עם מפתח #${usedIndex + 1}.`,
-        });
-      }
-
-      if (data?.text) {
-        debugLog.info('Groq', `Transcription received, length: ${data.text.length}`);
-        const timings = data.wordTimings || [];
-        setTranscript(data.text);
-        setWordTimings(timings);
-        await saveToHistory(data.text, 'Groq Whisper', undefined, timings);
-        addAnalyticsRecord({
-          engine: 'Groq Whisper', status: 'success',
-          fileName: file.name, fileSize: file.size,
-          processingTime: (Date.now() - transcriptionStartRef.current) / 1000,
-          charCount: data.text.length, wordCount: data.text.split(/\s+/).length,
-        });
-        perfMonitor.record({
-          engine: 'Groq Whisper', status: 'success',
-          fileName: file.name, fileSize: file.size,
-          audioDuration: data.duration || 0,
-          processingTime: (Date.now() - transcriptionStartRef.current) / 1000,
-          text: data.text, wordTimings: timings,
-        });
-        toast({ 
-          title: "הצלחה!", 
-          description: "התמלול עם Groq הושלם בהצלחה - עובר לעריכת טקסט" 
-        });
-        if (timings.length > 0) localStorage.setItem('last_word_timings', JSON.stringify(timings));
-        // Auto-navigate to text editor
-        setTimeout(() => {
-          navigate('/text-editor', { state: { text: data.text, audioUrl: fileAudioUrl, wordTimings: timings, transcriptId: lastSavedTranscriptIdRef.current } });
-        }, 1000);
-      } else {
-        debugLog.error('Groq', 'No text in response data', data);
-        throw new Error('No transcription received from Groq');
-      }
-    } catch (error) {
-      debugLog.error('Groq', 'Transcription failed', error instanceof Error ? error.message : error);
-      addAnalyticsRecord({
-        engine: 'Groq Whisper', status: 'failed',
-        fileName: file.name, fileSize: file.size,
-        errorMessage: error instanceof Error ? error.message : 'Unknown error',
-      });
-      toast({
-        title: "שגיאה בתמלול Groq",
-        description: error instanceof Error ? error.message : "שגיאה לא ידועה",
-        variant: "destructive",
-      });
-      throw error;
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
-  const transcribeWithGoogle = async (file: File, fileAudioUrl?: string) => {
-    debugLog.info('Google', `Starting transcription: ${file.name}`);
-    setIsUploading(true);
-
-    try {
-      const keyPool = getProviderApiKeyPool('google');
-
-      if (keyPool.length === 0) {
-        debugLog.error('Google', 'No API key found in localStorage');
-        toast({
-          title: "נדרש מפתח API",
-          description: "יש להגדיר מפתח Google בהגדרות",
-          variant: "destructive",
-        });
-        navigate("/login");
-        setIsUploading(false);
-        return;
-      }
-
-      debugLog.info('Google', 'Converting file to base64...');
-      toast({
-        title: "מעלה קובץ...",
-        description: "מעבד עם Google Speech-to-Text",
-      });
-
-      const reader = new FileReader();
-      const base64Promise = new Promise<string>((resolve, reject) => {
-        reader.onload = () => {
-          const base64 = reader.result?.toString().split(',')[1];
-          if (base64) {
-            resolve(base64);
-          } else reject(new Error('Failed to convert file'));
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-
-      const base64Audio = await base64Promise;
-
-      const safeStartIndex = getProviderStartIndex('google', keyPool.length);
-      let data: any = null;
-      let lastError: any = null;
-      let usedIndex = safeStartIndex;
-
-      for (let offset = 0; offset < keyPool.length; offset++) {
-        const idx = (safeStartIndex + offset) % keyPool.length;
-        debugLog.info('Google', `Calling edge function with key #${idx + 1}/${keyPool.length}`);
-        const result = await supabase.functions.invoke('transcribe-google', {
-          body: {
-            audio: base64Audio,
-            fileName: file.name,
-            apiKey: keyPool[idx],
-            language: sourceLanguage,
-            targetLanguage: 'he'
-          }
-        });
-
-        debugLog.info('Google', 'Response received', { hasData: !!result.data, hasError: !!result.error, keyIndex: idx + 1 });
-
-        if (!result.error && result.data?.text) {
-          data = result.data;
-          usedIndex = idx;
-          break;
-        }
-
-        lastError = result.error || { message: 'No transcription received from Google' };
-        if (shouldRotateProviderKey(lastError) && offset < keyPool.length - 1) {
-          toast({
-            title: `מעביר למפתח ${getProviderLabel('google')} הבא`,
-            description: `מפתח ${idx + 1} נכשל/הוגבל. מנסה מפתח ${idx + 2}.`,
-          });
-          continue;
-        }
-        break;
-      }
-
-      if (!data?.text) {
-        debugLog.error('Google', 'Edge function error', lastError);
-        throw (lastError || new Error('No transcription received from Google'));
-      }
-
-      setProviderActiveKey('google', keyPool, usedIndex);
-      if (usedIndex !== safeStartIndex) {
-        toast({
-          title: `בוצעה החלפת מפתח ${getProviderLabel('google')}`,
-          description: `התמלול המשיך אוטומטית עם מפתח #${usedIndex + 1}.`,
-        });
-      }
-
-      if (data?.text) {
-        debugLog.info('Google', `Success, text length: ${data.text.length}`);
-        const timings = data.wordTimings || [];
-        setTranscript(data.text);
-        setWordTimings(timings);
-        await saveToHistory(data.text, 'Google Speech-to-Text', undefined, timings);
-        addAnalyticsRecord({
-          engine: 'Google Speech-to-Text', status: 'success',
-          fileName: file.name, fileSize: file.size,
-          processingTime: (Date.now() - transcriptionStartRef.current) / 1000,
-          charCount: data.text.length, wordCount: data.text.split(/\s+/).length,
-        });
-        perfMonitor.record({
-          engine: 'Google Speech-to-Text', status: 'success',
-          fileName: file.name, fileSize: file.size,
-          audioDuration: 0,
-          processingTime: (Date.now() - transcriptionStartRef.current) / 1000,
-          text: data.text, wordTimings: timings,
-        });
-        toast({
-          title: "הצלחה!",
-          description: "התמלול עם Google הושלם בהצלחה - עובר לעריכת טקסט"
-        });
-        if (timings.length > 0) localStorage.setItem('last_word_timings', JSON.stringify(timings));
-        // Auto-navigate to text editor
-        setTimeout(() => {
-          navigate('/text-editor', { state: { text: data.text, audioUrl: fileAudioUrl, wordTimings: timings, transcriptId: lastSavedTranscriptIdRef.current } });
-        }, 1000);
-      } else {
-        throw new Error('No transcription received from Google');
-      }
-    } catch (error) {
-      debugLog.error('Google', 'Transcription failed', error instanceof Error ? error.message : error);
-      addAnalyticsRecord({
-        engine: 'Google Speech-to-Text', status: 'failed',
-        fileName: file.name, fileSize: file.size,
-        errorMessage: error instanceof Error ? error.message : 'Unknown error',
-      });
-      toast({
-        title: "שגיאה בתמלול Google",
-        description: error instanceof Error ? error.message : "שגיאה לא ידועה",
-        variant: "destructive",
-      });
-      throw error;
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
-  const transcribeLocally = async (file: File, fileAudioUrl?: string) => {
-    try {
-      const result = await localTranscribe(file);
-      setTranscript(result.text);
-      setWordTimings(result.wordTimings);
-      await saveToHistory(result.text, 'Local (Browser)', undefined, result.wordTimings);
-      addAnalyticsRecord({
-        engine: 'Local (Browser)', status: 'success',
-        fileName: file.name, fileSize: file.size,
-        processingTime: (Date.now() - transcriptionStartRef.current) / 1000,
-        charCount: result.text.length, wordCount: result.text.split(/\s+/).length,
-      });
-      perfMonitor.record({
-        engine: 'Local (Browser)', status: 'success',
-        fileName: file.name, fileSize: file.size,
-        audioDuration: 0,
-        processingTime: (Date.now() - transcriptionStartRef.current) / 1000,
-        text: result.text, wordTimings: result.wordTimings,
-      });
-      toast({
-        title: "הצלחה!",
-        description: "התמלול המקומי הושלם בהצלחה - עובר לעריכת טקסט",
-      });
-      if (result.wordTimings?.length > 0) localStorage.setItem('last_word_timings', JSON.stringify(result.wordTimings));
-      // Auto-navigate to text editor
-      setTimeout(() => {
-        navigate('/text-editor', { state: { text: result.text, audioUrl: fileAudioUrl, wordTimings: result.wordTimings, transcriptId: lastSavedTranscriptIdRef.current } });
-      }, 1000);
-    } catch (error) {
-      debugLog.error('Local', 'Browser transcription failed', error instanceof Error ? error.message : error);
-      addAnalyticsRecord({
-        engine: 'Local (Browser)', status: 'failed',
-        fileName: file.name, fileSize: file.size,
-        errorMessage: error instanceof Error ? error.message : 'Unknown error',
-      });
-      toast({
-        title: "שגיאה",
-        description: error instanceof Error ? error.message : "שגיאה בתמלול מקומי",
-        variant: "destructive",
-      });
-      throw error;
-    }
-  };
-
-  const transcribeWithLocalServer = async (file: File, fileAudioUrl?: string, resumeFrom?: { startFrom: number; existingText: string; existingWords: Array<{word: string, start: number, end: number}> }) => {
-    // Fresh connection check before transcription (serverConnected state may be stale)
-    const isUp = await checkConnection();
-    if (!isUp) {
-      // Add to persistent queue (survives refresh)
-      const queueId = await localQueue.addToQueue(file, fileAudioUrl || '');
-      startPolling(2000);
-      toast({
-        title: "📋 נוסף לתור התמלולים",
-        description: `${file.name} ממתין — התמלול יתחיל אוטומטית כשהשרת יעלה`,
-      });
-      debugLog.info('Queue', `File queued for CUDA transcription: ${file.name} (${queueId})`);
-      return;
-    }
-
-    try {
-      const preferredModel = localStorage.getItem('preferred_local_model') || undefined;
-      const lang = sourceLanguage === 'auto' ? 'auto' : sourceLanguage;
-      setTranscript('');
-      setWordTimings([]);
-      setLastStats(null);
-      toast({ title: "מתמלל עם GPU...", description: "מעבד את הקובץ בשרת המקומי עם CUDA — תראה תוצאות בזמן אמת" });
-
-      // Build CUDA options from cloud preferences
-      // Merge user hotwords with vocabulary hotwords
-      const vocabHotwords = getHotwordsString();
-      const userHotwords = preferences.cuda_hotwords || '';
-      const mergedHotwords = [userHotwords, vocabHotwords].filter(Boolean).join(', ') || undefined;
-      const cudaOptions: CudaOptions = {
-        preset: preferences.cuda_preset || 'balanced',
-        fastMode: preferences.cuda_fast_mode,
-        computeType: preferences.cuda_compute_type || undefined,
-        beamSize: preferences.cuda_beam_size || undefined,
-        noConditionOnPrevious: preferences.cuda_no_condition_prev,
-        vadAggressive: preferences.cuda_vad_aggressive,
-        hotwords: mergedHotwords,
-        paragraphThreshold: preferences.cuda_paragraph_threshold || undefined,
-      };
-
-      // Use parallel mode (stage audio + preload model simultaneously) when model isn't ready
-      const useParallel = !serverModelReady;
-      const transcribeFn = useParallel ? serverTranscribeParallel : serverTranscribeStream;
-      if (useParallel) {
-        debugLog.info('CUDA', 'Using parallel mode: staging audio + preloading model simultaneously');
-        toast({ title: "⚡ מצב מקבילי", description: "מעלה אודיו + טוען מודל במקביל" });
-      }
-
-      const result = await transcribeFn(file, preferredModel, lang, (partial) => {
-        // Update live as segments arrive
-        setTranscript(partial.text);
-        setWordTimings(partial.wordTimings);
-        debugLog.info('CUDA Stream', `${partial.progress}% — ${partial.wordTimings.length} מילים`);
-      }, resumeFrom, cudaOptions);
-      const timings = result.wordTimings || [];
-      setTranscript(result.text);
-      setWordTimings(timings);
-      if (result.stats) setLastStats(result.stats);
-
-      // Cloud save mode: 'immediate' (default), 'text-only' (no audio upload), 'skip' (local only)
-      const cloudSaveMode = preferences.cuda_cloud_save || 'immediate';
-      const engineLabel = `Local CUDA (${result.model || 'server'})`;
-      if (cloudSaveMode === 'skip') {
-        await saveToHistory(result.text, engineLabel, true, timings);  // localStorage only
-      } else if (cloudSaveMode === 'text-only') {
-        await saveTextOnlyToCloud(result.text, engineLabel, timings);  // text to cloud, no audio upload
-      } else {
-        await saveToHistory(result.text, engineLabel, undefined, timings);  // full: text + audio to cloud
-      }
-
-      clearPartial();
-      addAnalyticsRecord({
-        engine: engineLabel, status: 'success',
-        fileName: file.name, fileSize: file.size,
-        audioDuration: result.duration || result.stats?.duration,
-        processingTime: result.processing_time || result.stats?.processing_time,
-        rtf: result.stats?.rtf,
-        segmentCount: timings.length,
-        charCount: result.text.length,
-        wordCount: result.text.split(/\s+/).length,
-        model: result.model,
-        computeType: result.stats?.compute_type,
-        beamSize: result.stats?.beam_size,
-        fastMode: result.stats?.fast_mode,
-      });
-      perfMonitor.record({
-        engine: engineLabel, status: 'success',
-        fileName: file.name, fileSize: file.size,
-        audioDuration: result.duration || result.stats?.duration || 0,
-        processingTime: result.processing_time || result.stats?.processing_time || 0,
-        text: result.text, wordTimings: timings,
-        computeType: result.stats?.compute_type,
-        beamSize: result.stats?.beam_size,
-        model: result.model,
-      });
-      const statsInfo = result.stats ? ` | RTF=${result.stats.rtf} | ${result.stats.compute_type}` : '';
-      toast({
-        title: "הצלחה!",
-        description: `תמלול GPU הושלם ב-${result.processing_time || '?'}s${statsInfo} — עובר לעריכת טקסט`,
-      });
-      if (timings.length > 0) localStorage.setItem('last_word_timings', JSON.stringify(timings));
-      setTimeout(() => {
-        navigate('/text-editor', { state: { text: result.text, audioUrl: fileAudioUrl, wordTimings: timings, transcriptId: lastSavedTranscriptIdRef.current } });
-      }, 1000);
-    } catch (error) {
-      if (error instanceof Error && error.message === 'CANCELLED') {
-        toast({ title: "תמלול הופסק", description: "התמלול בוטל על ידי המשתמש" });
-        return;
-      }
-      debugLog.error('CUDA Server', 'Transcription failed', error instanceof Error ? error.message : error);
-      addAnalyticsRecord({
-        engine: 'Local CUDA', status: 'failed',
-        fileName: file.name, fileSize: file.size,
-        errorMessage: error instanceof Error ? error.message : 'Unknown error',
-      });
-      // Even on failure, keep what was partially transcribed (already saved to localStorage by hook)
-      toast({
-        title: "שגיאה בתמלול שרת מקומי",
-        description: `${error instanceof Error ? error.message : 'שגיאה לא ידועה'} — מה שהצליח נשמר`,
-        variant: "destructive",
-      });
-      throw error;
-    }
-  };
-
-  const transcribeWithAssemblyAI = async (file: File, fileAudioUrl?: string) => {
-    setIsUploading(true);
-    
-    try {
-      const keyPool = getProviderApiKeyPool('assemblyai');
-
-      if (keyPool.length === 0) {
-        toast({
-          title: "נדרש מפתח API",
-          description: "יש להגדיר מפתח AssemblyAI בהגדרות",
-          variant: "destructive",
-        });
-        navigate("/login");
-        setIsUploading(false);
-        return;
-      }
-
-      setUploadProgress(0);
-      toast({ title: "מעלה קובץ...", description: "מעבד את הקובץ שלך" });
-
-      const safeStartIndex = getProviderStartIndex('assemblyai', keyPool.length);
-      let data: any = null;
-      let lastError: any = null;
-      let usedIndex = safeStartIndex;
-
-      for (let offset = 0; offset < keyPool.length; offset++) {
-        const idx = (safeStartIndex + offset) % keyPool.length;
-        const form = new FormData();
-        form.append('file', file, file.name);
-        form.append('apiKey', keyPool[idx]);
-        form.append('language', sourceLanguage);
-        if (diarize) form.append('diarize', 'true');
-
-        const result = await xhrInvoke('transcribe-assemblyai', form, (p) => setUploadProgress(p));
-        if (!result.error && result.data?.text) {
-          data = result.data;
-          usedIndex = idx;
-          break;
-        }
-
-        lastError = result.error || { message: 'No transcription received' };
-        if (shouldRotateProviderKey(lastError) && offset < keyPool.length - 1) {
-          toast({
-            title: `מעביר למפתח ${getProviderLabel('assemblyai')} הבא`,
-            description: `מפתח ${idx + 1} נכשל/הוגבל. מנסה מפתח ${idx + 2}.`,
-          });
-          continue;
-        }
-        break;
-      }
-
-      if (!data?.text) throw (lastError || new Error('No transcription received'));
-
-      setProviderActiveKey('assemblyai', keyPool, usedIndex);
-      if (usedIndex !== safeStartIndex) {
-        toast({
-          title: `בוצעה החלפת מפתח ${getProviderLabel('assemblyai')}`,
-          description: `התמלול המשיך אוטומטית עם מפתח #${usedIndex + 1}.`,
-        });
-      }
-
-      if (data?.text) {
-        const timings = data.wordTimings || [];
-        setTranscript(data.text);
-        setWordTimings(timings);
-        await saveToHistory(data.text, 'AssemblyAI', undefined, timings);
-        addAnalyticsRecord({
-          engine: 'AssemblyAI', status: 'success',
-          fileName: file.name, fileSize: file.size,
-          processingTime: (Date.now() - transcriptionStartRef.current) / 1000,
-          charCount: data.text.length, wordCount: data.text.split(/\s+/).length,
-        });
-        perfMonitor.record({
-          engine: 'AssemblyAI', status: 'success',
-          fileName: file.name, fileSize: file.size,
-          audioDuration: 0,
-          processingTime: (Date.now() - transcriptionStartRef.current) / 1000,
-          text: data.text, wordTimings: timings,
-        });
-        toast({
-          title: "הצלחה!",
-          description: "התמלול הושלם בהצלחה - עובר לעריכת טקסט",
-        });
-        if (timings.length > 0) localStorage.setItem('last_word_timings', JSON.stringify(timings));
-        setTimeout(() => {
-          navigate('/text-editor', { state: { text: data.text, audioUrl: fileAudioUrl, wordTimings: timings, transcriptId: lastSavedTranscriptIdRef.current } });
-        }, 1000);
-      } else {
-        throw new Error('No transcription received');
-      }
-    } catch (error) {
-      debugLog.error('AssemblyAI', 'Transcription failed', error instanceof Error ? error.message : error);
-      addAnalyticsRecord({
-        engine: 'AssemblyAI', status: 'failed',
-        fileName: file.name, fileSize: file.size,
-        errorMessage: error instanceof Error ? error.message : 'Unknown error',
-      });
-      toast({
-        title: "שגיאה",
-        description: error instanceof Error ? error.message : "שגיאה בתמלול הקובץ",
-        variant: "destructive",
-      });
-      throw error;
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
-  const transcribeWithDeepgram = async (file: File, fileAudioUrl?: string) => {
-    setIsUploading(true);
-    
-    try {
-      const keyPool = getProviderApiKeyPool('deepgram');
-
-      if (keyPool.length === 0) {
-        toast({
-          title: "נדרש מפתח API",
-          description: "יש להגדיר מפתח Deepgram בהגדרות",
-          variant: "destructive",
-        });
-        navigate("/login");
-        setIsUploading(false);
-        return;
-      }
-
-      setUploadProgress(0);
-      toast({ title: "מעלה קובץ...", description: "מעבד את הקובץ שלך" });
-
-      const safeStartIndex = getProviderStartIndex('deepgram', keyPool.length);
-      let data: any = null;
-      let lastError: any = null;
-      let usedIndex = safeStartIndex;
-
-      for (let offset = 0; offset < keyPool.length; offset++) {
-        const idx = (safeStartIndex + offset) % keyPool.length;
-        const form = new FormData();
-        form.append('file', file, file.name);
-        form.append('apiKey', keyPool[idx]);
-        form.append('language', sourceLanguage);
-        if (diarize) form.append('diarize', 'true');
-
-        const result = await xhrInvoke('transcribe-deepgram', form, (p) => setUploadProgress(p));
-        if (!result.error && result.data?.text) {
-          data = result.data;
-          usedIndex = idx;
-          break;
-        }
-
-        lastError = result.error || { message: 'No transcription received' };
-        if (shouldRotateProviderKey(lastError) && offset < keyPool.length - 1) {
-          toast({
-            title: `מעביר למפתח ${getProviderLabel('deepgram')} הבא`,
-            description: `מפתח ${idx + 1} נכשל/הוגבל. מנסה מפתח ${idx + 2}.`,
-          });
-          continue;
-        }
-        break;
-      }
-
-      if (!data?.text) throw (lastError || new Error('No transcription received'));
-
-      setProviderActiveKey('deepgram', keyPool, usedIndex);
-      if (usedIndex !== safeStartIndex) {
-        toast({
-          title: `בוצעה החלפת מפתח ${getProviderLabel('deepgram')}`,
-          description: `התמלול המשיך אוטומטית עם מפתח #${usedIndex + 1}.`,
-        });
-      }
-
-      if (data?.text) {
-        const timings = data.wordTimings || [];
-        setTranscript(data.text);
-        setWordTimings(timings);
-        await saveToHistory(data.text, 'Deepgram', undefined, timings);
-        addAnalyticsRecord({
-          engine: 'Deepgram', status: 'success',
-          fileName: file.name, fileSize: file.size,
-          processingTime: (Date.now() - transcriptionStartRef.current) / 1000,
-          charCount: data.text.length, wordCount: data.text.split(/\s+/).length,
-        });
-        perfMonitor.record({
-          engine: 'Deepgram', status: 'success',
-          fileName: file.name, fileSize: file.size,
-          audioDuration: 0,
-          processingTime: (Date.now() - transcriptionStartRef.current) / 1000,
-          text: data.text, wordTimings: timings,
-        });
-        toast({
-          title: "הצלחה!",
-          description: "התמלול הושלם בהצלחה - עובר לעריכת טקסט",
-        });
-        if (timings.length > 0) localStorage.setItem('last_word_timings', JSON.stringify(timings));
-        setTimeout(() => {
-          navigate('/text-editor', { state: { text: data.text, audioUrl: fileAudioUrl, wordTimings: timings, transcriptId: lastSavedTranscriptIdRef.current } });
-        }, 1000);
-      } else {
-        throw new Error('No transcription received');
-      }
-    } catch (error) {
-      debugLog.error('Deepgram', 'Transcription failed', error instanceof Error ? error.message : error);
-      addAnalyticsRecord({
-        engine: 'Deepgram', status: 'failed',
-        fileName: file.name, fileSize: file.size,
-        errorMessage: error instanceof Error ? error.message : 'Unknown error',
-      });
-      toast({
-        title: "שגיאה",
-        description: error instanceof Error ? error.message : "שגיאה בתמלול הקובץ",
-        variant: "destructive",
-      });
-      throw error;
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
-  const isLoading = isUploading || isLocalLoading || isServerLoading || bgTask.isRunning;
-  const progress = engine === 'local' ? localProgress : engine === 'local-server' ? serverProgress : (isUploading ? uploadProgress : undefined);
 
   // Keyboard shortcuts
   const [searchOpen, setSearchOpen] = useState(false);
   const shortcutHandler = useCallback((action: 'show-shortcuts' | 'copy-transcript' | 'cancel-transcription' | 'search-transcript') => {
     if (action === 'copy-transcript' && transcript) {
-      navigator.clipboard.writeText(transcript).then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-        toast({ title: "הועתק", description: "התמלול הועתק ללוח" });
-      });
-    } else if (action === 'cancel-transcription' && isLoading) {
-      handleCancelTranscription();
-    } else if (action === 'search-transcript') {
-      setSearchOpen(prev => !prev);
-    }
-  }, [transcript, isLoading]);
+      navigator.clipboard.writeText(transcript).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); toast({ title: "הועתק" }); });
+    } else if (action === 'cancel-transcription' && isLoading) { handleCancelTranscription(); }
+    else if (action === 'search-transcript') { setSearchOpen(prev => !prev); }
+  }, [transcript, isLoading, handleCancelTranscription]);
   const { showHelp, setShowHelp } = useKeyboardShortcuts(shortcutHandler);
 
-  // Elapsed time counter — starts fresh each time a transcription begins
+  // Elapsed time counter
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const elapsedIntervalRef = useRef<ReturnType<typeof setInterval>>();
-  // Track when actual transcription progress started (for ETA calc, excludes model loading)
   const transcribeStartTimeRef = useRef<number>(0);
   const [transcribeElapsed, setTranscribeElapsed] = useState(0);
   useEffect(() => {
     if (isLoading) {
-      setElapsedSeconds(0);
-      setTranscribeElapsed(0);
-      transcribeStartTimeRef.current = 0;
+      setElapsedSeconds(0); setTranscribeElapsed(0); transcribeStartTimeRef.current = 0;
       elapsedIntervalRef.current = setInterval(() => {
         setElapsedSeconds(s => s + 1);
-        if (transcribeStartTimeRef.current > 0) {
-          setTranscribeElapsed(Math.floor((Date.now() - transcribeStartTimeRef.current) / 1000));
-        }
+        if (transcribeStartTimeRef.current > 0) setTranscribeElapsed(Math.floor((Date.now() - transcribeStartTimeRef.current) / 1000));
       }, 1000);
-    } else {
-      clearInterval(elapsedIntervalRef.current);
-    }
+    } else { clearInterval(elapsedIntervalRef.current); }
     return () => clearInterval(elapsedIntervalRef.current);
   }, [isLoading]);
 
-  // Mark when first real progress arrives (phase changes to transcribing)
   useEffect(() => {
-    if (engine === 'local-server' && serverPhase === 'transcribing' && transcribeStartTimeRef.current === 0) {
-      transcribeStartTimeRef.current = Date.now();
-    }
+    if (engine === 'local-server' && serverPhase === 'transcribing' && transcribeStartTimeRef.current === 0) transcribeStartTimeRef.current = Date.now();
   }, [engine, serverPhase]);
-
-  const handleCancelTranscription = () => {
-    if (engine === 'local-server') {
-      cancelServerStream();
-      // Partial is already saved to localStorage by useLocalServer on each segment
-      const partial = recoverPartial();
-      if (partial && partial.text) {
-        setRecoveredPartialInfo({ progress: partial.progress, wordCount: partial.wordTimings?.length || 0, lastSegEnd: partial.lastSegEnd });
-        toast({ title: "⏸ תמלול הופסק", description: `נשמר תמלול חלקי (${partial.progress}%) — ${partial.wordTimings?.length || 0} מילים. אפשר להמשיך מאותו מקום` });
-      } else {
-        toast({ title: "תמלול הופסק" });
-      }
-    }
-    bgTask.reset();
-    setIsUploading(false);
-  };
-
-  // Cancel the currently processing queue item
-  const handleCancelQueueItem = () => {
-    cancelServerStream();
-    bgTask.reset();
-    setIsUploading(false);
-    const processing = localQueue.processingItem;
-    if (processing) {
-      localQueue.updateItemStatus(processing.id, 'failed', 'בוטל ידנית');
-      localQueue.processingRef.current = false;
-    }
-    toast({ title: "⏹ תמלול מהתור בוטל" });
-  };
-
-  // Play audio of a queue item
-  const handleQueuePlay = async (itemId: string) => {
-    // Stop if already playing this item
-    if (queuePlayingId === itemId && queueAudioRef.current) {
-      queueAudioRef.current.pause();
-      queueAudioRef.current.currentTime = 0;
-      setQueuePlayingId(null);
-      return;
-    }
-    const url = await localQueue.getPlaybackUrl(itemId);
-    if (!url) {
-      toast({ title: "הקובץ לא נמצא", variant: "destructive" });
-      return;
-    }
-    if (queueAudioRef.current) {
-      queueAudioRef.current.pause();
-      URL.revokeObjectURL(queueAudioRef.current.src);
-    }
-    const audio = new Audio(url);
-    audio.onended = () => { setQueuePlayingId(null); URL.revokeObjectURL(url); };
-    queueAudioRef.current = audio;
-    setQueuePlayingId(itemId);
-    audio.play().catch(() => setQueuePlayingId(null));
-  };
-
-  const handleResumeTranscription = async (fileOverride?: File) => {
-    const partial = recoverPartial();
-    if (!partial || !partial.lastSegEnd) {
-      toast({ title: "אין מה להמשיך", description: "לא נמצא תמלול חלקי עם נקודת המשך", variant: "destructive" });
-      return;
-    }
-    const file = fileOverride || currentFileRef.current || lastFileRef.current;
-    if (!file) {
-      toast({ title: "נדרש קובץ", description: "בחר שוב את קובץ המקור כדי להמשיך מאותה נקודה", variant: "destructive" });
-      return;
-    }
-    currentFileRef.current = file;
-    lastFileRef.current = file;
-    setRecoveredPartialInfo(null);
-    try {
-      await transcribeWithLocalServer(file, undefined, {
-        startFrom: partial.lastSegEnd,
-        existingText: partial.text,
-        existingWords: partial.wordTimings,
-      });
-    } catch (error) {
-      if (error instanceof Error && error.message === 'CANCELLED') return;
-      console.error('[Index] resume failed:', error);
-    }
-  };
 
   const handleResumeFilePick = async (e: ChangeEvent<HTMLInputElement>) => {
     const picked = e.target.files?.[0];
@@ -1361,98 +186,19 @@ const Index = () => {
     await handleResumeTranscription(picked);
   };
 
-  // Batch transcription wrapper - transcribes a single file and returns text
-  const batchTranscribeFile = async (file: File, onProgress: (p: number) => void): Promise<string> => {
-    if (file.size > MAX_AUDIO_SIZE_MB * 1024 * 1024) throw new Error(`הקובץ גדול מדי (מקסימום ${MAX_AUDIO_SIZE_MB}MB)`);
-
-    const engineMap: Record<string, string> = {
-      openai: 'transcribe-openai',
-      groq: 'transcribe-groq',
-      assemblyai: 'transcribe-assemblyai',
-      deepgram: 'transcribe-deepgram',
-    };
-
-    if (engine === 'local') {
-      const result = await localTranscribe(file);
-      return typeof result === 'string' ? result : result.text;
+  // Queue item playback
+  const handleQueuePlay = async (itemId: string) => {
+    if (queuePlayingId === itemId && queueAudioRef.current) {
+      queueAudioRef.current.pause(); queueAudioRef.current.currentTime = 0; setQueuePlayingId(null); return;
     }
-
-    if (engine === 'google') {
-      const keyPool = getProviderApiKeyPool('google');
-      if (keyPool.length === 0) throw new Error('נדרש מפתח API - הגדר בהגדרות');
-
-      const base64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const b64 = reader.result?.toString().split(',')[1];
-          b64 ? resolve(b64) : reject(new Error('Failed to convert'));
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-      const safeStartIndex = getProviderStartIndex('google', keyPool.length);
-
-      let lastErr: any = null;
-      for (let offset = 0; offset < keyPool.length; offset++) {
-        const idx = (safeStartIndex + offset) % keyPool.length;
-        const { data, error } = await supabase.functions.invoke('transcribe-google', {
-          body: { audio: base64, fileName: file.name, apiKey: keyPool[idx], language: sourceLanguage, targetLanguage: 'he' }
-        });
-        if (!error && data?.text) {
-          setProviderActiveKey('google', keyPool, idx);
-          return data.text;
-        }
-
-        lastErr = error || { message: 'שגיאה בתמלול' };
-        if (!(shouldRotateProviderKey(lastErr) && offset < keyPool.length - 1)) {
-          break;
-        }
-      }
-
-      const err = new Error(lastErr?.message || lastErr?.error || 'שגיאה בתמלול');
-      (err as any).retryAfter = lastErr?.retryAfter;
-      throw err;
-    }
-
-    if (engine === 'openai' || engine === 'groq' || engine === 'assemblyai' || engine === 'deepgram') {
-      const provider = engine as CloudProvider;
-      const keyPool = getProviderApiKeyPool(provider);
-      if (keyPool.length === 0) throw new Error('נדרש מפתח API - הגדר בהגדרות');
-
-      const safeStartIndex = getProviderStartIndex(provider, keyPool.length);
-      let lastErr: any = null;
-
-      for (let offset = 0; offset < keyPool.length; offset++) {
-        const idx = (safeStartIndex + offset) % keyPool.length;
-        const form = new FormData();
-        form.append('file', file, file.name);
-        form.append('fileName', file.name);
-        form.append('apiKey', keyPool[idx]);
-        form.append('language', sourceLanguage);
-        if (provider === 'openai' || provider === 'groq') form.append('targetLanguage', 'he');
-
-        const { data, error } = await xhrInvoke(engineMap[provider], form, onProgress);
-        if (!error && data?.text) {
-          setProviderActiveKey(provider, keyPool, idx);
-          return data.text;
-        }
-
-        lastErr = error || { message: 'שגיאה בתמלול' };
-        if (!(shouldRotateProviderKey(lastErr) && offset < keyPool.length - 1)) {
-          break;
-        }
-      }
-
-      const err = new Error(lastErr?.message || lastErr?.error || 'שגיאה בתמלול');
-      (err as any).retryAfter = lastErr?.retryAfter;
-      throw err;
-    }
-
-    throw new Error('Engine not supported for batch transcription');
-  };
-
-  const batchSaveTranscript = async (text: string, engineUsed: string, title: string) => {
-    await saveTranscript(text, engineUsed, title, undefined);
+    const url = await localQueue.getPlaybackUrl(itemId);
+    if (!url) { toast({ title: "הקובץ לא נמצא", variant: "destructive" }); return; }
+    if (queueAudioRef.current) { queueAudioRef.current.pause(); URL.revokeObjectURL(queueAudioRef.current.src); }
+    const audio = new Audio(url);
+    audio.onended = () => { setQueuePlayingId(null); URL.revokeObjectURL(url); };
+    queueAudioRef.current = audio;
+    setQueuePlayingId(itemId);
+    audio.play().catch(() => setQueuePlayingId(null));
   };
 
   return (

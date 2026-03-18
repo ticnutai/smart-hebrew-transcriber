@@ -44,7 +44,7 @@ async function editTranscriptCloud(params) {
 }
 
 async function main() {
-  await s.auth.signInWithPassword({ email: 'jj1212t@gmail.com', password: '543211' });
+  await s.auth.signInWithPassword({ email: 'jj1212t@gmail.com', password: process.env.ADMIN_PASSWORD || '' });
   console.log('Testing editTranscriptCloud...\n');
   
   try {
