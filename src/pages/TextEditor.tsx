@@ -350,6 +350,29 @@ const TextEditor = () => {
     }, 2000);
   }, [learnCorrections]);
 
+  const handleSyncToPlayer = useCallback((editedText: string) => {
+    // Rebuild word timings from edited text: distribute evenly across the existing audio duration
+    if (!wordTimings.length) {
+      toast({ title: "אין נתוני תזמון", description: "צריך אודיו עם תזמונים כדי לסנכרן", variant: "destructive" });
+      return;
+    }
+    const totalDuration = wordTimings[wordTimings.length - 1]?.end || 0;
+    if (totalDuration <= 0) {
+      toast({ title: "אין אודיו", variant: "destructive" });
+      return;
+    }
+    const words = editedText.split(/\s+/).filter(Boolean);
+    const wordDuration = totalDuration / words.length;
+    const newTimings: WordTiming[] = words.map((word, i) => ({
+      word,
+      start: i * wordDuration,
+      end: (i + 1) * wordDuration,
+    }));
+    setWordTimings(newTimings);
+    setText(editedText);
+    toast({ title: "מסונכרן לנגן ✅", description: `${words.length} מילים סונכרנו עם האודיו` });
+  }, [wordTimings]);
+
   return (
     <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>}>
     <div className="min-h-screen bg-background p-4 md:p-8" dir="rtl">
@@ -527,6 +550,7 @@ const TextEditor = () => {
                   addVersion(newText, source as TextVersion['source'], customPrompt);
                 }}
                 onSaveVersion={handleSaveVersion}
+                onSyncToPlayer={handleSyncToPlayer}
               /></LazyErrorBoundary>
             </div>
           </TabsContent>

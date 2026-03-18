@@ -20,7 +20,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { BookMarked, Plus, Trash2, Play, Save, Search, Loader2, Cpu } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { BookMarked, Plus, Trash2, Play, Save, Search, Loader2, Cpu, Sparkles, Lightbulb } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { editTranscriptCloud } from "@/utils/editTranscriptApi";
 import { useOllama, isOllamaModel, getOllamaModelName } from "@/hooks/useOllama";
@@ -102,6 +103,9 @@ export const PromptLibrary = ({ text, onTextChange }: PromptLibraryProps) => {
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [activePrompt, setActivePrompt] = useState<string | null>(null);
   const [selectedEngine, setSelectedEngine] = useState('cloud');
+  const [draftPrompt, setDraftPrompt] = useState("");
+  const [aiSuggestion, setAiSuggestion] = useState("");
+  const [isGettingSuggestion, setIsGettingSuggestion] = useState(false);
   const ollama = useOllama();
 
   // Engine options: cloud + each Ollama model
@@ -206,6 +210,56 @@ export const PromptLibrary = ({ text, onTextChange }: PromptLibraryProps) => {
     return prompts.filter(p => p.label.toLowerCase().includes(q) || p.prompt.toLowerCase().includes(q));
   };
 
+  const handleGetAiSuggestion = async () => {
+    if (!draftPrompt.trim()) {
+      toast({ title: "שגיאה", description: "כתוב פרומפט טיוטה לפני שמבקש המלצות", variant: "destructive" });
+      return;
+    }
+    setIsGettingSuggestion(true);
+    setAiSuggestion("");
+    try {
+      const metaPrompt = [
+        "אתה מומחה בניסוח פרומפטים ל-AI בעברית.",
+        "המשתמש כתב את הפרומפט הבא הטיוטה:",
+        `"${draftPrompt}"`,
+        "",
+        "החזר 3 גרסאות משופרות של הפרומפט, ממוספרות 1-3.",
+        "כל גרסה צריכה להיות:",
+        "- מדויקת יותר בהוראה",
+        "- ברורה יותר מבחינה מבנית",
+        "- עם דגש על תוצאה רצויה",
+        "- בעברית תקינה",
+        "",
+        "החזר רק את 3 הגרסאות, בלי הסברים נוספים.",
+      ].join('\n');
+
+      let result: string;
+      if (isOllamaModel(selectedEngine)) {
+        result = await ollama.editText({
+          text: metaPrompt,
+          action: 'custom',
+          model: getOllamaModelName(selectedEngine),
+          customPrompt: 'שפר את הפרומפט הבא.',
+        });
+      } else {
+        result = await editTranscriptCloud({
+          text: metaPrompt,
+          action: 'custom',
+          customPrompt: 'שפר את הפרומפט הבא.',
+        });
+      }
+      setAiSuggestion(result);
+    } catch (error) {
+      toast({
+        title: "שגיאה",
+        description: error instanceof Error ? error.message : "שגיאה בקבלת המלצות",
+        variant: "destructive",
+      });
+    } finally {
+      setIsGettingSuggestion(false);
+    }
+  };
+
   return (
     <Card className="p-6" dir="rtl">
       <div className="flex items-center justify-between mb-4">
@@ -292,6 +346,16 @@ export const PromptLibrary = ({ text, onTextChange }: PromptLibraryProps) => {
         />
       </div>
 
+      <Tabs defaultValue="library" className="w-full" dir="rtl">
+        <TabsList className="grid w-full grid-cols-2 mb-4">
+          <TabsTrigger value="library">📚 ספרייה</TabsTrigger>
+          <TabsTrigger value="ai-suggest">
+            <Lightbulb className="w-3 h-3 ml-1" />
+            המלצות AI לפרומפט
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="library">
       <ScrollArea className="h-[500px]">
         <Accordion type="multiple" defaultValue={['אקדמי', 'עסקי']} className="space-y-1">
           {/* Saved custom prompts */}
@@ -376,6 +440,74 @@ export const PromptLibrary = ({ text, onTextChange }: PromptLibraryProps) => {
           })}
         </Accordion>
       </ScrollArea>
+        </TabsContent>
+
+        <TabsContent value="ai-suggest">
+          <div className="space-y-4">
+            <div className="rounded-lg border p-4 bg-muted/20 space-y-3">
+              <div className="flex items-center gap-2 mb-2">
+                <Sparkles className="w-4 h-4 text-primary" />
+                <Label className="text-sm font-semibold">כתוב פרומפט טיוטה — AI ימליץ איך לנסח טוב יותר</Label>
+              </div>
+              <Textarea
+                value={draftPrompt}
+                onChange={(e) => setDraftPrompt(e.target.value)}
+                placeholder="כתוב כאן את הפרומפט שלך, למשל: &#10;תתקן לי את הטקסט ותעשה אותו יותר מסודר..."
+                className="min-h-[100px] text-right"
+                dir="rtl"
+              />
+              <div className="flex gap-2">
+                <Button
+                  onClick={handleGetAiSuggestion}
+                  disabled={isGettingSuggestion || !draftPrompt.trim()}
+                  className="flex-1"
+                >
+                  {isGettingSuggestion ? <Loader2 className="w-4 h-4 animate-spin ml-1" /> : <Lightbulb className="w-4 h-4 ml-1" />}
+                  קבל המלצות AI
+                </Button>
+                {aiSuggestion && (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setNewPrompt(aiSuggestion.split('\n')[0]?.replace(/^\d+[\.\)]\s*/, '') || aiSuggestion);
+                      setShowSaveDialog(true);
+                    }}
+                  >
+                    <Save className="w-3 h-3 ml-1" />
+                    שמור בספרייה
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {aiSuggestion && (
+              <div className="rounded-lg border p-4 bg-accent/10 space-y-3">
+                <Label className="text-sm font-semibold">המלצות AI:</Label>
+                <pre className="whitespace-pre-wrap text-right text-sm leading-relaxed" dir="rtl">
+                  {aiSuggestion}
+                </pre>
+                <div className="flex flex-wrap gap-2 pt-2 border-t">
+                  {aiSuggestion.split('\n').filter(line => /^\d+[\.\)]/.test(line.trim())).map((line, i) => {
+                    const cleanPrompt = line.replace(/^\d+[\.\)]\s*/, '').trim();
+                    return (
+                      <Button
+                        key={i}
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleRunPrompt(cleanPrompt, `המלצת AI ${i + 1}`)}
+                        disabled={isProcessing || !text.trim()}
+                      >
+                        {activePrompt === `המלצת AI ${i + 1}` ? <Loader2 className="w-3 h-3 animate-spin ml-1" /> : <Play className="w-3 h-3 ml-1" />}
+                        הפעל המלצה {i + 1}
+                      </Button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </TabsContent>
+      </Tabs>
 
       {!text.trim() && (
         <p className="text-xs text-muted-foreground text-center mt-3 border-t pt-3">

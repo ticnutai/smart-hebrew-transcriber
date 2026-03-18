@@ -1,4 +1,4 @@
-import { useState, memo } from "react";
+import { useState, useMemo, memo } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -7,19 +7,23 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Wand2, Loader2, Sparkles, MessageSquare, BookOpen, FileText,
   Languages, Users, List, Heading, Maximize2, Minimize2,
-  CheckCheck, Volume2, AlignJustify, Quote, Cpu, Save, Gauge, Trophy
+  CheckCheck, Volume2, AlignJustify, Quote, Cpu, Save, Gauge, Trophy,
+  Eye, EyeOff, GitCompareArrows, Download
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { editTranscriptCloud } from "@/utils/editTranscriptApi";
 import { useOllama, isOllamaModel, getOllamaModelName } from "@/hooks/useOllama";
+import DiffMatchPatch from "diff-match-patch";
 
 interface AIEditorDualProps {
   text: string;
   onTextChange: (text: string, source: string, customPrompt?: string) => void;
   onSaveVersion?: (text: string, source: string, engineLabel: string, actionLabel: string) => void;
+  onSyncToPlayer?: (editedText: string) => void;
 }
 
 const CLOUD_MODELS = [
@@ -202,7 +206,7 @@ const TRANSLATE_LANGS = [
   { value: 'גרמנית', label: '🇩🇪 גרמנית' },
 ];
 
-const AIEditorDualInner = ({ text, onTextChange, onSaveVersion }: AIEditorDualProps) => {
+const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSyncToPlayer }: AIEditorDualProps) => {
   const [isEditing1, setIsEditing1] = useState(false);
   const [isEditing2, setIsEditing2] = useState(false);
   const [isMerging, setIsMerging] = useState(false);
@@ -236,7 +240,11 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion }: AIEditorDualPr
   const [lastAction, setLastAction] = useState<EditAction | null>(null);
   const [customPrompt, setCustomPrompt] = useState("");
   const [showCustomDialog, setShowCustomDialog] = useState(false);
+  const [showDiffHighlight, setShowDiffHighlight] = useState(false);
+  const [autoCompare, setAutoCompare] = useState(true);
   const ollama = useOllama();
+
+  const dmp = useMemo(() => new DiffMatchPatch(), []);
 
   const installedOllamaNames = new Set(ollama.models.map(m => m.name));
   const missingRecommended = RECOMMENDED_OLLAMA_MODELS.filter(m => !installedOllamaNames.has(m));
@@ -740,7 +748,19 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion }: AIEditorDualPr
     result: string;
     onApply: () => void;
     onSave: () => void;
-  }) => (
+  }) => {
+    const diffElements = useMemo(() => {
+      if (!showDiffHighlight || !result || !text) return null;
+      const d = dmp.diff_main(text, result);
+      dmp.diff_cleanupSemantic(d);
+      return d.map(([op, chunk], i) => {
+        if (op === -1) return <span key={i} className="bg-destructive/20 line-through decoration-destructive/60">{chunk}</span>;
+        if (op === 1) return <span key={i} className="bg-green-500/20 font-medium underline decoration-green-500/60">{chunk}</span>;
+        return <span key={i}>{chunk}</span>;
+      });
+    }, [showDiffHighlight, result, text, dmp]);
+
+    return (
     <div className="border rounded-lg p-4 space-y-3">
       <div className="flex items-center justify-between">
         <Label className="text-sm font-semibold">מנוע {num}</Label>
@@ -774,26 +794,41 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion }: AIEditorDualPr
 
       {result && !isEditingState && (
         <>
-          <Textarea
-            value={result}
-            readOnly
-            className="min-h-[200px] text-right bg-accent/10"
-            dir="rtl"
-            style={{ fontFamily: 'inherit', fontSize: 'inherit', lineHeight: 'inherit' }}
-          />
-          <Button size="sm" onClick={onApply} className="w-full">
-            החלף בטקסט הראשי
-          </Button>
-          {onSaveVersion && (
-            <Button size="sm" variant="outline" onClick={onSave} className="w-full">
-              <Save className="w-3 h-3 ml-1" />
-              שמור גרסה
-            </Button>
+          {showDiffHighlight && diffElements ? (
+            <ScrollArea className="min-h-[200px] max-h-[400px] rounded-md border p-3 bg-accent/10">
+              <pre className="whitespace-pre-wrap text-right" dir="rtl" style={{ fontFamily: 'inherit', fontSize: 'inherit', lineHeight: 'inherit' }}>
+                {diffElements}
+              </pre>
+            </ScrollArea>
+          ) : (
+            <Textarea
+              value={result}
+              readOnly
+              className="min-h-[200px] text-right bg-accent/10"
+              dir="rtl"
+              style={{ fontFamily: 'inherit', fontSize: 'inherit', lineHeight: 'inherit' }}
+            />
           )}
+          <div className="flex gap-2">
+            <Button size="sm" onClick={onApply} className="flex-1">
+              החלף בטקסט הראשי
+            </Button>
+            {onSaveVersion && (
+              <Button size="sm" variant="outline" onClick={onSave}>
+                <Save className="w-3 h-3 ml-1" />
+                שמור
+              </Button>
+            )}
+            {onSyncToPlayer && (
+              <Button size="sm" variant="outline" onClick={() => onSyncToPlayer(result)} title="סנכרן לנגן">
+                🎧
+              </Button>
+            )}
+          </div>
         </>
       )}
     </div>
-  );
+  );};
 
   return (
     <Card className="p-6" dir="rtl">
@@ -1295,6 +1330,70 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion }: AIEditorDualPr
           onSave={() => onSaveVersion?.(result2, `ai-${lastAction || 'improve'}`, getModelLabel(model2), lastAction || 'improve')}
         />
       </div>
+
+      {/* Diff Highlight Toggle + Save Both + Auto-Compare */}
+      {(result1 || result2) && !isEditing1 && !isEditing2 && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 p-3 rounded-lg bg-muted/30 border">
+          <Button
+            variant={showDiffHighlight ? "default" : "outline"}
+            size="sm"
+            onClick={() => setShowDiffHighlight(v => !v)}
+            title="הצג/הסתר סימון שינויים"
+          >
+            {showDiffHighlight ? <EyeOff className="w-3 h-3 ml-1" /> : <Eye className="w-3 h-3 ml-1" />}
+            {showDiffHighlight ? 'הסתר שינויים' : 'סמן שינויים'}
+          </Button>
+
+          {onSaveVersion && result1 && result2 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                onSaveVersion(text, 'original', 'מקור', 'טקסט מקורי');
+                onSaveVersion(result1, `ai-${lastAction || 'improve'}`, getModelLabel(model1), lastAction || 'improve');
+                onSaveVersion(result2, `ai-${lastAction || 'improve'}`, getModelLabel(model2), lastAction || 'improve');
+                toast({ title: 'נשמרו 3 גרסאות', description: 'מקורי + מנוע 1 + מנוע 2' });
+              }}
+            >
+              <Download className="w-3 h-3 ml-1" />
+              שמור מקורי + שתי גרסאות
+            </Button>
+          )}
+        </div>
+      )}
+
+      {/* Auto-Compare Summary - shown when both results are ready */}
+      {autoCompare && result1 && result2 && !isEditing1 && !isEditing2 && metrics1 && metrics2 && (
+        <div className="mt-3 border rounded-lg p-4 space-y-3 bg-muted/20">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <GitCompareArrows className="w-4 h-4 text-primary" />
+              <Label className="text-sm font-semibold">השוואה אוטומטית</Label>
+            </div>
+            <Badge variant={winner === 1 ? "default" : "secondary"} className="text-xs">
+              <Trophy className="w-3 h-3 ml-1" />
+              מנצח: {winner === 1 ? getModelLabel(model1) : getModelLabel(model2)}
+            </Badge>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 text-xs">
+            <div className={`rounded-md border p-2 ${winner === 1 ? 'border-primary bg-primary/5' : ''}`}>
+              <div className="font-semibold mb-1">{getModelLabel(model1)}</div>
+              <div>מהירות: {metrics1.latencyMs}ms</div>
+              <div>שימור: {(metrics1.preserveScore * 100).toFixed(0)}%</div>
+              <div>עברית: {(metrics1.hebrewRatio * 100).toFixed(0)}%</div>
+              <div className="font-semibold">ציון: {metrics1.qualityScore.toFixed(1)}</div>
+            </div>
+            <div className={`rounded-md border p-2 ${winner === 2 ? 'border-primary bg-primary/5' : ''}`}>
+              <div className="font-semibold mb-1">{getModelLabel(model2)}</div>
+              <div>מהירות: {metrics2.latencyMs}ms</div>
+              <div>שימור: {(metrics2.preserveScore * 100).toFixed(0)}%</div>
+              <div>עברית: {(metrics2.hebrewRatio * 100).toFixed(0)}%</div>
+              <div className="font-semibold">ציון: {metrics2.qualityScore.toFixed(1)}</div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {mergedResult && (
         <div className="mt-4 border rounded-lg p-4 space-y-3 bg-accent/5">
