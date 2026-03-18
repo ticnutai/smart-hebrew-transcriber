@@ -12,7 +12,7 @@ import {
   AlignRight, AlignCenter, AlignLeft, AlignJustify, 
   Palette, List, ListOrdered, Eraser,
   Maximize2, Minimize2, SplitSquareVertical, Eye,
-  Search, X, ChevronDown
+  Search, X, ChevronDown, SpellCheck
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { FloatingFormatToolbar } from "@/components/FloatingFormatToolbar";
@@ -28,16 +28,19 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { spellCheckText, type SuspectWord, type SpellSuggestion } from "@/utils/hebrewSpellCheck";
+import { learnFromCorrections, type CorrectionEntry } from "@/utils/correctionLearning";
 
 interface RichTextEditorProps {
   text: string;
   onChange: (text: string) => void;
   columnStyle?: React.CSSProperties;
+  onWordCorrected?: (original: string, corrected: string) => void;
 }
 
 const sanitize = (html: string): string => DOMPurify.sanitize(html, {
   ALLOWED_TAGS: ['b', 'i', 'u', 's', 'br', 'p', 'div', 'span', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'mark', 'font', 'strong', 'em'],
-  ALLOWED_ATTR: ['style', 'color', 'size', 'face', 'dir', 'class'],
+  ALLOWED_ATTR: ['style', 'color', 'size', 'face', 'dir', 'class', 'data-spell-word'],
 });
 
 const prepareHtml = (text: string): string => {
@@ -58,7 +61,7 @@ const stripHtml = (html: string): string => {
 
 type ViewMode = 'edit' | 'preview' | 'split';
 
-export const RichTextEditor = memo(({ text, onChange, columnStyle }: RichTextEditorProps) => {
+export const RichTextEditor = memo(({ text, onChange, columnStyle, onWordCorrected }: RichTextEditorProps) => {
   const editorRef = useRef<HTMLDivElement>(null);
   const [showFormatBar, setShowFormatBar] = useState(false);
   const [textColor, setTextColor] = useState("#000000");
@@ -69,6 +72,18 @@ export const RichTextEditor = memo(({ text, onChange, columnStyle }: RichTextEdi
   const [searchTerm, setSearchTerm] = useState("");
   const [htmlContent, setHtmlContent] = useState(() => sanitize(prepareHtml(text)));
   const isInternalUpdate = useRef(false);
+
+  // Spell check state
+  const [spellCheckEnabled, setSpellCheckEnabled] = useState(false);
+  const [suspectWords, setSuspectWords] = useState<SuspectWord[]>([]);
+  const [spellPopup, setSpellPopup] = useState<{
+    word: string;
+    suggestions: SpellSuggestion[];
+    rect: DOMRect;
+    spanEl: HTMLElement;
+  } | null>(null);
+  const [customCorrection, setCustomCorrection] = useState("");
+  const spellCheckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const highlightColors = [
     "#ffff00", "#00ff00", "#00ffff", "#ff00ff", "#ffa500", "#ff0000",
@@ -164,6 +179,201 @@ export const RichTextEditor = memo(({ text, onChange, columnStyle }: RichTextEdi
     words: plainText.split(/\s+/).filter(w => w).length,
     lines: plainText.split('\n').length,
   }), [plainText]);
+
+  // ── Spell Check Logic ──
+
+  const runSpellCheck = useCallback(() => {
+    if (!spellCheckEnabled || !editorRef.current) return;
+    const plain = editorRef.current.textContent || '';
+    const suspects = spellCheckText(plain);
+    setSuspectWords(suspects);
+    applySpellCheckMarks(suspects);
+  }, [spellCheckEnabled]);
+
+  const applySpellCheckMarks = useCallback((suspects: SuspectWord[]) => {
+    const editor = editorRef.current;
+    if (!editor) return;
+
+    // Remove existing spell marks
+    clearSpellCheckMarks();
+
+    if (suspects.length === 0) return;
+
+    // Build a Set of suspect words for quick lookup
+    const suspectMap = new Map<string, SpellSuggestion[]>();
+    for (const s of suspects) {
+      const clean = s.word.replace(/[^\u0590-\u05FFa-zA-Z0-9]/g, '');
+      if (clean) suspectMap.set(clean, s.suggestions);
+    }
+
+    // Walk text nodes and wrap suspect words
+    const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+    const textNodes: Text[] = [];
+    let node: Text | null;
+    while ((node = walker.nextNode() as Text | null)) {
+      textNodes.push(node);
+    }
+
+    for (const textNode of textNodes) {
+      const nodeText = textNode.textContent || '';
+      if (!nodeText.trim()) continue;
+
+      // Skip if parent is already a spell-error span
+      if ((textNode.parentElement as HTMLElement)?.classList?.contains('spell-error')) continue;
+
+      const wordRegex = /\S+/g;
+      let match: RegExpExecArray | null;
+      const fragments: (string | HTMLElement)[] = [];
+      let lastIndex = 0;
+      let hasMatch = false;
+
+      while ((match = wordRegex.exec(nodeText)) !== null) {
+        const raw = match[0];
+        const clean = raw.replace(/[^\u0590-\u05FFa-zA-Z0-9]/g, '');
+        if (suspectMap.has(clean)) {
+          hasMatch = true;
+          // Add text before this word
+          if (match.index > lastIndex) {
+            fragments.push(nodeText.slice(lastIndex, match.index));
+          }
+          // Create spell-error span
+          const span = document.createElement('span');
+          span.className = 'spell-error';
+          span.setAttribute('data-spell-word', clean);
+          span.textContent = raw;
+          span.style.textDecoration = 'underline wavy red';
+          span.style.textDecorationSkipInk = 'none';
+          span.style.textUnderlineOffset = '3px';
+          span.style.cursor = 'pointer';
+          fragments.push(span);
+          lastIndex = match.index + raw.length;
+        }
+      }
+
+      if (hasMatch) {
+        // Add remaining text
+        if (lastIndex < nodeText.length) {
+          fragments.push(nodeText.slice(lastIndex));
+        }
+        // Replace the text node with fragments
+        const parent = textNode.parentNode;
+        if (parent) {
+          for (const frag of fragments) {
+            if (typeof frag === 'string') {
+              parent.insertBefore(document.createTextNode(frag), textNode);
+            } else {
+              parent.insertBefore(frag, textNode);
+            }
+          }
+          parent.removeChild(textNode);
+        }
+      }
+    }
+  }, []);
+
+  const clearSpellCheckMarks = useCallback(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const marks = editor.querySelectorAll('.spell-error');
+    marks.forEach(mark => {
+      const parent = mark.parentNode;
+      if (parent) {
+        const textNode = document.createTextNode(mark.textContent || '');
+        parent.replaceChild(textNode, mark);
+        parent.normalize(); // merge adjacent text nodes
+      }
+    });
+  }, []);
+
+  // Trigger spell-check when enabled or text changes
+  useEffect(() => {
+    if (!spellCheckEnabled) {
+      clearSpellCheckMarks();
+      setSuspectWords([]);
+      setSpellPopup(null);
+      return;
+    }
+    if (spellCheckTimerRef.current) clearTimeout(spellCheckTimerRef.current);
+    spellCheckTimerRef.current = setTimeout(runSpellCheck, 1500);
+    return () => { if (spellCheckTimerRef.current) clearTimeout(spellCheckTimerRef.current); };
+  }, [spellCheckEnabled, plainText, runSpellCheck, clearSpellCheckMarks]);
+
+  // Handle click on spell-error spans
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || !spellCheckEnabled) return;
+
+    const handleClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.classList?.contains('spell-error')) {
+        e.preventDefault();
+        e.stopPropagation();
+        const word = target.getAttribute('data-spell-word') || target.textContent || '';
+        const rect = target.getBoundingClientRect();
+        
+        // Find suggestions for this word
+        const suspect = suspectWords.find(s => {
+          const clean = s.word.replace(/[^\u0590-\u05FFa-zA-Z0-9]/g, '');
+          return clean === word;
+        });
+
+        setCustomCorrection(word);
+        setSpellPopup({
+          word,
+          suggestions: suspect?.suggestions || [],
+          rect,
+          spanEl: target,
+        });
+      }
+    };
+
+    editor.addEventListener('click', handleClick);
+    return () => editor.removeEventListener('click', handleClick);
+  }, [spellCheckEnabled, suspectWords]);
+
+  // Close popup when clicking outside
+  useEffect(() => {
+    if (!spellPopup) return;
+    const handleOutsideClick = (e: MouseEvent) => {
+      const popup = document.getElementById('spell-popup');
+      if (popup && !popup.contains(e.target as Node)) {
+        setSpellPopup(null);
+      }
+    };
+    setTimeout(() => document.addEventListener('click', handleOutsideClick), 0);
+    return () => document.removeEventListener('click', handleOutsideClick);
+  }, [spellPopup]);
+
+  const handleSpellCorrection = useCallback((originalWord: string, correctedWord: string, spanEl: HTMLElement) => {
+    // Replace in DOM
+    const textNode = document.createTextNode(correctedWord);
+    spanEl.parentNode?.replaceChild(textNode, spanEl);
+    textNode.parentNode?.normalize();
+
+    // Sync content
+    syncContent();
+
+    // Save correction to learning system
+    const entry: CorrectionEntry = {
+      original: originalWord,
+      corrected: correctedWord,
+      frequency: 1,
+      engine: 'spell-check',
+      category: 'word',
+      confidence: 0.7,
+      lastUsed: Date.now(),
+      createdAt: Date.now(),
+    };
+    learnFromCorrections([entry]);
+    onWordCorrected?.(originalWord, correctedWord);
+
+    setSpellPopup(null);
+    toast({ title: "תוקן ✅", description: `"${originalWord}" → "${correctedWord}"` });
+
+    // Re-run spell check after correction
+    if (spellCheckTimerRef.current) clearTimeout(spellCheckTimerRef.current);
+    spellCheckTimerRef.current = setTimeout(runSpellCheck, 500);
+  }, [syncContent, onWordCorrected, runSpellCheck]);
 
   const handleExportTXT = () => {
     const blob = new Blob([plainText], { type: 'text/plain;charset=utf-8' });
@@ -451,6 +661,14 @@ export const RichTextEditor = memo(({ text, onChange, columnStyle }: RichTextEdi
           {/* חיפוש */}
           <ToolBtn icon={Search} label="חיפוש" onClick={() => setSearchOpen(o => !o)} active={searchOpen} />
 
+          {/* בדיקת איות */}
+          <ToolBtn
+            icon={SpellCheck}
+            label={spellCheckEnabled ? `בדיקת איות (${suspectWords.length} חשודים)` : "בדיקת איות"}
+            onClick={() => setSpellCheckEnabled(v => !v)}
+            active={spellCheckEnabled}
+          />
+
           <Separator orientation="vertical" className="h-6 mx-1" />
 
           {/* ייצוא */}
@@ -561,6 +779,115 @@ export const RichTextEditor = memo(({ text, onChange, columnStyle }: RichTextEdi
             </div>
           )}
         </div>
+
+        {/* === Spell Check Popup === */}
+        {spellPopup && (
+          <div
+            id="spell-popup"
+            className="fixed z-[9999] bg-popover border border-border rounded-lg shadow-xl p-3 min-w-[240px] max-w-[320px]"
+            dir="rtl"
+            style={{
+              top: spellPopup.rect.bottom + 8,
+              left: Math.min(spellPopup.rect.left, window.innerWidth - 340),
+            }}
+          >
+            <div className="space-y-2">
+              {/* Header */}
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-destructive" style={{ textDecoration: 'line-through' }}>
+                  {spellPopup.word}
+                </span>
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => setSpellPopup(null)}>
+                  <X className="w-3 h-3" />
+                </Button>
+              </div>
+
+              {/* Suggestions */}
+              {spellPopup.suggestions.length > 0 && (
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">הצעות:</Label>
+                  <div className="flex flex-wrap gap-1">
+                    {spellPopup.suggestions.map((s, i) => (
+                      <Button
+                        key={i}
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => handleSpellCorrection(spellPopup.word, s.text, spellPopup.spanEl)}
+                      >
+                        {s.text}
+                        {s.source === 'learned' && <span className="mr-1 text-[10px] opacity-60">🧠</span>}
+                        {s.source === 'vocabulary' && <span className="mr-1 text-[10px] opacity-60">📖</span>}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Custom correction input */}
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">תיקון ידני:</Label>
+                <div className="flex gap-1">
+                  <Input
+                    value={customCorrection}
+                    onChange={(e) => setCustomCorrection(e.target.value)}
+                    className="h-7 text-sm flex-1"
+                    dir="rtl"
+                    placeholder="הקלד תיקון..."
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && customCorrection.trim() && spellPopup) {
+                        handleSpellCorrection(spellPopup.word, customCorrection.trim(), spellPopup.spanEl);
+                      }
+                    }}
+                  />
+                  <Button
+                    size="sm"
+                    className="h-7 text-xs"
+                    disabled={!customCorrection.trim() || customCorrection.trim() === spellPopup.word}
+                    onClick={() => {
+                      if (customCorrection.trim() && spellPopup) {
+                        handleSpellCorrection(spellPopup.word, customCorrection.trim(), spellPopup.spanEl);
+                      }
+                    }}
+                  >
+                    תקן
+                  </Button>
+                </div>
+              </div>
+
+              {/* Ignore button */}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full h-6 text-xs text-muted-foreground"
+                onClick={() => {
+                  // Remove this specific mark
+                  const textNode = document.createTextNode(spellPopup.spanEl.textContent || '');
+                  spellPopup.spanEl.parentNode?.replaceChild(textNode, spellPopup.spanEl);
+                  textNode.parentNode?.normalize();
+                  setSpellPopup(null);
+                }}
+              >
+                התעלם
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Spell check status bar */}
+        {spellCheckEnabled && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground border rounded-md px-3 py-1.5 bg-muted/30">
+            <SpellCheck className="w-3.5 h-3.5" />
+            <span>בדיקת איות פעילה</span>
+            {suspectWords.length > 0 ? (
+              <span className="text-destructive font-medium">{suspectWords.length} מילים חשודות</span>
+            ) : (
+              <span className="text-green-600">לא נמצאו שגיאות</span>
+            )}
+            <span className="opacity-50">•</span>
+            <span className="opacity-60">לחץ על מילה אדומה לתיקון</span>
+          </div>
+        )}
 
         <p className="text-xs text-muted-foreground text-right">
           סמן טקסט ולחץ <strong>T</strong> לעיצוב • יישור • תצוגה מפוצלת

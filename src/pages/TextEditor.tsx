@@ -494,6 +494,9 @@ const TextEditor = () => {
                 text={text} 
                 onChange={handleEditorChange}
                 columnStyle={columnStyle}
+                onWordCorrected={(original, corrected) => {
+                  debugLog.info('TextEditor', `Spell correction: "${original}" → "${corrected}"`);
+                }}
               />
             </div>
           </TabsContent>
