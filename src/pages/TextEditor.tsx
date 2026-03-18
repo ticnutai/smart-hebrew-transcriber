@@ -20,6 +20,10 @@ const OllamaManager = lazy(() => import("@/components/OllamaManager").then(m => 
 const CorrectionLearningPanel = lazy(() => import("@/components/CorrectionLearningPanel").then(m => ({ default: m.CorrectionLearningPanel })));
 const SyncAudioPlayer = lazy(() => import("@/components/SyncAudioPlayer").then(m => ({ default: m.SyncAudioPlayer })));
 const SyncTranscriptView = lazy(() => import("@/components/SyncTranscriptView").then(m => ({ default: m.SyncTranscriptView })));
+const VocabularyPanel = lazy(() => import("@/components/VocabularyPanel").then(m => ({ default: m.VocabularyPanel })));
+const AutoSummaryCard = lazy(() => import("@/components/AutoSummaryCard").then(m => ({ default: m.AutoSummaryCard })));
+const EngineCompare = lazy(() => import("@/components/EngineCompare").then(m => ({ default: m.EngineCompare })));
+const AnalyticsDashboard = lazy(() => import("@/components/AnalyticsDashboard").then(m => ({ default: m.AnalyticsDashboard })));
 import { ArrowRight, Home, Wand2, SplitSquareVertical, SpellCheck, Loader2, Columns2, Columns3, AlignJustify, LayoutGrid, Rows3 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { editTranscriptCloud } from "@/utils/editTranscriptApi";
@@ -415,7 +419,7 @@ const TextEditor = () => {
 
         {/* Main Content */}
         <Tabs defaultValue="edit" className="w-full" dir="rtl">
-          <TabsList className="grid w-full grid-cols-4 md:grid-cols-5 lg:grid-cols-10 mb-6">
+          <TabsList className="grid w-full grid-cols-4 md:grid-cols-7 lg:grid-cols-14 mb-6">
             <TabsTrigger value="player">🎧 נגן</TabsTrigger>
             <TabsTrigger value="edit">עריכת טקסט</TabsTrigger>
             <TabsTrigger value="templates">תבניות</TabsTrigger>
@@ -424,6 +428,10 @@ const TextEditor = () => {
             <TabsTrigger value="prompts">ספריית פרומפטים</TabsTrigger>
             <TabsTrigger value="ollama">🖥️ Ollama</TabsTrigger>
             <TabsTrigger value="learning">🧠 למידה</TabsTrigger>
+            <TabsTrigger value="vocab">📖 מילון</TabsTrigger>
+            <TabsTrigger value="summary">📊 סיכום</TabsTrigger>
+            <TabsTrigger value="ab">⚡ A/B</TabsTrigger>
+            <TabsTrigger value="analytics">📈 אנליטיקה</TabsTrigger>
             <TabsTrigger value="compare">השוואה</TabsTrigger>
             <TabsTrigger value="history">היסטוריה</TabsTrigger>
           </TabsList>
@@ -553,7 +561,21 @@ const TextEditor = () => {
           <TabsContent value="learning" className="space-y-4">
             <CorrectionLearningPanel />
           </TabsContent>
+          <TabsContent value="vocab" className="space-y-4">
+            <VocabularyPanel />
+          </TabsContent>
 
+          <TabsContent value="summary" className="space-y-4">
+            <AutoSummaryCard text={text} />
+          </TabsContent>
+
+          <TabsContent value="ab" className="space-y-4">
+            <EngineCompare text={text} />
+          </TabsContent>
+
+          <TabsContent value="analytics" className="space-y-4">
+            <AnalyticsDashboard />
+          </TabsContent>
           <TabsContent value="history" className="space-y-4">
             <TextEditHistory 
               versions={versions}

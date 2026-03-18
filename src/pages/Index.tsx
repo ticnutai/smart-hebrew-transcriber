@@ -30,6 +30,7 @@ import { KeyboardShortcutsDialog } from "@/components/KeyboardShortcutsDialog";
 import { addNotification } from "@/hooks/useNotifications";
 import { getApiKey } from "@/lib/keyCrypto";
 import { applyLearnedCorrections } from "@/utils/correctionLearning";
+import { getHotwordsString, applyVocabularyCorrections } from "@/utils/customVocabulary";
 
 // Lazy-loaded heavy components
 const LiveTranscriber = lazy(() => import("@/components/LiveTranscriber").then(m => ({ default: m.LiveTranscriber })));
@@ -214,9 +215,11 @@ const Index = () => {
   const saveToHistory = async (text: string, engineUsed: string, skipCloud?: boolean, timings?: Array<{word: string, start: number, end: number, probability?: number}>, audioFile?: File, folder?: string) => {
     // Apply learned corrections to improve transcription
     const correctionResult = applyLearnedCorrections(text, { engine: engineUsed });
-    const finalText = correctionResult.text;
-    if (correctionResult.appliedCount > 0) {
-      debugLog.info('Index', `Applied ${correctionResult.appliedCount} learned corrections`);
+    // Apply vocabulary corrections (known variants → correct terms)
+    const vocabResult = applyVocabularyCorrections(correctionResult.text);
+    const finalText = vocabResult.text;
+    if (correctionResult.appliedCount > 0 || vocabResult.appliedCount > 0) {
+      debugLog.info('Index', `Applied ${correctionResult.appliedCount} learned + ${vocabResult.appliedCount} vocabulary corrections`);
     }
 
     if (skipCloud) {
@@ -985,6 +988,10 @@ const Index = () => {
       toast({ title: "מתמלל עם GPU...", description: "מעבד את הקובץ בשרת המקומי עם CUDA — תראה תוצאות בזמן אמת" });
 
       // Build CUDA options from cloud preferences
+      // Merge user hotwords with vocabulary hotwords
+      const vocabHotwords = getHotwordsString();
+      const userHotwords = preferences.cuda_hotwords || '';
+      const mergedHotwords = [userHotwords, vocabHotwords].filter(Boolean).join(', ') || undefined;
       const cudaOptions: CudaOptions = {
         preset: preferences.cuda_preset || 'balanced',
         fastMode: preferences.cuda_fast_mode,
@@ -992,7 +999,7 @@ const Index = () => {
         beamSize: preferences.cuda_beam_size || undefined,
         noConditionOnPrevious: preferences.cuda_no_condition_prev,
         vadAggressive: preferences.cuda_vad_aggressive,
-        hotwords: preferences.cuda_hotwords || undefined,
+        hotwords: mergedHotwords,
         paragraphThreshold: preferences.cuda_paragraph_threshold || undefined,
       };
 
