@@ -1937,6 +1937,9 @@ const Index = () => {
               wordTimings={wordTimings}
               searchOpen={searchOpen}
               onSearchOpenChange={setSearchOpen}
+              onWordCorrected={(original, corrected) => {
+                debugLog.info('Index', `Word corrected: "${original}" → "${corrected}"`);
+              }}
             />
             </LazyErrorBoundary>
           </div>

@@ -3,7 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { Wand2, BookOpen, FileText, Copy, Download, Loader2, Upload, Settings2, CheckCheck, AlignJustify, Quote, Users, Search, ChevronUp, ChevronDown, X } from "lucide-react";
+import { Wand2, BookOpen, FileText, Copy, Download, Loader2, Upload, Settings2, CheckCheck, AlignJustify, Quote, Users, Search, ChevronUp, ChevronDown, X, PenLine, Save } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { editTranscriptCloud } from "@/utils/editTranscriptApi";
 import { ExportButton } from "@/components/ExportButton";
@@ -15,6 +15,12 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { learnFromCorrections, type CorrectionEntry } from "@/utils/correctionLearning";
 
 interface TranscriptEditorProps {
   transcript: string;
@@ -22,12 +28,42 @@ interface TranscriptEditorProps {
   wordTimings?: Array<{word: string, start: number, end: number, probability?: number}>;
   searchOpen?: boolean;
   onSearchOpenChange?: (open: boolean) => void;
+  onWordCorrected?: (original: string, corrected: string) => void;
 }
 
-const TranscriptEditorInner = ({ transcript, onTranscriptChange, wordTimings, searchOpen, onSearchOpenChange }: TranscriptEditorProps) => {
+const TranscriptEditorInner = ({ transcript, onTranscriptChange, wordTimings, searchOpen, onSearchOpenChange, onWordCorrected }: TranscriptEditorProps) => {
   const [isEditing, setIsEditing] = useState(false);
   const [showConfidence, setShowConfidence] = useState(false);
   const [customPrompt, setCustomPrompt] = useState("");
+  const [correctionWord, setCorrectionWord] = useState("");
+  const [correctionIndex, setCorrectionIndex] = useState<number | null>(null);
+  const [correctionOriginal, setCorrectionOriginal] = useState("");
+  // For normal textarea mode word correction
+  const [textCorrectionOpen, setTextCorrectionOpen] = useState(false);
+  const [textCorrectionWord, setTextCorrectionWord] = useState("");
+  const [textCorrectionOriginal, setTextCorrectionOriginal] = useState("");
+  const [textCorrectionPos, setTextCorrectionPos] = useState<{wordStart: number, wordEnd: number} | null>(null);
+  const [showWordMode, setShowWordMode] = useState(false);
+  const correctionInputRef = useRef<HTMLInputElement>(null);
+
+  const handleWordCorrection = useCallback((original: string, corrected: string, wordIdx?: number) => {
+    if (!corrected.trim() || corrected === original) return;
+    // Learn the correction offline
+    const entry: CorrectionEntry = {
+      original,
+      corrected,
+      frequency: 1,
+      engine: 'manual',
+      category: 'word',
+      confidence: 0.8,
+      lastUsed: Date.now(),
+      createdAt: Date.now(),
+    };
+    learnFromCorrections([entry]);
+    // Also notify parent if callback provided
+    onWordCorrected?.(original, corrected);
+    toast({ title: "תיקון נשמר ✅", description: `"${original}" → "${corrected}" נשמר ללמידה` });
+  }, [onWordCorrected]);
   const [showPromptDialog, setShowPromptDialog] = useState(false);
 
   // Search state
@@ -314,13 +350,77 @@ const TranscriptEditorInner = ({ transcript, onTranscriptChange, wordTimings, se
               const p = w.probability ?? 1;
               const bg = p >= 0.9 ? '' : p >= 0.7 ? 'bg-yellow-200 dark:bg-yellow-900/40' : 'bg-red-200 dark:bg-red-900/40';
               return (
-                <span
+                <Popover
                   key={i}
-                  className={`inline-block px-0.5 rounded ${bg}`}
-                  title={`ביטחון: ${Math.round(p * 100)}%`}
+                  open={correctionIndex === i}
+                  onOpenChange={(open) => {
+                    if (open) {
+                      setCorrectionIndex(i);
+                      setCorrectionOriginal(w.word);
+                      setCorrectionWord(w.word);
+                      setTimeout(() => correctionInputRef.current?.select(), 50);
+                    } else {
+                      setCorrectionIndex(null);
+                    }
+                  }}
                 >
-                  {w.word}
-                </span>
+                  <PopoverTrigger asChild>
+                    <span
+                      className={`inline-block px-0.5 rounded cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all ${bg}`}
+                      title={`ביטחון: ${Math.round(p * 100)}% • לחץ לתיקון`}
+                    >
+                      {w.word}
+                    </span>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-64 p-3" dir="rtl" align="center" side="top">
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-sm font-medium">
+                        <PenLine className="w-4 h-4 text-primary" />
+                        <span>תיקון מילה</span>
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        מקור: <span className="line-through text-red-500">{correctionOriginal}</span>
+                      </div>
+                      <Input
+                        ref={correctionInputRef}
+                        value={correctionWord}
+                        onChange={(e) => setCorrectionWord(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            // Apply correction
+                            const newTimings = [...wordTimings];
+                            newTimings[i] = { ...newTimings[i], word: correctionWord };
+                            const newText = newTimings.map(wt => wt.word).join(' ');
+                            onTranscriptChange(newText);
+                            handleWordCorrection(correctionOriginal, correctionWord, i);
+                            setCorrectionIndex(null);
+                          }
+                          if (e.key === 'Escape') setCorrectionIndex(null);
+                        }}
+                        className="h-8 text-sm"
+                        dir="rtl"
+                        placeholder="הקלד תיקון..."
+                      />
+                      <Button
+                        size="sm"
+                        className="w-full gap-2"
+                        onClick={() => {
+                          const newTimings = [...wordTimings];
+                          newTimings[i] = { ...newTimings[i], word: correctionWord };
+                          const newText = newTimings.map(wt => wt.word).join(' ');
+                          onTranscriptChange(newText);
+                          handleWordCorrection(correctionOriginal, correctionWord, i);
+                          setCorrectionIndex(null);
+                        }}
+                        disabled={!correctionWord.trim() || correctionWord === correctionOriginal}
+                      >
+                        <Save className="w-4 h-4" />
+                        תקן ושמור ללמידה
+                      </Button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
               );
             })}
           </div>
@@ -328,18 +428,118 @@ const TranscriptEditorInner = ({ transcript, onTranscriptChange, wordTimings, se
             <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-200 dark:bg-red-900/40 inline-block" /> &lt;70%</span>
             <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-yellow-200 dark:bg-yellow-900/40 inline-block" /> 70-90%</span>
             <span className="flex items-center gap-1"><span className="w-3 h-3 rounded border inline-block" /> &gt;90%</span>
+            <span className="text-xs mr-auto">💡 לחץ על מילה לתיקון ושמירה ללמידה</span>
+          </div>
+        </div>
+      ) : showWordMode && transcript.trim() ? (
+        <div className="min-h-[300px] mb-4 p-3 bg-background border rounded-md text-right overflow-y-auto" dir="rtl">
+          <div className="flex flex-wrap gap-1 leading-relaxed font-mono text-base">
+            {transcript.split(/(\s+)/).map((segment, i) => {
+              if (/^\s+$/.test(segment)) return <span key={i}>{segment}</span>;
+              if (!segment) return null;
+              return (
+                <Popover
+                  key={i}
+                  open={textCorrectionOpen && textCorrectionPos?.wordStart === i}
+                  onOpenChange={(open) => {
+                    if (open) {
+                      setTextCorrectionOpen(true);
+                      setTextCorrectionOriginal(segment);
+                      setTextCorrectionWord(segment);
+                      setTextCorrectionPos({ wordStart: i, wordEnd: i });
+                      setTimeout(() => correctionInputRef.current?.select(), 50);
+                    } else {
+                      setTextCorrectionOpen(false);
+                      setTextCorrectionPos(null);
+                    }
+                  }}
+                >
+                  <PopoverTrigger asChild>
+                    <span
+                      className="inline-block px-0.5 rounded cursor-pointer hover:bg-primary/10 hover:ring-1 hover:ring-primary/30 transition-all"
+                    >
+                      {segment}
+                    </span>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-64 p-3" dir="rtl" align="center" side="top">
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-sm font-medium">
+                        <PenLine className="w-4 h-4 text-primary" />
+                        <span>תיקון מילה</span>
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        מקור: <span className="line-through text-red-500">{textCorrectionOriginal}</span>
+                      </div>
+                      <Input
+                        ref={correctionInputRef}
+                        value={textCorrectionWord}
+                        onChange={(e) => setTextCorrectionWord(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            const parts = transcript.split(/(\s+)/);
+                            parts[i] = textCorrectionWord;
+                            onTranscriptChange(parts.join(''));
+                            handleWordCorrection(textCorrectionOriginal, textCorrectionWord);
+                            setTextCorrectionOpen(false);
+                            setTextCorrectionPos(null);
+                          }
+                          if (e.key === 'Escape') {
+                            setTextCorrectionOpen(false);
+                            setTextCorrectionPos(null);
+                          }
+                        }}
+                        className="h-8 text-sm"
+                        dir="rtl"
+                        placeholder="הקלד תיקון..."
+                      />
+                      <Button
+                        size="sm"
+                        className="w-full gap-2"
+                        onClick={() => {
+                          const parts = transcript.split(/(\s+)/);
+                          parts[i] = textCorrectionWord;
+                          onTranscriptChange(parts.join(''));
+                          handleWordCorrection(textCorrectionOriginal, textCorrectionWord);
+                          setTextCorrectionOpen(false);
+                          setTextCorrectionPos(null);
+                        }}
+                        disabled={!textCorrectionWord.trim() || textCorrectionWord === textCorrectionOriginal}
+                      >
+                        <Save className="w-4 h-4" />
+                        תקן ושמור ללמידה
+                      </Button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              );
+            })}
+          </div>
+          <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground border-t pt-2">
+            <span className="text-xs">💡 לחץ על מילה לתיקון ושמירה ללמידה</span>
+            <Button variant="ghost" size="sm" className="h-6 text-xs mr-auto" onClick={() => setShowWordMode(false)}>
+              חזור לעריכה חופשית
+            </Button>
           </div>
         </div>
       ) : (
-        <Textarea
-          ref={textareaRef}
-          value={transcript}
-          onChange={(e) => onTranscriptChange(e.target.value)}
-          placeholder="התמלול יופיע כאן..."
-          className="min-h-[300px] mb-4 font-mono text-base text-right"
-          dir="rtl"
-          disabled={isEditing}
-        />
+        <div className="space-y-1">
+          <Textarea
+            ref={textareaRef}
+            value={transcript}
+            onChange={(e) => onTranscriptChange(e.target.value)}
+            placeholder="התמלול יופיע כאן..."
+            className="min-h-[300px] mb-1 font-mono text-base text-right"
+            dir="rtl"
+            disabled={isEditing}
+          />
+          {transcript.trim() && (
+            <Button variant="ghost" size="sm" className="text-xs gap-1" onClick={() => setShowWordMode(true)}>
+              <PenLine className="w-3 h-3" />
+              מצב תיקון מילים — לחץ על מילה לתקן ולשמור ללמידה
+            </Button>
+          )}
+        </div>
       )}
 
       <div className="border-t pt-4">

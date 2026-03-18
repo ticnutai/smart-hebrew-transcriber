@@ -87,33 +87,38 @@ export const FloatingFormatToolbar = ({
     setVisible(true);
   }, [containerRef]);
 
+  const selRafRef = useRef<number | null>(null);
+
   const handleSelectionChange = useCallback(() => {
-    if (hideTimeout.current) clearTimeout(hideTimeout.current);
+    if (selRafRef.current) cancelAnimationFrame(selRafRef.current);
+    selRafRef.current = requestAnimationFrame(() => {
+      if (hideTimeout.current) clearTimeout(hideTimeout.current);
 
-    const sel = window.getSelection();
-    if (!sel || sel.isCollapsed || !sel.rangeCount) {
-      // Delay hiding so user can click toolbar buttons
-      hideTimeout.current = setTimeout(() => {
-        setVisible(false);
-        setShowColors(false);
-        setShowHighlight(false);
-        setShowFont(false);
-      }, 200);
-      return;
-    }
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed || !sel.rangeCount) {
+        // Delay hiding so user can click toolbar buttons
+        hideTimeout.current = setTimeout(() => {
+          setVisible(false);
+          setShowColors(false);
+          setShowHighlight(false);
+          setShowFont(false);
+        }, 200);
+        return;
+      }
 
-    const container = containerRef.current;
-    if (!container) return;
+      const container = containerRef.current;
+      if (!container) return;
 
-    const range = sel.getRangeAt(0);
-    if (!container.contains(range.commonAncestorContainer)) {
-      hideTimeout.current = setTimeout(() => {
-        setVisible(false);
-      }, 200);
-      return;
-    }
+      const range = sel.getRangeAt(0);
+      if (!container.contains(range.commonAncestorContainer)) {
+        hideTimeout.current = setTimeout(() => {
+          setVisible(false);
+        }, 200);
+        return;
+      }
 
-    updatePosition();
+      updatePosition();
+    });
   }, [containerRef, updatePosition]);
 
   useEffect(() => {
@@ -121,6 +126,7 @@ export const FloatingFormatToolbar = ({
     return () => {
       document.removeEventListener("selectionchange", handleSelectionChange);
       if (hideTimeout.current) clearTimeout(hideTimeout.current);
+      if (selRafRef.current) cancelAnimationFrame(selRafRef.current);
     };
   }, [handleSelectionChange]);
 

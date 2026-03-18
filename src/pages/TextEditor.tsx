@@ -222,13 +222,18 @@ const TextEditor = () => {
 
   // Auto-save text and versions to localStorage + debounce cloud save
   const cloudSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const localSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    if (text) {
-      localStorage.setItem('current_editing_text', text);
-    }
-    if (versions.length > 0) {
-      localStorage.setItem('text_versions', JSON.stringify(versions));
-    }
+    // Debounce localStorage writes (500ms)
+    if (localSaveTimerRef.current) clearTimeout(localSaveTimerRef.current);
+    localSaveTimerRef.current = setTimeout(() => {
+      if (text) {
+        localStorage.setItem('current_editing_text', text);
+      }
+      if (versions.length > 0) {
+        localStorage.setItem('text_versions', JSON.stringify(versions));
+      }
+    }, 500);
     // Debounce save edited_text to cloud (3s after last change)
     if (transcriptIdRef.current && text) {
       if (cloudSaveTimerRef.current) clearTimeout(cloudSaveTimerRef.current);
@@ -239,7 +244,10 @@ const TextEditor = () => {
         }
       }, 3000);
     }
-    return () => { if (cloudSaveTimerRef.current) clearTimeout(cloudSaveTimerRef.current); };
+    return () => {
+      if (cloudSaveTimerRef.current) clearTimeout(cloudSaveTimerRef.current);
+      if (localSaveTimerRef.current) clearTimeout(localSaveTimerRef.current);
+    };
   }, [text, versions]);
 
   const addVersion = (newText: string, source: TextVersion['source'], customPrompt?: string) => {
@@ -328,6 +336,19 @@ const TextEditor = () => {
       setAiAction(null);
     }
   };
+
+  const handleEditorChange = useCallback((newText: string) => {
+    setText(newText);
+    // Debounce manual version creation (2s)
+    if (manualVersionTimerRef.current) clearTimeout(manualVersionTimerRef.current);
+    manualVersionTimerRef.current = setTimeout(() => {
+      addVersion(newText, 'manual');
+      // Learn from user corrections
+      if (originalTextRef.current && newText !== originalTextRef.current) {
+        learnCorrections(originalTextRef.current, newText, 'manual');
+      }
+    }, 2000);
+  }, [learnCorrections]);
 
   return (
     <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>}>
@@ -471,18 +492,7 @@ const TextEditor = () => {
             >
               <RichTextEditor 
                 text={text} 
-                onChange={(newText) => {
-                  setText(newText);
-                  // Debounce manual version creation (2s)
-                  if (manualVersionTimerRef.current) clearTimeout(manualVersionTimerRef.current);
-                  manualVersionTimerRef.current = setTimeout(() => {
-                    addVersion(newText, 'manual');
-                    // Learn from user corrections
-                    if (originalTextRef.current && newText !== originalTextRef.current) {
-                      learnCorrections(originalTextRef.current, newText, 'manual');
-                    }
-                  }, 2000);
-                }}
+                onChange={handleEditorChange}
                 columnStyle={columnStyle}
               />
             </div>

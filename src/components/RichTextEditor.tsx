@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo, memo } from "react";
 import DOMPurify from "dompurify";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -37,7 +37,7 @@ interface RichTextEditorProps {
 
 const sanitize = (html: string): string => DOMPurify.sanitize(html, {
   ALLOWED_TAGS: ['b', 'i', 'u', 's', 'br', 'p', 'div', 'span', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'mark', 'font', 'strong', 'em'],
-  ALLOWED_ATTR: ['style', 'color', 'size', 'dir', 'class'],
+  ALLOWED_ATTR: ['style', 'color', 'size', 'face', 'dir', 'class'],
 });
 
 const prepareHtml = (text: string): string => {
@@ -58,7 +58,7 @@ const stripHtml = (html: string): string => {
 
 type ViewMode = 'edit' | 'preview' | 'split';
 
-export const RichTextEditor = ({ text, onChange, columnStyle }: RichTextEditorProps) => {
+export const RichTextEditor = memo(({ text, onChange, columnStyle }: RichTextEditorProps) => {
   const editorRef = useRef<HTMLDivElement>(null);
   const [showFormatBar, setShowFormatBar] = useState(false);
   const [textColor, setTextColor] = useState("#000000");
@@ -80,30 +80,36 @@ export const RichTextEditor = ({ text, onChange, columnStyle }: RichTextEditorPr
 
   // Sync external text changes (from parent / AI / version restore)
   useEffect(() => {
-    if (!isInternalUpdate.current) {
-      const newHtml = sanitize(prepareHtml(text));
-      setHtmlContent(newHtml);
-      if (editorRef.current && editorRef.current.innerHTML !== newHtml) {
-        editorRef.current.innerHTML = newHtml;
-      }
+    if (isInternalUpdate.current) {
+      isInternalUpdate.current = false;
+      return;
     }
-    isInternalUpdate.current = false;
+    const newHtml = sanitize(prepareHtml(text));
+    setHtmlContent(newHtml);
+    if (editorRef.current && editorRef.current.innerHTML !== newHtml) {
+      editorRef.current.innerHTML = newHtml;
+    }
   }, [text]);
+
+  const syncRafRef = useRef<number | null>(null);
+
+  const syncContent = useCallback(() => {
+    if (syncRafRef.current) cancelAnimationFrame(syncRafRef.current);
+    syncRafRef.current = requestAnimationFrame(() => {
+      if (editorRef.current) {
+        const html = editorRef.current.innerHTML;
+        setHtmlContent(html);
+        isInternalUpdate.current = true;
+        onChange(stripHtml(html));
+      }
+    });
+  }, [onChange]);
 
   const execCommand = useCallback((command: string, value?: string) => {
     editorRef.current?.focus();
     document.execCommand(command, false, value);
     syncContent();
-  }, []);
-
-  const syncContent = useCallback(() => {
-    if (editorRef.current) {
-      const html = editorRef.current.innerHTML;
-      setHtmlContent(html);
-      isInternalUpdate.current = true;
-      onChange(stripHtml(html));
-    }
-  }, [onChange]);
+  }, [syncContent]);
 
   const getHtmlForExport = () => {
     return editorRef.current?.innerHTML || htmlContent;
@@ -151,7 +157,13 @@ export const RichTextEditor = ({ text, onChange, columnStyle }: RichTextEditorPr
     (window as any).find?.(searchTerm, false, false, true);
   };
 
-  const plainText = stripHtml(htmlContent);
+  const plainText = useMemo(() => stripHtml(htmlContent), [htmlContent]);
+
+  const stats = useMemo(() => ({
+    chars: plainText.length,
+    words: plainText.split(/\s+/).filter(w => w).length,
+    lines: plainText.split('\n').length,
+  }), [plainText]);
 
   const handleExportTXT = () => {
     const blob = new Blob([plainText], { type: 'text/plain;charset=utf-8' });
@@ -312,6 +324,36 @@ export const RichTextEditor = ({ text, onChange, columnStyle }: RichTextEditorPr
                   >
                     {[12, 14, 16, 18, 20, 24, 28, 32, 36, 48].map(s => (
                       <option key={s} value={s}>{s}px</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* סוג גופן */}
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs whitespace-nowrap">גופן:</Label>
+                  <select
+                    className="h-7 rounded border bg-background px-2 text-xs min-w-[100px]"
+                    defaultValue=""
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        execCommand('fontName', e.target.value);
+                      }
+                    }}
+                  >
+                    <option value="" disabled>בחר גופן</option>
+                    {[
+                      { value: 'Arial', label: 'Arial' },
+                      { value: 'David', label: 'David' },
+                      { value: 'Times New Roman', label: 'Times New Roman' },
+                      { value: 'Courier New', label: 'Courier New' },
+                      { value: 'Georgia', label: 'Georgia' },
+                      { value: 'Tahoma', label: 'Tahoma' },
+                      { value: 'Verdana', label: 'Verdana' },
+                      { value: 'Frank Ruhl Libre', label: 'Frank Ruhl Libre' },
+                      { value: 'Miriam', label: 'Miriam' },
+                      { value: 'Narkisim', label: 'Narkisim' },
+                    ].map(f => (
+                      <option key={f.value} value={f.value} style={{ fontFamily: f.value }}>{f.label}</option>
                     ))}
                   </select>
                 </div>
@@ -487,7 +529,6 @@ export const RichTextEditor = ({ text, onChange, columnStyle }: RichTextEditorPr
                     ...columnStyle,
                   }}
                   onInput={syncContent}
-                  dangerouslySetInnerHTML={{ __html: htmlContent }}
                   suppressContentEditableWarning
                 />
               </div>
@@ -527,11 +568,11 @@ export const RichTextEditor = ({ text, onChange, columnStyle }: RichTextEditorPr
 
         {/* === סטטיסטיקות === */}
         <div className="flex gap-4 text-xs text-muted-foreground border-t pt-3">
-          <span>תווים: {plainText.length}</span>
-          <span>מילים: {plainText.split(/\s+/).filter(w => w).length}</span>
-          <span>שורות: {plainText.split('\n').length}</span>
+          <span>תווים: {stats.chars}</span>
+          <span>מילים: {stats.words}</span>
+          <span>שורות: {stats.lines}</span>
         </div>
       </div>
     </Card>
   );
-};
+});
