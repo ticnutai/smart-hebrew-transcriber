@@ -296,6 +296,20 @@ const TranscriptEditorInner = ({ transcript, originalTranscript, onTranscriptCha
               שינויים
             </Button>
           )}
+          <Button
+            variant={spellCheck.spellCheckActive ? "default" : "outline"}
+            size="sm"
+            onClick={() => spellCheck.toggleSpellCheck(transcript)}
+            disabled={!transcript.trim() || spellCheck.isChecking || isEditing}
+            title="בדיקת שגיאות כתיב"
+          >
+            {spellCheck.isChecking ? (
+              <Loader2 className="w-4 h-4 ml-2 animate-spin" />
+            ) : (
+              <SpellCheck className="w-4 h-4 ml-2" />
+            )}
+            איות
+          </Button>
         </div>
       </div>
 
