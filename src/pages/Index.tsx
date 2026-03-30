@@ -103,6 +103,12 @@ const Index = () => {
   const perfMonitor = usePerfMonitor();
   const [showPerfPanel, setShowPerfPanel] = useState(false);
 
+  // Helper: set transcript from engine result (also stores original for diff)
+  const setTranscriptFromEngine = useCallback((text: string) => {
+    setTranscript(text);
+    setOriginalTranscript(text);
+  }, []);
+
   // Helper to track the start time of each transcription for analytics
   const transcriptionStartRef = useRef<number>(0);
 
