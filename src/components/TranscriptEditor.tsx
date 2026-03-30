@@ -19,13 +19,14 @@ import {
 
 interface TranscriptEditorProps {
   transcript: string;
+  originalTranscript?: string;
   onTranscriptChange: (text: string) => void;
   wordTimings?: Array<{word: string, start: number, end: number, probability?: number}>;
   searchOpen?: boolean;
   onSearchOpenChange?: (open: boolean) => void;
 }
 
-const TranscriptEditorInner = ({ transcript, onTranscriptChange, wordTimings, searchOpen, onSearchOpenChange }: TranscriptEditorProps) => {
+const TranscriptEditorInner = ({ transcript, originalTranscript, onTranscriptChange, wordTimings, searchOpen, onSearchOpenChange }: TranscriptEditorProps) => {
   const [isEditing, setIsEditing] = useState(false);
   const [showConfidence, setShowConfidence] = useState(false);
   const [customPrompt, setCustomPrompt] = useState("");
