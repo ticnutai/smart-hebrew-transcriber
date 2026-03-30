@@ -29,6 +29,7 @@ interface TranscriptEditorProps {
 const TranscriptEditorInner = ({ transcript, originalTranscript, onTranscriptChange, wordTimings, searchOpen, onSearchOpenChange }: TranscriptEditorProps) => {
   const [isEditing, setIsEditing] = useState(false);
   const [showConfidence, setShowConfidence] = useState(false);
+  const [showDiffHighlight, setShowDiffHighlight] = useState(false);
   const [customPrompt, setCustomPrompt] = useState("");
   const [showPromptDialog, setShowPromptDialog] = useState(false);
 
@@ -38,6 +39,15 @@ const TranscriptEditorInner = ({ transcript, originalTranscript, onTranscriptCha
   const [matches, setMatches] = useState<number[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Diff computation
+  const dmp = useMemo(() => new DiffMatchPatch(), []);
+  const diffElements = useMemo(() => {
+    if (!showDiffHighlight || !originalTranscript || originalTranscript === transcript) return null;
+    const d = dmp.diff_main(originalTranscript, transcript);
+    dmp.diff_cleanupSemantic(d);
+    return d;
+  }, [showDiffHighlight, originalTranscript, transcript, dmp]);
 
   // Compute matches when query or transcript changes
   useEffect(() => {
