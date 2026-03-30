@@ -2009,6 +2009,7 @@ const Index = () => {
           >
             <TranscriptEditor 
               transcript={transcript}
+              originalTranscript={originalTranscript}
               onTranscriptChange={setTranscript}
               wordTimings={wordTimings}
               searchOpen={searchOpen}
