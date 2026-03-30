@@ -137,7 +137,7 @@ const Index = () => {
   useEffect(() => {
     const partial = recoverPartial();
     if (partial && partial.text) {
-      setTranscript(partial.text);
+      setTranscriptFromEngine(partial.text);
       setWordTimings(partial.wordTimings || []);
       setRecoveredPartialInfo({ progress: partial.progress, wordCount: partial.wordTimings?.length || 0, lastSegEnd: partial.lastSegEnd });
       toast({
@@ -608,7 +608,7 @@ const Index = () => {
 
       if (data?.text) {
         const timings = data.wordTimings || [];
-        setTranscript(data.text);
+        setTranscriptFromEngine(data.text);
         setWordTimings(timings);
         await saveToHistory(data.text, 'OpenAI Whisper', undefined, timings);
         addAnalyticsRecord({
@@ -739,7 +739,7 @@ const Index = () => {
       if (data?.text) {
         debugLog.info('Groq', `Transcription received, length: ${data.text.length}`);
         const timings = data.wordTimings || [];
-        setTranscript(data.text);
+        setTranscriptFromEngine(data.text);
         setWordTimings(timings);
         await saveToHistory(data.text, 'Groq Whisper', undefined, timings);
         addAnalyticsRecord({
@@ -878,7 +878,7 @@ const Index = () => {
       if (data?.text) {
         debugLog.info('Google', `Success, text length: ${data.text.length}`);
         const timings = data.wordTimings || [];
-        setTranscript(data.text);
+        setTranscriptFromEngine(data.text);
         setWordTimings(timings);
         await saveToHistory(data.text, 'Google Speech-to-Text', undefined, timings);
         addAnalyticsRecord({
@@ -927,7 +927,7 @@ const Index = () => {
   const transcribeLocally = async (file: File, fileAudioUrl?: string) => {
     try {
       const result = await localTranscribe(file);
-      setTranscript(result.text);
+      setTranscriptFromEngine(result.text);
       setWordTimings(result.wordTimings);
       await saveToHistory(result.text, 'Local (Browser)', undefined, result.wordTimings);
       addAnalyticsRecord({
@@ -1018,7 +1018,7 @@ const Index = () => {
         debugLog.info('CUDA Stream', `${partial.progress}% — ${partial.wordTimings.length} מילים`);
       }, resumeFrom, cudaOptions);
       const timings = result.wordTimings || [];
-      setTranscript(result.text);
+      setTranscriptFromEngine(result.text);
       setWordTimings(timings);
       if (result.stats) setLastStats(result.stats);
 
@@ -1151,7 +1151,7 @@ const Index = () => {
 
       if (data?.text) {
         const timings = data.wordTimings || [];
-        setTranscript(data.text);
+        setTranscriptFromEngine(data.text);
         setWordTimings(timings);
         await saveToHistory(data.text, 'AssemblyAI', undefined, timings);
         addAnalyticsRecord({
@@ -1259,7 +1259,7 @@ const Index = () => {
 
       if (data?.text) {
         const timings = data.wordTimings || [];
-        setTranscript(data.text);
+        setTranscriptFromEngine(data.text);
         setWordTimings(timings);
         await saveToHistory(data.text, 'Deepgram', undefined, timings);
         addAnalyticsRecord({
@@ -1852,7 +1852,7 @@ const Index = () => {
             onRetry={retryJob}
             onDelete={deleteJob}
             onUseResult={(text, eng) => {
-              setTranscript(text);
+              setTranscriptFromEngine(text);
               saveToHistory(text, eng);
             }}
           />
@@ -1923,7 +1923,7 @@ const Index = () => {
           serverConnected={serverConnected}
           onTranscriptComplete={(result: LiveTranscriptResult) => {
             const { text, audioBlob, wordTimings, folder, durationSec } = result;
-            setTranscript(text);
+            setTranscriptFromEngine(text);
             const engineLabel = audioBlob ? 'Live (CUDA Whisper)' : 'Live (Web Speech API)';
             const audioFile = audioBlob
               ? new File([audioBlob], `live-${Date.now()}.webm`, { type: audioBlob.type })
@@ -1961,7 +1961,7 @@ const Index = () => {
           transcripts={transcripts}
           isCloud={isCloud}
           isLoading={isCloudLoading}
-          onSelect={(text) => setTranscript(text)}
+          onSelect={(text) => setTranscriptFromEngine(text)}
           onClearAll={() => {
             deleteAll();
             toast({ title: "ההיסטוריה נמחקה" });
@@ -2021,7 +2021,7 @@ const Index = () => {
         {serverConnected && (
           <YouTubeTranscriber
             onTranscriptComplete={(text) => {
-              setTranscript(text);
+              setTranscriptFromEngine(text);
               saveToHistory(text, 'YouTube (Whisper GPU)').then(() => {
                 setTimeout(() => navigate('/text-editor', { state: { text, transcriptId: lastSavedTranscriptIdRef.current } }), 1000);
               });
