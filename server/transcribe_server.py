@@ -12,7 +12,6 @@ Usage:
 import os
 import sys
 import json
-import hmac
 import argparse
 import tempfile
 import time
@@ -50,17 +49,6 @@ if sys.platform == "win32":
             pass
     if _dll_dirs_added:
         print(f"  [DLL] Added {len(_dll_dirs_added)} NVIDIA DLL dirs to PATH + add_dll_directory")
-
-from config import (
-    MODEL_REGISTRY, DEFAULT_MODEL, MODELS_NEEDING_CONVERSION,
-    TRANSCRIPTION_PRESETS, DEFAULT_PRESET,
-    MAX_UPLOAD_SIZE_MB, WAITRESS_CHANNEL_TIMEOUT, WAITRESS_RECV_BYTES,
-    MODEL_TTL_SECONDS, STAGE_TTL_SECONDS, ALLOWED_SUFFIXES,
-)
-from gpu_utils import (
-    get_device, get_gpu_name, get_gpu_mem, get_system_mem,
-    cleanup_gpu_memory, log_memory_state, auto_batch_size,
-)
 
 try:
     import faster_whisper
@@ -153,7 +141,7 @@ def _auth_and_rate_limit():
     if request.path in sensitive:
         if _api_key:
             provided = request.headers.get("X-API-Key", "")
-            if not hmac.compare_digest(provided, _api_key):
+            if provided != _api_key:
                 return jsonify({"error": "Unauthorized"}), 401
         # When no API key configured, only allow from localhost
         elif request.remote_addr not in ("127.0.0.1", "::1", "localhost"):
@@ -163,7 +151,7 @@ def _auth_and_rate_limit():
     # API key check
     if _api_key:
         provided = request.headers.get("X-API-Key", "")
-        if not hmac.compare_digest(provided, _api_key):
+        if provided != _api_key:
             return jsonify({"error": "Invalid or missing API key", "hint": "Set X-API-Key header"}), 401
 
     # Rate limit on POST endpoints (transcription, model loading, etc.)
@@ -174,12 +162,18 @@ def _auth_and_rate_limit():
 
     return None
 
+# Allowed audio/video file extensions for upload
+_ALLOWED_SUFFIXES = frozenset({
+    ".mp3", ".wav", ".m4a", ".webm", ".ogg", ".flac", ".aac", ".wma",
+    ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".3gp",
+})
+
 def _safe_suffix(filename: str | None, default: str = ".webm") -> str:
     """Extract file suffix from filename, restricted to allowed extensions."""
     if not filename:
         return default
     suffix = Path(filename).suffix.lower()
-    return suffix if suffix in ALLOWED_SUFFIXES else default
+    return suffix if suffix in _ALLOWED_SUFFIXES else default
 
 # ════════════════════════════════════════════════════════════════════
 #  DEBUG & MONITORING INFRASTRUCTURE
@@ -207,10 +201,114 @@ _transcribe_lock = threading.Lock()
 _transcribe_active: bool = False
 _transcribe_active_info: dict | None = None  # metadata about active transcription
 
+# Settings
+MAX_UPLOAD_SIZE_MB = 500  # reject files larger than this
+WAITRESS_CHANNEL_TIMEOUT = 1800  # 30 minutes — enough for very long audio
+WAITRESS_RECV_BYTES = 131072  # 128 KB receive buffer
+
+# GPU memory cache for fast health checks
+_gpu_mem_cache: dict | None = None
+_gpu_mem_cache_time: float = 0.0
+
+def _get_gpu_mem() -> dict | None:
+    """Get GPU memory usage in MB. Cached for 2s to keep /health fast."""
+    global _gpu_mem_cache, _gpu_mem_cache_time
+    now = time.time()
+    if _gpu_mem_cache is not None and (now - _gpu_mem_cache_time) < 2.0:
+        return _gpu_mem_cache
+    result = None
+    try:
+        if _has_torch and torch.cuda.is_available():
+            allocated = torch.cuda.memory_allocated(0) / 1024 / 1024
+            reserved = torch.cuda.memory_reserved(0) / 1024 / 1024
+            total = torch.cuda.get_device_properties(0).total_mem / 1024 / 1024
+            result = {
+                "allocated_mb": round(allocated, 1),
+                "reserved_mb": round(reserved, 1),
+                "total_mb": round(total, 1),
+                "free_mb": round(total - reserved, 1),
+                "utilization_pct": round(reserved / total * 100, 1) if total > 0 else 0,
+            }
+    except Exception:
+        pass
+    if result is None:
+        try:
+            import subprocess
+            r = subprocess.run(
+                ["nvidia-smi", "--query-gpu=memory.total,memory.used,memory.free", "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=5
+            )
+            if r.returncode == 0:
+                parts = r.stdout.strip().split(",")
+                total, used, free = float(parts[0]), float(parts[1]), float(parts[2])
+                result = {
+                    "allocated_mb": round(used, 1),
+                    "reserved_mb": round(used, 1),
+                    "total_mb": round(total, 1),
+                    "free_mb": round(free, 1),
+                    "utilization_pct": round(used / total * 100, 1) if total > 0 else 0,
+                }
+        except Exception:
+            pass
+    _gpu_mem_cache = result
+    _gpu_mem_cache_time = now
+    return result
+
+def _get_system_mem() -> dict:
+    """Get system RAM usage."""
+    try:
+        import psutil
+        vm = psutil.virtual_memory()
+        return {
+            "total_gb": round(vm.total / 1024**3, 1),
+            "used_gb": round(vm.used / 1024**3, 1),
+            "free_gb": round(vm.available / 1024**3, 1),
+            "percent": vm.percent,
+        }
+    except ImportError:
+        pass
+    # Fallback for Windows
+    try:
+        import ctypes
+        class MEMORYSTATUSEX(ctypes.Structure):
+            _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                        ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+                        ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+                        ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+                        ("sullAvailExtendedVirtual", ctypes.c_ulonglong)]
+        stat = MEMORYSTATUSEX()
+        stat.dwLength = ctypes.sizeof(stat)
+        ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
+        return {
+            "total_gb": round(stat.ullTotalPhys / 1024**3, 1),
+            "used_gb": round((stat.ullTotalPhys - stat.ullAvailPhys) / 1024**3, 1),
+            "free_gb": round(stat.ullAvailPhys / 1024**3, 1),
+            "percent": stat.dwMemoryLoad,
+        }
+    except Exception:
+        return {"error": "unavailable"}
+
+def _cleanup_gpu_memory():
+    """Force garbage collection and clear CUDA cache to free VRAM."""
+    import gc
+    gc.collect()
+    if _has_torch and torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        _log.debug("GPU memory cleaned up (gc + empty_cache)")
+
+def _log_memory_state(label: str):
+    """Log current GPU + system memory state."""
+    gpu = _get_gpu_mem()
+    sys_mem = _get_system_mem()
+    gpu_str = f"GPU: {gpu['allocated_mb']:.0f}/{gpu['total_mb']:.0f} MB ({gpu['utilization_pct']:.0f}%)" if gpu else "GPU: N/A"
+    ram_str = f"RAM: {sys_mem.get('used_gb', '?')}/{sys_mem.get('total_gb', '?')} GB ({sys_mem.get('percent', '?')}%)"
+    _log.info(f"[MEM {label}] {gpu_str} | {ram_str}")
+
 # Global model cache
 _model_cache: dict[str, faster_whisper.WhisperModel] = {}
 _model_last_used: dict[str, float] = {}  # cache_key → last access timestamp
 _current_model_id: str | None = None
+MODEL_TTL_SECONDS = 30 * 60  # 30 minutes — evict unused models to free VRAM
 _flash_attention_disabled = False  # Set True after runtime flash-attention error
 
 # Background model loading state
@@ -219,9 +317,82 @@ _model_loading: bool = False       # True while a model is being loaded in backg
 _model_loading_id: str | None = None  # model being loaded
 _model_loading_progress: str = ''   # current loading phase description
 
+# Device + GPU name cache
+_cached_device: str | None = None
+_cached_gpu_name: str | None = None
+
 # Staged audio files — pre-uploaded while model loads in parallel
 import uuid
 _staged_files: dict[str, dict] = {}  # stage_id → { path, filename, timestamp }
+STAGE_TTL_SECONDS = 5 * 60  # 5 minutes — auto-cleanup staged files
+
+# Model registry - maps friendly names to HuggingFace model IDs
+MODEL_REGISTRY = {
+    # Standard Whisper models
+    "tiny": "tiny",
+    "base": "base",
+    "small": "small",
+    "medium": "medium",
+    "large-v2": "large-v2",
+    "large-v3": "large-v3",
+    "large-v3-turbo": "large-v3-turbo",
+    # Distil-Whisper: faster, smaller, ~99% accuracy of large-v3
+    "distil-large-v3": "deepdml/faster-whisper-large-v3-turbo-ct2",
+    "distil-medium.en": "Systran/faster-distil-whisper-medium.en",
+    "distil-small.en": "Systran/faster-distil-whisper-small.en",
+    # Ivrit.ai Hebrew-optimized models (pre-converted CT2 format on HuggingFace)
+    "ivrit-ai/faster-whisper-v2-d4": "ivrit-ai/faster-whisper-v2-d4",
+    # ivrit-ai/whisper-large-v3-turbo — requires local HF→CT2 conversion (see MODELS_NEEDING_CONVERSION)
+}
+
+DEFAULT_MODEL = "large-v3-turbo"
+
+
+def get_device() -> str:
+    """Detect best available device using CTranslate2 (cached)."""
+    global _cached_device
+    if _cached_device is not None:
+        return _cached_device
+    try:
+        import ctranslate2
+        cuda_types = ctranslate2.get_supported_compute_types("cuda")
+        if cuda_types and len(cuda_types) > 0:
+            _cached_device = "cuda"
+            gpu_name = get_gpu_name() or "GPU (CUDA)"
+            print(f"  GPU: {gpu_name} (CUDA via CTranslate2)")
+            return "cuda"
+    except Exception as e:
+        print(f"  CUDA detection failed: {e}")
+    print("  GPU: Not available, using CPU")
+    _cached_device = "cpu"
+    return "cpu"
+
+
+def get_gpu_name():
+    """Get GPU name for display (cached)."""
+    global _cached_gpu_name
+    if _cached_gpu_name is not None:
+        return _cached_gpu_name
+    if _has_torch:
+        try:
+            if torch.cuda.is_available():
+                _cached_gpu_name = torch.cuda.get_device_name(0)
+                return _cached_gpu_name
+        except Exception:
+            pass
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            _cached_gpu_name = result.stdout.strip()
+            return _cached_gpu_name
+    except Exception:
+        pass
+    return None
+
 
 CONVERT_ROOT = Path.home() / ".cache" / "whisper-models-ct2"
 
@@ -260,6 +431,64 @@ def convert_hf_to_ct2(model_id: str) -> str:
     del hf_model
     print(f"    Conversion complete: {output_dir}")
     return str(output_dir)
+
+
+# Models that need HF→CT2 conversion (not available as pre-converted on HF Hub)
+MODELS_NEEDING_CONVERSION = {
+    "ivrit-ai/whisper-large-v3-turbo",
+}
+
+
+# ════════════════════════════════════════════════════════════════════
+#  TRANSCRIPTION PRESETS
+# ════════════════════════════════════════════════════════════════════
+TRANSCRIPTION_PRESETS = {
+    "fast": {
+        "label": "מהיר",
+        "label_en": "Fast",
+        "description": "מהירות מקסימלית — עיבוד מקבילי, beam=1, דילוג שקט אגרסיבי",
+        "fast_mode": True,
+        "beam_size": 1,
+        "batch_size": 24,
+        "condition_on_previous_text": False,
+        "vad_aggressive": True,
+        "compute_type": "int8_float16",
+    },
+    "balanced": {
+        "label": "מאוזן",
+        "label_en": "Balanced",
+        "description": "איזון טוב בין מהירות לדיוק — ברירת מחדל מומלצת",
+        "fast_mode": True,
+        "beam_size": 1,
+        "batch_size": 16,
+        "condition_on_previous_text": False,
+        "vad_aggressive": False,
+        "compute_type": "int8_float16",
+    },
+    "accurate": {
+        "label": "מדויק",
+        "label_en": "Accurate",
+        "description": "דיוק מקסימלי — עיבוד סדרתי, beam=5, הקשר טקסט מלא",
+        "fast_mode": False,
+        "beam_size": 5,
+        "batch_size": 8,
+        "condition_on_previous_text": True,
+        "vad_aggressive": False,
+        "compute_type": "float16",
+    },
+}
+DEFAULT_PRESET = "balanced"
+
+
+def auto_batch_size() -> int:
+    """Auto-detect optimal batch size based on GPU VRAM.
+    Rule: min(24, max(4, free_vram_mb // 512))
+    Falls back to 8 if VRAM cannot be determined.
+    """
+    gpu = _get_gpu_mem()
+    if gpu and gpu.get("free_mb"):
+        return min(24, max(4, int(gpu["free_mb"] // 512)))
+    return 8
 
 
 def load_model(model_id: str, compute_type_override: str | None = None) -> faster_whisper.WhisperModel:
@@ -416,7 +645,7 @@ def health():
     device = get_device()
     gpu_name = get_gpu_name()
     downloaded = get_downloaded_models()
-    gpu_mem = get_gpu_mem()
+    gpu_mem = _get_gpu_mem()
     uptime = round(time.time() - _server_start_time, 0)
     return jsonify({
         "status": "ok",
@@ -439,8 +668,8 @@ def health():
 @app.route("/debug", methods=["GET"])
 def debug_endpoint():
     """Comprehensive debug info — GPU, RAM, request history, config."""
-    gpu_mem = get_gpu_mem()
-    sys_mem = get_system_mem()
+    gpu_mem = _get_gpu_mem()
+    sys_mem = _get_system_mem()
     gpu_name = get_gpu_name()
 
     # Calculate stats from request history
@@ -500,8 +729,8 @@ def diagnostics_endpoint():
 def setup_scan():
     """System scan for the setup wizard — returns GPU, RAM, disk, installed packages."""
     import shutil
-    gpu_mem = get_gpu_mem()
-    sys_mem = get_system_mem()
+    gpu_mem = _get_gpu_mem()
+    sys_mem = _get_system_mem()
     gpu_name = get_gpu_name()
     device = get_device()
 
@@ -853,7 +1082,7 @@ def transcribe_stream():
 
         try:
             # ── Log memory BEFORE transcription ──
-            log_memory_state(f"{request_id} PRE-TRANSCRIBE")
+            _log_memory_state(f"{request_id} PRE-TRANSCRIBE")
 
             # Tell client we're loading the model
             _log.info(f"[{request_id}] SSE: sending 'loading' event")
@@ -926,7 +1155,7 @@ def transcribe_stream():
                     # OOM with large batch — retry with smaller batch
                     retry_batch = 4
                     _log.warning(f"[{request_id}] GPU OOM with batch_size={batch_size}, retrying with batch_size={retry_batch}...")
-                    cleanup_gpu_memory()
+                    _cleanup_gpu_memory()
                     yield f"data: {json.dumps({'type': 'loading', 'message': f'GPU memory full — retrying with smaller batch ({retry_batch})...', 'model': resolved})}\n\n"
                     segments_gen, info = _do_transcribe(model, override_batch=retry_batch)
                     segments_list = []
@@ -1033,7 +1262,7 @@ def transcribe_stream():
             if is_cuda_oom:
                 _log.error(f"[{request_id}] CUDA OUT OF MEMORY: {error_str}")
                 _log.error(f"[{request_id}] Cleaning GPU memory...")
-                cleanup_gpu_memory()
+                _cleanup_gpu_memory()
                 user_error = "GPU out of memory — try a shorter audio file or use fast_mode=1"
             elif is_corrupt_file:
                 _log.error(f"[{request_id}] CORRUPT/INVALID FILE: {audio_filename} ({file_size_mb:.1f} MB)")
@@ -1067,8 +1296,8 @@ def transcribe_stream():
                         pass
 
             # ── Post-transcription GPU cleanup ──
-            cleanup_gpu_memory()
-            log_memory_state(f"{request_id} POST-TRANSCRIBE")
+            _cleanup_gpu_memory()
+            _log_memory_state(f"{request_id} POST-TRANSCRIBE")
 
             # ── Record in history ──
             request_record["end_time"] = datetime.now(timezone.utc).isoformat()
@@ -1887,4 +2116,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

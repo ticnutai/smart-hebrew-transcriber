@@ -7,13 +7,12 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { Settings as SettingsIcon, ArrowRight, LogOut, Eye, EyeOff, Wrench, Cpu, Palette, Key, Download, Upload, ExternalLink } from "lucide-react";
+import { Settings as SettingsIcon, ArrowRight, LogOut, Eye, EyeOff, Wrench, Cpu, Palette, Key } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import DevToolsPanel from "@/components/DevToolsPanel";
 import { OllamaManager } from "@/components/OllamaManager";
 import { ThemeManager } from "@/components/ThemeManager";
-import { getApiKey, setEncryptedKey, setEncryptedPool, getApiKeyPool } from "@/lib/keyCrypto";
-import { createBackup, downloadBackup, restoreBackup } from "@/utils/backupRestore";
+import { getApiKey } from "@/lib/keyCrypto";
 
 const Settings = () => {
   const { isAuthenticated, logout, isLoading, isAdmin, user } = useAuth();
@@ -37,8 +36,6 @@ const Settings = () => {
   const [showAssemblyAI, setShowAssemblyAI] = useState(false);
   const [showDeepgram, setShowDeepgram] = useState(false);
   const [userIdentifier, setUserIdentifier] = useState("");
-  const [isBackingUp, setIsBackingUp] = useState(false);
-  const [isRestoring, setIsRestoring] = useState(false);
 
   useEffect(() => {
     if (isLoading) return;
@@ -69,10 +66,17 @@ const Settings = () => {
       }
 
       const loadPoolOrFallback = (poolStorageKey: string, fallback?: string, setter?: (v: string) => void) => {
-        const pool = getApiKeyPool(poolStorageKey);
-        if (pool.length > 0) {
-          setter?.(pool.join("\n"));
-          return;
+        const rawPool = localStorage.getItem(poolStorageKey);
+        if (rawPool) {
+          try {
+            const parsed = JSON.parse(rawPool) as string[];
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setter?.(parsed.join("\n"));
+              return;
+            }
+          } catch {
+            // ignore malformed pool
+          }
         }
         if (fallback) setter?.(fallback);
       };
@@ -162,30 +166,28 @@ const Settings = () => {
         return;
       }
 
-      // Also save locally for quick access (encrypted)
-      const savePromises: Promise<void>[] = [];
+      // Also save locally for quick access
       if (primaryOpenAI) {
-        savePromises.push(setEncryptedKey("openai_api_key", primaryOpenAI));
-        savePromises.push(setEncryptedPool("openai_api_keys_pool", openaiPool));
+        localStorage.setItem("openai_api_key", primaryOpenAI);
+        localStorage.setItem("openai_api_keys_pool", JSON.stringify(openaiPool));
       }
       if (primaryGoogle) {
-        savePromises.push(setEncryptedKey("google_api_key", primaryGoogle));
-        savePromises.push(setEncryptedPool("google_api_keys_pool", googlePool));
+        localStorage.setItem("google_api_key", primaryGoogle);
+        localStorage.setItem("google_api_keys_pool", JSON.stringify(googlePool));
       }
       if (primaryGroq) {
-        savePromises.push(setEncryptedKey("groq_api_key", primaryGroq));
-        savePromises.push(setEncryptedPool("groq_api_keys_pool", groqPool));
+        localStorage.setItem("groq_api_key", primaryGroq);
+        localStorage.setItem("groq_api_keys_pool", JSON.stringify(groqPool));
       }
-      if (claudeKey) savePromises.push(setEncryptedKey("claude_api_key", claudeKey));
+      if (claudeKey) localStorage.setItem("claude_api_key", claudeKey);
       if (primaryAssembly) {
-        savePromises.push(setEncryptedKey("assemblyai_api_key", primaryAssembly));
-        savePromises.push(setEncryptedPool("assemblyai_api_keys_pool", assemblyPool));
+        localStorage.setItem("assemblyai_api_key", primaryAssembly);
+        localStorage.setItem("assemblyai_api_keys_pool", JSON.stringify(assemblyPool));
       }
       if (primaryDeepgram) {
-        savePromises.push(setEncryptedKey("deepgram_api_key", primaryDeepgram));
-        savePromises.push(setEncryptedPool("deepgram_api_keys_pool", deepgramPool));
+        localStorage.setItem("deepgram_api_key", primaryDeepgram);
+        localStorage.setItem("deepgram_api_keys_pool", JSON.stringify(deepgramPool));
       }
-      await Promise.all(savePromises);
 
       if (primaryOpenAI) setOpenaiKey(primaryOpenAI);
       if (primaryGoogle) setGoogleKey(primaryGoogle);
@@ -259,7 +261,7 @@ const Settings = () => {
         )}
 
         <Tabs defaultValue="api-keys" dir="rtl" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="api-keys" className="gap-2">
               <Key className="h-4 w-4" />
               מפתחות API
@@ -267,10 +269,6 @@ const Settings = () => {
             <TabsTrigger value="themes" className="gap-2">
               <Palette className="h-4 w-4" />
               ערכות נושא
-            </TabsTrigger>
-            <TabsTrigger value="backup" className="gap-2">
-              <Download className="h-4 w-4" />
-              גיבוי
             </TabsTrigger>
           </TabsList>
 
@@ -287,79 +285,6 @@ const Settings = () => {
               </CardHeader>
               <CardContent>
                 <ThemeManager />
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="backup">
-            <Card>
-              <CardHeader>
-                <div className="flex items-center gap-2">
-                  <Download className="w-6 h-6 text-primary" />
-                  <CardTitle className="text-2xl">גיבוי ושחזור</CardTitle>
-                </div>
-                <CardDescription>
-                  ייצוא וייבוא של כל הנתונים שלך: תמלולים, אוצר מילים, כללי תיקון והגדרות
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="space-y-3">
-                  <h3 className="font-semibold">ייצוא גיבוי</h3>
-                  <p className="text-sm text-muted-foreground">הורד קובץ JSON עם כל הנתונים שלך</p>
-                  <Button
-                    onClick={async () => {
-                      setIsBackingUp(true);
-                      try {
-                        const data = await createBackup();
-                        downloadBackup(data);
-                        toast.success(`גיבוי נוצר: ${data.transcripts.length} תמלולים, ${data.vocabulary.length} מילים, ${data.correctionRules.length} כללים`);
-                      } catch (err) {
-                        toast.error("שגיאה ביצירת גיבוי");
-                        console.error(err);
-                      } finally {
-                        setIsBackingUp(false);
-                      }
-                    }}
-                    disabled={isBackingUp}
-                    className="gap-2"
-                  >
-                    <Download className="w-4 h-4" />
-                    {isBackingUp ? "יוצר גיבוי..." : "הורד גיבוי"}
-                  </Button>
-                </div>
-
-                <div className="border-t pt-4 space-y-3">
-                  <h3 className="font-semibold">שחזור מגיבוי</h3>
-                  <p className="text-sm text-muted-foreground">ייבא נתונים מקובץ גיבוי. נתונים קיימים לא יימחקו — רק ייתווספו חדשים.</p>
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      const input = document.createElement("input");
-                      input.type = "file";
-                      input.accept = ".json";
-                      input.onchange = async (e) => {
-                        const file = (e.target as HTMLInputElement).files?.[0];
-                        if (!file) return;
-                        setIsRestoring(true);
-                        try {
-                          const result = await restoreBackup(file);
-                          toast.success(`שחזור הושלם: ${result.transcripts} תמלולים, ${result.vocabulary} מילים, ${result.rules} כללים`);
-                        } catch (err) {
-                          toast.error(err instanceof Error ? err.message : "שגיאה בשחזור");
-                          console.error(err);
-                        } finally {
-                          setIsRestoring(false);
-                        }
-                      };
-                      input.click();
-                    }}
-                    disabled={isRestoring}
-                    className="gap-2"
-                  >
-                    <Upload className="w-4 h-4" />
-                    {isRestoring ? "משחזר..." : "ייבוא מגיבוי"}
-                  </Button>
-                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -604,54 +529,6 @@ const Settings = () => {
 
         {/* Ollama Local AI */}
         <OllamaManager />
-
-        {/* Hebrew NLP Resources */}
-        <Card className="mt-4">
-          <CardHeader>
-            <CardTitle className="text-lg flex items-center gap-2">
-              🇮🇱 משאבי NLP עברי
-            </CardTitle>
-            <CardDescription>
-              כלים ומודלים מומלצים לעברית
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <a href="https://huggingface.co/ivrit-ai" target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-2 p-3 border rounded-lg hover:bg-accent transition-colors">
-                <ExternalLink className="w-4 h-4 flex-shrink-0" />
-                <div>
-                  <div className="font-medium text-sm">Ivrit.ai — מודלי Whisper</div>
-                  <div className="text-xs text-muted-foreground">המודלים המדויקים ביותר לעברית</div>
-                </div>
-              </a>
-              <a href="https://huggingface.co/dicta-il" target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-2 p-3 border rounded-lg hover:bg-accent transition-colors">
-                <ExternalLink className="w-4 h-4 flex-shrink-0" />
-                <div>
-                  <div className="font-medium text-sm">DICTA — NLP עברי</div>
-                  <div className="text-xs text-muted-foreground">ניקוד, מורפולוגיה, DictaLM 3.0</div>
-                </div>
-              </a>
-              <a href="https://huggingface.co/spaces/ivrit-ai/whisper-leaderboard" target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-2 p-3 border rounded-lg hover:bg-accent transition-colors">
-                <ExternalLink className="w-4 h-4 flex-shrink-0" />
-                <div>
-                  <div className="font-medium text-sm">Hebrew Transcription Leaderboard</div>
-                  <div className="text-xs text-muted-foreground">טבלת השוואה בין מודלי תמלול</div>
-                </div>
-              </a>
-              <a href="https://github.com/NNLP-IL/Hebrew-Resources" target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-2 p-3 border rounded-lg hover:bg-accent transition-colors">
-                <ExternalLink className="w-4 h-4 flex-shrink-0" />
-                <div>
-                  <div className="font-medium text-sm">Hebrew NLP Resources</div>
-                  <div className="text-xs text-muted-foreground">רשימה מקיפה של כלי NLP לעברית</div>
-                </div>
-              </a>
-            </div>
-          </CardContent>
-        </Card>
           </TabsContent>
         </Tabs>
       </div>

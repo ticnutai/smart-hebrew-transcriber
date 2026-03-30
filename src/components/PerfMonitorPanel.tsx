@@ -1,4 +1,4 @@
-import { useState, memo } from "react";
+import { useState } from "react";
 import type { PerfRecord } from "@/hooks/usePerfMonitor";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -57,7 +57,7 @@ function hebrewBadge(r: number) {
   return "bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/30";
 }
 
-export const PerfMonitorPanel = memo(function PerfMonitorPanel({ records, onClear, onClose }: PerfMonitorPanelProps) {
+export function PerfMonitorPanel({ records, onClear, onClose }: PerfMonitorPanelProps) {
   const [expanded, setExpanded] = useState(true);
   const successRecords = records.filter(r => r.status === "success");
 
@@ -185,4 +185,4 @@ export const PerfMonitorPanel = memo(function PerfMonitorPanel({ records, onClea
       )}
     </Card>
   );
-});
+}

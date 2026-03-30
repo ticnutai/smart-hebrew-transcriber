@@ -1,4 +1,4 @@
-const CACHE_NAME = 'transcriber-v4';
+const CACHE_NAME = 'transcriber-v3';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -151,11 +151,6 @@ self.addEventListener('message', (event) => {
       data: { url: url || '/' },
     });
   }
-
-  // Skip waiting when a new version is available
-  if (event.data.type === 'SKIP_WAITING') {
-    self.skipWaiting();
-  }
 });
 
 // Handle notification click — focus or open the app
@@ -175,34 +170,4 @@ self.addEventListener('notificationclick', (event) => {
       return clients.openWindow(url);
     })
   );
-});
-
-// ═══════════════════════════════════════════════
-//  NETWORK RECOVERY — notify app when back online
-// ═══════════════════════════════════════════════
-let wasOffline = false;
-
-// Periodically check connectivity status
-self.addEventListener('fetch', function onFetchForRecovery(event) {
-  // Only track same-origin navigation/API calls
-  const url = new URL(event.request.url);
-  if (url.origin !== self.location.origin) return;
-});
-
-// Notify all clients about network recovery
-async function broadcastNetworkStatus(online) {
-  const allClients = await clients.matchAll({ type: 'window', includeUncontrolled: true });
-  allClients.forEach(client => {
-    client.postMessage({ type: 'NETWORK_STATUS', online });
-  });
-}
-
-// Use a simple online/offline detection in the fetch handler
-const originalFetch = self.addEventListener;
-self.addEventListener('fetch', (event) => {
-  // Track offline/online transitions
-  if (wasOffline && event.request.mode === 'navigate') {
-    wasOffline = false;
-    broadcastNetworkStatus(true);
-  }
 });

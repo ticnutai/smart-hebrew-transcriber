@@ -2,10 +2,9 @@ import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, FileText, Languages, ListChecks, Newspaper, BookOpen, PenLine, Sparkles, Search } from "lucide-react";
+import { Loader2, FileText, Languages, ListChecks, Newspaper, BookOpen, PenLine, Sparkles } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { editTranscriptCloud } from "@/utils/editTranscriptApi";
-import { addNikud, checkGrammar } from "@/utils/dictaApi";
 
 interface EditingTemplatesProps {
   text: string;
@@ -19,7 +18,6 @@ interface Template {
   icon: React.ReactNode;
   prompt: string;
   category: 'cleanup' | 'format' | 'transform';
-  useDictaApi?: 'nakdan' | 'grammar';
 }
 
 const templates: Template[] = [
@@ -33,21 +31,11 @@ const templates: Template[] = [
   },
   {
     id: 'add_nikud',
-    label: 'הוסף ניקוד (DICTA)',
-    description: 'ניקוד אוטומטי חכם דרך DICTA Nakdan API — ללא AI',
+    label: 'הוסף ניקוד',
+    description: 'הוסף ניקוד מלא לטקסט בעברית',
     icon: <PenLine className="w-4 h-4" />,
-    prompt: '',
+    prompt: 'הוסף ניקוד מלא לטקסט העברי הבא. ודא שהניקוד מדויק דקדוקית. החזר רק את הטקסט עם ניקוד.',
     category: 'transform',
-    useDictaApi: 'nakdan',
-  },
-  {
-    id: 'grammar_check',
-    label: 'בדיקת דקדוק (DICTA)',
-    description: 'ניתוח מורפולוגי ובדיקת דקדוק עברי — DICTA Morph API',
-    icon: <Search className="w-4 h-4" />,
-    prompt: '',
-    category: 'cleanup',
-    useDictaApi: 'grammar',
   },
   {
     id: 'format_article',
@@ -107,28 +95,9 @@ export const EditingTemplates = ({ text, onApply }: EditingTemplatesProps) => {
     }
     setLoadingId(template.id);
     try {
-      let resultText: string;
-
-      if (template.useDictaApi === 'nakdan') {
-        const result = await addNikud(text);
-        if (!result.success) throw new Error(result.error);
-        resultText = result.text;
-      } else if (template.useDictaApi === 'grammar') {
-        const result = await checkGrammar(text);
-        if (!result.success) throw new Error(result.error);
-        if (result.issues.length === 0) {
-          toast({ title: "לא נמצאו בעיות דקדוק ✅" });
-          return;
-        }
-        resultText = `בעיות שנמצאו (${result.issues.length}):\n` +
-          result.issues.map(i => `• "${i.word}" → ${i.suggestion} (${i.type})`).join('\n') +
-          '\n\n--- טקסט מקורי ---\n' + text;
-      } else {
-        resultText = await editTranscriptCloud({
-          text, action: 'custom', customPrompt: template.prompt
-        });
-      }
-
+      const resultText = await editTranscriptCloud({
+        text, action: 'custom', customPrompt: template.prompt
+      });
       onApply(resultText, template.label);
       toast({ title: `${template.label} הושלם ✅` });
     } catch (err) {

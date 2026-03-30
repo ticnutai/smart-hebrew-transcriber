@@ -96,7 +96,6 @@ export const useLocalServer = () => {
   const [modelReady, setModelReady] = useState(false);
   const [modelLoading, setModelLoading] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval>>();
-  const visCleanupRef = useRef<(() => void) | undefined>();
   const abortRef = useRef<AbortController | null>(null);
   const preloadAbortRef = useRef<AbortController | null>(null);
 
@@ -199,7 +198,7 @@ export const useLocalServer = () => {
       if (maxDurationMs > 0 && Date.now() - startedAt >= maxDurationMs) {
         debugLog.warn('Polling', `Max polling duration reached (${maxDurationMs / 1000}s) — stopping`);
         if (pollRef.current) { clearTimeout(pollRef.current as unknown as number); pollRef.current = undefined; }
-        if (visCleanupRef.current) { visCleanupRef.current(); visCleanupRef.current = undefined; }
+        if ((pollRef as any)._visCleanup) { (pollRef as any)._visCleanup(); (pollRef as any)._visCleanup = undefined; }
         return;
       }
       const ok = await checkConnection();
@@ -226,7 +225,7 @@ export const useLocalServer = () => {
     pollRef.current = setTimeout(poll, currentInterval) as unknown as ReturnType<typeof setInterval>;
 
     // Store cleanup for visibility listener
-    visCleanupRef.current = () => document.removeEventListener('visibilitychange', handleVisibility);
+    (pollRef as any)._visCleanup = () => document.removeEventListener('visibilitychange', handleVisibility);
   }, [checkConnection]);
 
   /** Stop polling — call this when the CUDA engine is deselected */
@@ -235,9 +234,9 @@ export const useLocalServer = () => {
       clearTimeout(pollRef.current as unknown as number);
       pollRef.current = undefined;
     }
-    if (visCleanupRef.current) {
-      visCleanupRef.current();
-      visCleanupRef.current = undefined;
+    if ((pollRef as any)._visCleanup) {
+      (pollRef as any)._visCleanup();
+      (pollRef as any)._visCleanup = undefined;
     }
   }, []);
 
@@ -245,7 +244,7 @@ export const useLocalServer = () => {
   useEffect(() => {
     return () => {
       if (pollRef.current) clearTimeout(pollRef.current as unknown as number);
-      if (visCleanupRef.current) visCleanupRef.current();
+      if ((pollRef as any)._visCleanup) (pollRef as any)._visCleanup();
     };
   }, []);
 

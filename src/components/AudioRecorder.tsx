@@ -197,7 +197,7 @@ export const AudioRecorder = ({ onRecordingComplete, isTranscribing, engine }: A
 
         {/* Timer */}
         {isRecording && (
-          <div role="timer" aria-live="polite" aria-label={`זמן הקלטה: ${formatTime(duration)}`} className="text-2xl font-mono font-bold text-primary tabular-nums">
+          <div className="text-2xl font-mono font-bold text-primary tabular-nums">
             {formatTime(duration)}
           </div>
         )}
@@ -210,7 +210,6 @@ export const AudioRecorder = ({ onRecordingComplete, isTranscribing, engine }: A
               onClick={startRecording}
               disabled={isTranscribing}
               className="rounded-full w-16 h-16"
-              aria-label={isTranscribing ? "מתמלל..." : "התחל הקלטה"}
             >
               {isTranscribing ? (
                 <Loader2 className="w-7 h-7 animate-spin" />
@@ -225,7 +224,6 @@ export const AudioRecorder = ({ onRecordingComplete, isTranscribing, engine }: A
                 variant="outline"
                 onClick={togglePause}
                 className="rounded-full w-12 h-12"
-                aria-label={isPaused ? "המשך הקלטה" : "השהה הקלטה"}
               >
                 {isPaused ? <Play className="w-5 h-5" /> : <Pause className="w-5 h-5" />}
               </Button>
@@ -234,7 +232,6 @@ export const AudioRecorder = ({ onRecordingComplete, isTranscribing, engine }: A
                 variant="destructive"
                 onClick={stopRecording}
                 className="rounded-full w-16 h-16"
-                aria-label="עצור הקלטה ותמלל"
               >
                 <Square className="w-7 h-7" />
               </Button>

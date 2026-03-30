@@ -19,7 +19,8 @@ export async function editTranscriptCloud(params: EditTranscriptParams): Promise
 
   // ── Try DB proxy first (latest code, no deployment needed) ──
   try {
-    const { data, error } = await (supabase.rpc as (fn: string, params: Record<string, unknown>) => ReturnType<typeof supabase.rpc>)('edit_transcript_proxy', {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase.rpc as any)('edit_transcript_proxy', {
       p_text: text,
       p_action: action,
       p_model: model || 'gemini-2.5-flash',

@@ -5,10 +5,6 @@ import { debugLog } from '@/lib/debugLogger';
 import { db, isDbAvailable } from '@/lib/localDb';
 import type { LocalVersion } from '@/lib/localDb';
 
-// Helper — table not in generated Supabase types
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const versionsTable = () => supabase.from('transcript_versions' as any) as any;
-
 export interface CloudVersion {
   id: string;
   transcript_id: string;
@@ -54,10 +50,11 @@ export const useCloudVersions = (transcriptId: string | null) => {
       }
 
       // 2) Cloud
-      const { data, error } = await versionsTable()
+      const { data, error } = await (supabase
+        .from('transcript_versions' as any) // eslint-disable-line @typescript-eslint/no-explicit-any
         .select('*')
         .eq('transcript_id', transcriptId)
-        .order('version_number', { ascending: true });
+        .order('version_number', { ascending: true }) as any); // eslint-disable-line @typescript-eslint/no-explicit-any
 
       if (error) throw error;
       const cloud = (data || []) as CloudVersion[];
@@ -139,7 +136,8 @@ export const useCloudVersions = (transcriptId: string | null) => {
     }
 
     try {
-      const { data, error } = await versionsTable()
+      const { data, error } = await (supabase
+        .from('transcript_versions' as any) // eslint-disable-line @typescript-eslint/no-explicit-any
         .insert({
           transcript_id: transcriptId,
           user_id: user.id,
@@ -150,7 +148,7 @@ export const useCloudVersions = (transcriptId: string | null) => {
           version_number: nextNumber,
         })
         .select()
-        .single();
+        .single() as any); // eslint-disable-line @typescript-eslint/no-explicit-any
 
       if (error) throw error;
       const cloudVersion = data as CloudVersion;

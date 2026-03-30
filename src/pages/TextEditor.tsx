@@ -20,10 +20,6 @@ const OllamaManager = lazy(() => import("@/components/OllamaManager").then(m => 
 const CorrectionLearningPanel = lazy(() => import("@/components/CorrectionLearningPanel").then(m => ({ default: m.CorrectionLearningPanel })));
 const SyncAudioPlayer = lazy(() => import("@/components/SyncAudioPlayer").then(m => ({ default: m.SyncAudioPlayer })));
 const SyncTranscriptView = lazy(() => import("@/components/SyncTranscriptView").then(m => ({ default: m.SyncTranscriptView })));
-const VocabularyPanel = lazy(() => import("@/components/VocabularyPanel").then(m => ({ default: m.VocabularyPanel })));
-const AutoSummaryCard = lazy(() => import("@/components/AutoSummaryCard").then(m => ({ default: m.AutoSummaryCard })));
-const EngineCompare = lazy(() => import("@/components/EngineCompare").then(m => ({ default: m.EngineCompare })));
-const AnalyticsDashboard = lazy(() => import("@/components/AnalyticsDashboard").then(m => ({ default: m.AnalyticsDashboard })));
 import { ArrowRight, Home, Wand2, SplitSquareVertical, SpellCheck, Loader2, Columns2, Columns3, AlignJustify, LayoutGrid, Rows3 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { editTranscriptCloud } from "@/utils/editTranscriptApi";
@@ -34,7 +30,6 @@ import { useCloudVersions } from "@/hooks/useCloudVersions";
 import { useOllama, isOllamaModel } from "@/hooks/useOllama";
 import { db } from "@/lib/localDb";
 import { useCorrectionLearning } from "@/hooks/useCorrectionLearning";
-import { LazyErrorBoundary } from "@/components/LazyErrorBoundary";
 
 const sourceLabels: Record<string, string> = {
   original: 'תמלול מקורי',
@@ -222,18 +217,13 @@ const TextEditor = () => {
 
   // Auto-save text and versions to localStorage + debounce cloud save
   const cloudSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const localSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    // Debounce localStorage writes (500ms)
-    if (localSaveTimerRef.current) clearTimeout(localSaveTimerRef.current);
-    localSaveTimerRef.current = setTimeout(() => {
-      if (text) {
-        localStorage.setItem('current_editing_text', text);
-      }
-      if (versions.length > 0) {
-        localStorage.setItem('text_versions', JSON.stringify(versions));
-      }
-    }, 500);
+    if (text) {
+      localStorage.setItem('current_editing_text', text);
+    }
+    if (versions.length > 0) {
+      localStorage.setItem('text_versions', JSON.stringify(versions));
+    }
     // Debounce save edited_text to cloud (3s after last change)
     if (transcriptIdRef.current && text) {
       if (cloudSaveTimerRef.current) clearTimeout(cloudSaveTimerRef.current);
@@ -244,10 +234,7 @@ const TextEditor = () => {
         }
       }, 3000);
     }
-    return () => {
-      if (cloudSaveTimerRef.current) clearTimeout(cloudSaveTimerRef.current);
-      if (localSaveTimerRef.current) clearTimeout(localSaveTimerRef.current);
-    };
+    return () => { if (cloudSaveTimerRef.current) clearTimeout(cloudSaveTimerRef.current); };
   }, [text, versions]);
 
   const addVersion = (newText: string, source: TextVersion['source'], customPrompt?: string) => {
@@ -336,42 +323,6 @@ const TextEditor = () => {
       setAiAction(null);
     }
   };
-
-  const handleEditorChange = useCallback((newText: string) => {
-    setText(newText);
-    // Debounce manual version creation (2s)
-    if (manualVersionTimerRef.current) clearTimeout(manualVersionTimerRef.current);
-    manualVersionTimerRef.current = setTimeout(() => {
-      addVersion(newText, 'manual');
-      // Learn from user corrections
-      if (originalTextRef.current && newText !== originalTextRef.current) {
-        learnCorrections(originalTextRef.current, newText, 'manual');
-      }
-    }, 2000);
-  }, [learnCorrections]);
-
-  const handleSyncToPlayer = useCallback((editedText: string) => {
-    // Rebuild word timings from edited text: distribute evenly across the existing audio duration
-    if (!wordTimings.length) {
-      toast({ title: "אין נתוני תזמון", description: "צריך אודיו עם תזמונים כדי לסנכרן", variant: "destructive" });
-      return;
-    }
-    const totalDuration = wordTimings[wordTimings.length - 1]?.end || 0;
-    if (totalDuration <= 0) {
-      toast({ title: "אין אודיו", variant: "destructive" });
-      return;
-    }
-    const words = editedText.split(/\s+/).filter(Boolean);
-    const wordDuration = totalDuration / words.length;
-    const newTimings: WordTiming[] = words.map((word, i) => ({
-      word,
-      start: i * wordDuration,
-      end: (i + 1) * wordDuration,
-    }));
-    setWordTimings(newTimings);
-    setText(editedText);
-    toast({ title: "מסונכרן לנגן ✅", description: `${words.length} מילים סונכרנו עם האודיו` });
-  }, [wordTimings]);
 
   return (
     <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>}>
@@ -464,7 +415,7 @@ const TextEditor = () => {
 
         {/* Main Content */}
         <Tabs defaultValue="edit" className="w-full" dir="rtl">
-          <TabsList className="grid w-full grid-cols-4 md:grid-cols-7 lg:grid-cols-14 mb-6">
+          <TabsList className="grid w-full grid-cols-4 md:grid-cols-5 lg:grid-cols-10 mb-6">
             <TabsTrigger value="player">🎧 נגן</TabsTrigger>
             <TabsTrigger value="edit">עריכת טקסט</TabsTrigger>
             <TabsTrigger value="templates">תבניות</TabsTrigger>
@@ -473,16 +424,11 @@ const TextEditor = () => {
             <TabsTrigger value="prompts">ספריית פרומפטים</TabsTrigger>
             <TabsTrigger value="ollama">🖥️ Ollama</TabsTrigger>
             <TabsTrigger value="learning">🧠 למידה</TabsTrigger>
-            <TabsTrigger value="vocab">📖 מילון</TabsTrigger>
-            <TabsTrigger value="summary">📊 סיכום</TabsTrigger>
-            <TabsTrigger value="ab">⚡ A/B</TabsTrigger>
-            <TabsTrigger value="analytics">📈 אנליטיקה</TabsTrigger>
             <TabsTrigger value="compare">השוואה</TabsTrigger>
             <TabsTrigger value="history">היסטוריה</TabsTrigger>
           </TabsList>
 
           <TabsContent value="player" className="space-y-4">
-            <LazyErrorBoundary label="נגן מסונכרן">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <SyncAudioPlayer
                 audioUrl={audioUrl}
@@ -501,7 +447,6 @@ const TextEditor = () => {
                 syncEnabled={syncEnabled}
               />
             </div>
-            </LazyErrorBoundary>
           </TabsContent>
 
           <TabsContent value="edit" className="space-y-4">
@@ -515,22 +460,30 @@ const TextEditor = () => {
             >
               <RichTextEditor 
                 text={text} 
-                onChange={handleEditorChange}
-                columnStyle={columnStyle}
-                onWordCorrected={(original, corrected) => {
-                  debugLog.info('TextEditor', `Spell correction: "${original}" → "${corrected}"`);
+                onChange={(newText) => {
+                  setText(newText);
+                  // Debounce manual version creation (2s)
+                  if (manualVersionTimerRef.current) clearTimeout(manualVersionTimerRef.current);
+                  manualVersionTimerRef.current = setTimeout(() => {
+                    addVersion(newText, 'manual');
+                    // Learn from user corrections
+                    if (originalTextRef.current && newText !== originalTextRef.current) {
+                      learnCorrections(originalTextRef.current, newText, 'manual');
+                    }
+                  }, 2000);
                 }}
+                columnStyle={columnStyle}
               />
             </div>
           </TabsContent>
 
           <TabsContent value="templates" className="space-y-4">
-            <LazyErrorBoundary label="תבניות עריכה"><EditingTemplates
+            <EditingTemplates
               text={text}
               onApply={(newText, templateName) => {
                 addVersion(newText, 'ai-custom', templateName);
               }}
-            /></LazyErrorBoundary>
+            />
           </TabsContent>
 
           <TabsContent value="ai" className="space-y-4">
@@ -543,21 +496,20 @@ const TextEditor = () => {
                 ...columnStyle,
               }}
             >
-              <LazyErrorBoundary label="עורך AI"><AIEditorDual 
+              <AIEditorDual 
                 text={text} 
                 onTextChange={(newText, source, customPrompt) => {
                   setText(newText);
                   addVersion(newText, source as TextVersion['source'], customPrompt);
                 }}
                 onSaveVersion={handleSaveVersion}
-                onSyncToPlayer={handleSyncToPlayer}
-              /></LazyErrorBoundary>
+              />
             </div>
           </TabsContent>
 
           <TabsContent value="compare" className="space-y-4">
             {versions.length >= 2 ? (
-              <LazyErrorBoundary label="השוואה מתקדמת"><AdvancedDiffView 
+              <AdvancedDiffView 
                 versions={versions}
                 fontSize={fontSize}
                 fontFamily={fontFamily}
@@ -566,7 +518,7 @@ const TextEditor = () => {
                 onApplyVersion={(newText) => {
                   setText(newText);
                 }}
-              /></LazyErrorBoundary>
+              />
             ) : (
               <div className="text-center py-12 text-muted-foreground">
                 יש צורך בלפחות שתי גרסאות כדי להשוות
@@ -575,56 +527,42 @@ const TextEditor = () => {
           </TabsContent>
 
           <TabsContent value="pipeline" className="space-y-4">
-            <LazyErrorBoundary label="צינור עריכה"><EditPipeline
+            <EditPipeline
               text={text}
               onTextChange={(newText, source, customPrompt) => {
                 setText(newText);
                 addVersion(newText, source as TextVersion['source'], customPrompt);
               }}
-            /></LazyErrorBoundary>
+            />
           </TabsContent>
 
           <TabsContent value="prompts" className="space-y-4">
-            <LazyErrorBoundary label="ספריית פרומפטים"><PromptLibrary
+            <PromptLibrary
               text={text}
               onTextChange={(newText, source, customPrompt) => {
                 setText(newText);
                 addVersion(newText, source as TextVersion['source'], customPrompt);
               }}
-            /></LazyErrorBoundary>
+            />
           </TabsContent>
 
           <TabsContent value="ollama" className="space-y-4">
-            <LazyErrorBoundary label="Ollama"><OllamaManager /></LazyErrorBoundary>
+            <OllamaManager />
           </TabsContent>
 
           <TabsContent value="learning" className="space-y-4">
-            <LazyErrorBoundary label="למידת תיקונים"><CorrectionLearningPanel /></LazyErrorBoundary>
-          </TabsContent>
-          <TabsContent value="vocab" className="space-y-4">
-            <LazyErrorBoundary label="אוצר מילים"><VocabularyPanel /></LazyErrorBoundary>
+            <CorrectionLearningPanel />
           </TabsContent>
 
-          <TabsContent value="summary" className="space-y-4">
-            <LazyErrorBoundary label="סיכום"><AutoSummaryCard text={text} /></LazyErrorBoundary>
-          </TabsContent>
-
-          <TabsContent value="ab" className="space-y-4">
-            <LazyErrorBoundary label="השוואת מנועים"><EngineCompare text={text} /></LazyErrorBoundary>
-          </TabsContent>
-
-          <TabsContent value="analytics" className="space-y-4">
-            <LazyErrorBoundary label="אנליטיקס"><AnalyticsDashboard /></LazyErrorBoundary>
-          </TabsContent>
           <TabsContent value="history" className="space-y-4">
-            <LazyErrorBoundary label="היסטוריית עריכה"><TextEditHistory 
+            <TextEditHistory 
               versions={versions}
               onSelectVersion={handleVersionSelect}
               selectedVersionId={selectedVersionId}
               cloudVersions={cloudVersions}
               cloudLoading={cloudVersionsLoading}
               onRestoreVersion={handleRestoreVersion}
-            /></LazyErrorBoundary>
+            />
           </TabsContent>
         </Tabs>
 

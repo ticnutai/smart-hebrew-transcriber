@@ -103,34 +103,10 @@ const BROWSER_MODELS: ModelInfo[] = [
     accuracy: 'excellent',
     runtime: 'browser',
   },
-  {
-    id: "ivrit-ai/whisper-large-v3-turbo-onnx",
-    name: "Ivrit.ai Turbo ONNX 🇮🇱⚡",
-    size: "~800MB",
-    description: "מודל ivrit-ai בפורמט ONNX — מדויק במיוחד לעברית, רץ בדפדפן!",
-    downloaded: false,
-    category: 'hebrew',
-    hebrewOptimized: true,
-    speed: 'medium',
-    accuracy: 'excellent',
-    runtime: 'browser',
-  },
 ];
 
 // Server/CUDA models (run on local Python server with GPU)
 const SERVER_MODELS: ModelInfo[] = [
-  {
-    id: "ivrit-ai/whisper-large-v3-ct2",
-    name: "Ivrit.ai Large V3 CT2 🇮🇱⭐",
-    size: "~1.5GB",
-    description: "המודל המדויק ביותר לעברית! ivrit-ai Large V3 מוכן CT2 — ברירת מחדל מומלצת.",
-    downloaded: false,
-    category: 'hebrew',
-    hebrewOptimized: true,
-    speed: 'medium',
-    accuracy: 'excellent',
-    runtime: 'server',
-  },
   {
     id: "ivrit-ai/whisper-large-v3-turbo-ct2",
     name: "Ivrit.ai Turbo V3 CT2 🇮🇱⚡",
@@ -160,18 +136,6 @@ const SERVER_MODELS: ModelInfo[] = [
     name: "Ivrit.ai Whisper V2 🇮🇱",
     size: "~1.5GB",
     description: "מודל ישראלי! אומן על מאות שעות שמע בעברית. רץ על GPU עם CUDA.",
-    downloaded: false,
-    category: 'hebrew',
-    hebrewOptimized: true,
-    speed: 'medium',
-    accuracy: 'excellent',
-    runtime: 'server',
-  },
-  {
-    id: "ivrit-ai/yi-whisper-large-v3-turbo",
-    name: "Yi-Whisper יידיש 🇮🇱",
-    size: "~3.2GB",
-    description: "מודל ivrit-ai ליידיש! דורש המרה אוטומטית.",
     downloaded: false,
     category: 'hebrew',
     hebrewOptimized: true,
