@@ -34,6 +34,9 @@ const TranscriptEditorInner = ({ transcript, originalTranscript, onTranscriptCha
   const [customPrompt, setCustomPrompt] = useState("");
   const [showPromptDialog, setShowPromptDialog] = useState(false);
 
+  // Spell check
+  const spellCheck = useSpellCheck();
+
   // Search state
   const [searchQuery, setSearchQuery] = useState("");
   const [currentMatch, setCurrentMatch] = useState(0);
