@@ -281,6 +281,17 @@ const TranscriptEditorInner = ({ transcript, originalTranscript, onTranscriptCha
               ביטחון
             </Button>
           )}
+          {originalTranscript && originalTranscript !== transcript && (
+            <Button
+              variant={showDiffHighlight ? "default" : "outline"}
+              size="sm"
+              onClick={() => setShowDiffHighlight(!showDiffHighlight)}
+              title="הדגש שינויים מהתמלול המקורי"
+            >
+              <Highlighter className="w-4 h-4 ml-2" />
+              שינויים
+            </Button>
+          )}
         </div>
       </div>
 
