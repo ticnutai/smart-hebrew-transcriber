@@ -69,6 +69,7 @@ const Index = () => {
   const setLineHeight = (v: number) => updatePreference('line_height', v);
 
   const [transcript, setTranscript] = useState('');
+  const [originalTranscript, setOriginalTranscript] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
 
@@ -1927,7 +1928,7 @@ const Index = () => {
             addAnalyticsRecord({
               engine: engineLabel, status: 'success',
               charCount: text.length, wordCount: text.split(/\s+/).length,
-              duration: durationSec,
+              audioDuration: durationSec,
             });
             toast({ title: "תמלול חי הושלם!", description: audioFile ? "הקלטה + תמלול נשמרו" : undefined });
           }}
