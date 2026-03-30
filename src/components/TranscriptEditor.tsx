@@ -329,7 +329,26 @@ const TranscriptEditorInner = ({ transcript, originalTranscript, onTranscriptCha
         </div>
       )}
 
-      {showConfidence && wordTimings && wordTimings.some(w => w.probability != null) ? (
+      {showDiffHighlight && diffElements ? (
+        <div className="min-h-[300px] mb-4 p-3 bg-background border rounded-md text-right overflow-y-auto max-h-[600px]" dir="rtl">
+          <pre className="whitespace-pre-wrap font-mono text-base leading-relaxed">
+            {diffElements.map((diff, i) => {
+              const [op, text] = diff;
+              if (op === -1) return <span key={i} className="bg-destructive/20 line-through decoration-destructive/60 text-muted-foreground">{text}</span>;
+              if (op === 1) return <span key={i} className="bg-green-500/20 font-semibold underline decoration-green-500/60">{text}</span>;
+              return <span key={i}>{text}</span>;
+            })}
+          </pre>
+          <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground border-t pt-2">
+            <span className="flex items-center gap-1">
+              <span className="inline-block w-3 h-3 rounded bg-destructive/20 border border-destructive/30" /> נמחק
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="inline-block w-3 h-3 rounded bg-green-500/20 border border-green-500/30" /> נוסף/שונה
+            </span>
+          </div>
+        </div>
+      ) : showConfidence && wordTimings && wordTimings.some(w => w.probability != null) ? (
         <div className="min-h-[300px] mb-4 p-3 bg-background border rounded-md text-right overflow-y-auto" dir="rtl">
           <div className="flex flex-wrap gap-1 leading-relaxed font-mono text-base">
             {wordTimings.map((w, i) => {
