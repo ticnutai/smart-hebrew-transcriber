@@ -3,11 +3,12 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { Wand2, BookOpen, FileText, Copy, Download, Loader2, Upload, Settings2, CheckCheck, AlignJustify, Quote, Users, Search, ChevronUp, ChevronDown, X, Highlighter } from "lucide-react";
+import { Wand2, BookOpen, FileText, Copy, Download, Loader2, Upload, Settings2, CheckCheck, AlignJustify, Quote, Users, Search, ChevronUp, ChevronDown, X, Highlighter, SpellCheck } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { editTranscriptCloud } from "@/utils/editTranscriptApi";
 import { ExportButton } from "@/components/ExportButton";
 import DiffMatchPatch from "diff-match-patch";
+import { useSpellCheck, SpellCheckOverlay } from "@/components/SpellCheckView";
 import {
   Dialog,
   DialogContent,
@@ -32,6 +33,9 @@ const TranscriptEditorInner = ({ transcript, originalTranscript, onTranscriptCha
   const [showDiffHighlight, setShowDiffHighlight] = useState(false);
   const [customPrompt, setCustomPrompt] = useState("");
   const [showPromptDialog, setShowPromptDialog] = useState(false);
+
+  // Spell check
+  const spellCheck = useSpellCheck();
 
   // Search state
   const [searchQuery, setSearchQuery] = useState("");
@@ -292,6 +296,20 @@ const TranscriptEditorInner = ({ transcript, originalTranscript, onTranscriptCha
               שינויים
             </Button>
           )}
+          <Button
+            variant={spellCheck.spellCheckActive ? "default" : "outline"}
+            size="sm"
+            onClick={() => spellCheck.toggleSpellCheck(transcript)}
+            disabled={!transcript.trim() || spellCheck.isChecking || isEditing}
+            title="בדיקת שגיאות כתיב"
+          >
+            {spellCheck.isChecking ? (
+              <Loader2 className="w-4 h-4 ml-2 animate-spin" />
+            ) : (
+              <SpellCheck className="w-4 h-4 ml-2" />
+            )}
+            איות
+          </Button>
         </div>
       </div>
 
@@ -329,7 +347,16 @@ const TranscriptEditorInner = ({ transcript, originalTranscript, onTranscriptCha
         </div>
       )}
 
-      {showDiffHighlight && diffElements ? (
+      {spellCheck.spellCheckActive && spellCheck.errors.length > 0 ? (
+        <SpellCheckOverlay
+          text={transcript}
+          errors={spellCheck.errors}
+          onApplyCorrection={(oldWord, newWord) => {
+            onTranscriptChange(transcript.split(oldWord).join(newWord));
+          }}
+          onRemoveError={spellCheck.removeError}
+        />
+      ) : showDiffHighlight && diffElements ? (
         <div className="min-h-[300px] mb-4 p-3 bg-background border rounded-md text-right overflow-y-auto max-h-[600px]" dir="rtl">
           <pre className="whitespace-pre-wrap font-mono text-base leading-relaxed">
             {diffElements.map((diff, i) => {
