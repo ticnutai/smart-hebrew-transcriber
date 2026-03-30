@@ -347,7 +347,16 @@ const TranscriptEditorInner = ({ transcript, originalTranscript, onTranscriptCha
         </div>
       )}
 
-      {showDiffHighlight && diffElements ? (
+      {spellCheck.spellCheckActive && spellCheck.errors.length > 0 ? (
+        <SpellCheckOverlay
+          text={transcript}
+          errors={spellCheck.errors}
+          onApplyCorrection={(oldWord, newWord) => {
+            onTranscriptChange(transcript.split(oldWord).join(newWord));
+          }}
+          onRemoveError={spellCheck.removeError}
+        />
+      ) : showDiffHighlight && diffElements ? (
         <div className="min-h-[300px] mb-4 p-3 bg-background border rounded-md text-right overflow-y-auto max-h-[600px]" dir="rtl">
           <pre className="whitespace-pre-wrap font-mono text-base leading-relaxed">
             {diffElements.map((diff, i) => {
