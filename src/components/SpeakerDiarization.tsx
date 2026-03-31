@@ -576,7 +576,7 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:8765" }: Spea
                   >
                     <div className="flex items-center gap-2 mb-1">
                       <span className={`w-2 h-2 rounded-full ${SPEAKER_BADGE_COLORS[colorIdx % SPEAKER_BADGE_COLORS.length]}`} />
-                      <span className="font-semibold text-xs">{seg.speaker_label}</span>
+                      <span className="font-semibold text-xs">{getSpeakerName(seg.speaker_label)}</span>
                       <span className="text-xs text-muted-foreground">
                         {formatTime(seg.start)} – {formatTime(seg.end)}
                       </span>
