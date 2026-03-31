@@ -276,7 +276,11 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:8765" }: Spea
             </Button>
             <Button variant="outline" size="sm" onClick={downloadAsText}>
               <Download className="w-4 h-4 ml-1" />
-              הורד
+              TXT
+            </Button>
+            <Button variant="outline" size="sm" onClick={downloadAsSrt}>
+              <Subtitles className="w-4 h-4 ml-1" />
+              SRT
             </Button>
           </div>
         )}
