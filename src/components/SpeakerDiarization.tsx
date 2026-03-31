@@ -560,7 +560,7 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:8765" }: Spea
                       className="w-2 h-2 rounded-full"
                       style={{ backgroundColor: SPEAKER_BAR_COLORS[i % SPEAKER_BAR_COLORS.length] }}
                     />
-                    {sp} ({count})
+                    {getSpeakerName(sp)} ({count})
                   </button>
                 );
               })}
