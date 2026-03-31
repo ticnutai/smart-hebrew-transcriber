@@ -2,7 +2,7 @@ import { useState, useRef, useMemo } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
-import { Users, Upload, Loader2, Copy, Download, BarChart3, Clock, MessageSquare, Mic, Pencil, Check, X } from "lucide-react";
+import { Users, Upload, Loader2, Copy, Download, BarChart3, Clock, MessageSquare, Mic, Pencil, Check, X, Subtitles } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -237,6 +237,30 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:8765" }: Spea
     URL.revokeObjectURL(url);
   };
 
+  const downloadAsSrt = () => {
+    if (!result) return;
+    const pad = (n: number) => n.toString().padStart(2, "0");
+    const formatSrt = (sec: number) => {
+      const h = Math.floor(sec / 3600);
+      const m = Math.floor((sec % 3600) / 60);
+      const s = Math.floor(sec % 60);
+      const ms = Math.round((sec % 1) * 1000);
+      return `${pad(h)}:${pad(m)}:${pad(s)},${ms.toString().padStart(3, "0")}`;
+    };
+    const srt = result.segments.map((seg, i) =>
+      `${i + 1}\n${formatSrt(seg.start)} --> ${formatSrt(seg.end)}\n[${getSpeakerName(seg.speaker_label)}] ${seg.text}`
+    ).join("\n\n");
+    const blob = new Blob(["\uFEFF" + srt], { type: "text/srt;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `diarization-${Date.now()}.srt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <Card className="p-6" dir="rtl">
       <div className="flex items-center justify-between mb-4">
@@ -252,7 +276,11 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:8765" }: Spea
             </Button>
             <Button variant="outline" size="sm" onClick={downloadAsText}>
               <Download className="w-4 h-4 ml-1" />
-              הורד
+              TXT
+            </Button>
+            <Button variant="outline" size="sm" onClick={downloadAsSrt}>
+              <Subtitles className="w-4 h-4 ml-1" />
+              SRT
             </Button>
           </div>
         )}
