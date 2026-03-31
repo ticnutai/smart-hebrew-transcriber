@@ -520,7 +520,7 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:8765" }: Spea
                     className="w-2.5 h-2.5 rounded-full"
                     style={{ backgroundColor: SPEAKER_BAR_COLORS[i % SPEAKER_BAR_COLORS.length] }}
                   />
-                  {sp}
+                  {getSpeakerName(sp)}
                 </button>
               ))}
               {activeSpeakerFilter && (
