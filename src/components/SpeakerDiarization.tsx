@@ -208,7 +208,7 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:8765" }: Spea
   const copyAsText = () => {
     if (!result) return;
     const text = result.segments
-      .map(s => `[${s.speaker_label}] (${formatTime(s.start)}) ${s.text}`)
+      .map(s => `[${getSpeakerName(s.speaker_label)}] (${formatTime(s.start)}) ${s.text}`)
       .join("\n");
     navigator.clipboard.writeText(text);
     toast({ title: "הועתק", description: "התמלול עם דוברים הועתק ללוח" });
