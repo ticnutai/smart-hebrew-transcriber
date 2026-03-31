@@ -2,7 +2,7 @@ import { useState, useRef, useMemo } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
-import { Users, Upload, Loader2, Copy, Download, BarChart3, Clock, MessageSquare, Mic } from "lucide-react";
+import { Users, Upload, Loader2, Copy, Download, BarChart3, Clock, MessageSquare, Mic, Pencil, Check, X } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -85,7 +85,29 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:8765" }: Spea
   const [minGap, setMinGap] = useState(1.5);
   const [hfToken, setHfToken] = useState("");
   const [activeSpeakerFilter, setActiveSpeakerFilter] = useState<string | null>(null);
+  const [speakerNames, setSpeakerNames] = useState<Record<string, string>>({});
+  const [editingSpeaker, setEditingSpeaker] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Get display name for a speaker (custom name or original)
+  const getSpeakerName = (originalLabel: string) => speakerNames[originalLabel] || originalLabel;
+
+  const startEditingSpeaker = (label: string) => {
+    setEditingSpeaker(label);
+    setEditingName(getSpeakerName(label));
+  };
+
+  const saveSpeakerName = () => {
+    if (!editingSpeaker) return;
+    const trimmed = editingName.trim();
+    setSpeakerNames(prev => ({
+      ...prev,
+      [editingSpeaker]: trimmed || editingSpeaker,
+    }));
+    setEditingSpeaker(null);
+    toast({ title: "שם דובר עודכן", description: `${editingSpeaker} → ${trimmed || editingSpeaker}` });
+  };
 
   // Compute speaker statistics
   const speakerStats = useMemo<SpeakerStats[]>(() => {
@@ -186,7 +208,7 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:8765" }: Spea
   const copyAsText = () => {
     if (!result) return;
     const text = result.segments
-      .map(s => `[${s.speaker_label}] (${formatTime(s.start)}) ${s.text}`)
+      .map(s => `[${getSpeakerName(s.speaker_label)}] (${formatTime(s.start)}) ${s.text}`)
       .join("\n");
     navigator.clipboard.writeText(text);
     toast({ title: "הועתק", description: "התמלול עם דוברים הועתק ללוח" });
@@ -196,11 +218,11 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:8765" }: Spea
     if (!result) return;
     const header = `זיהוי דוברים — ${result.speaker_count} דוברים | ${formatTime(result.duration)} | ${result.diarization_method}\n`;
     const statsSection = speakerStats.map(s =>
-      `${s.label}: ${formatDuration(s.totalTime)} (${Math.round(s.percentage)}%) | ${s.wordCount} מילים | ${s.segmentCount} קטעים`
+      `${getSpeakerName(s.label)}: ${formatDuration(s.totalTime)} (${Math.round(s.percentage)}%) | ${s.wordCount} מילים | ${s.segmentCount} קטעים`
     ).join("\n");
     const separator = "\n" + "─".repeat(50) + "\n\n";
     const segments = result.segments
-      .map(s => `[${s.speaker_label}] (${formatTime(s.start)}-${formatTime(s.end)}) ${s.text}`)
+      .map(s => `[${getSpeakerName(s.speaker_label)}] (${formatTime(s.start)}-${formatTime(s.end)}) ${s.text}`)
       .join("\n");
     
     const fullText = header + "\n" + statsSection + separator + segments;
@@ -339,7 +361,36 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:8765" }: Spea
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
                         <span className={`w-3 h-3 rounded-full ${SPEAKER_BADGE_COLORS[colorIdx % SPEAKER_BADGE_COLORS.length]}`} />
-                        <span className="font-semibold text-sm">{stat.label}</span>
+                        {editingSpeaker === stat.label ? (
+                          <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                            <Input
+                              value={editingName}
+                              onChange={e => setEditingName(e.target.value)}
+                              className="h-6 text-sm w-28 px-1"
+                              autoFocus
+                              onKeyDown={e => {
+                                if (e.key === "Enter") saveSpeakerName();
+                                if (e.key === "Escape") setEditingSpeaker(null);
+                              }}
+                            />
+                            <button onClick={saveSpeakerName} className="text-green-600 hover:text-green-700">
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                            <button onClick={() => setEditingSpeaker(null)} className="text-red-500 hover:text-red-600">
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1">
+                            <span className="font-semibold text-sm">{getSpeakerName(stat.label)}</span>
+                            <button
+                              onClick={e => { e.stopPropagation(); startEditingSpeaker(stat.label); }}
+                              className="text-muted-foreground hover:text-foreground transition-colors"
+                            >
+                              <Pencil className="w-3 h-3" />
+                            </button>
+                          </div>
+                        )}
                       </div>
                       <span className="text-lg font-bold" style={{ color: barColor }}>
                         {Math.round(stat.percentage)}%
@@ -398,7 +449,7 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:8765" }: Spea
                           />
                         </TooltipTrigger>
                         <TooltipContent>
-                          <p>{stat.label}: {Math.round(stat.percentage)}% ({formatDuration(stat.totalTime)})</p>
+                          <p>{getSpeakerName(stat.label)}: {Math.round(stat.percentage)}% ({formatDuration(stat.totalTime)})</p>
                         </TooltipContent>
                       </Tooltip>
                     );
@@ -435,7 +486,7 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:8765" }: Spea
                         </div>
                       </TooltipTrigger>
                       <TooltipContent side="top" className="max-w-[250px]">
-                        <p className="font-semibold text-xs">{seg.speaker_label}</p>
+                        <p className="font-semibold text-xs">{getSpeakerName(seg.speaker_label)}</p>
                         <p className="text-xs">{formatTime(seg.start)} – {formatTime(seg.end)}</p>
                         <p className="text-xs mt-1 line-clamp-2">{seg.text}</p>
                       </TooltipContent>
@@ -469,7 +520,7 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:8765" }: Spea
                     className="w-2.5 h-2.5 rounded-full"
                     style={{ backgroundColor: SPEAKER_BAR_COLORS[i % SPEAKER_BAR_COLORS.length] }}
                   />
-                  {sp}
+                  {getSpeakerName(sp)}
                 </button>
               ))}
               {activeSpeakerFilter && (
@@ -509,7 +560,7 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:8765" }: Spea
                       className="w-2 h-2 rounded-full"
                       style={{ backgroundColor: SPEAKER_BAR_COLORS[i % SPEAKER_BAR_COLORS.length] }}
                     />
-                    {sp} ({count})
+                    {getSpeakerName(sp)} ({count})
                   </button>
                 );
               })}
@@ -525,7 +576,7 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:8765" }: Spea
                   >
                     <div className="flex items-center gap-2 mb-1">
                       <span className={`w-2 h-2 rounded-full ${SPEAKER_BADGE_COLORS[colorIdx % SPEAKER_BADGE_COLORS.length]}`} />
-                      <span className="font-semibold text-xs">{seg.speaker_label}</span>
+                      <span className="font-semibold text-xs">{getSpeakerName(seg.speaker_label)}</span>
                       <span className="text-xs text-muted-foreground">
                         {formatTime(seg.start)} – {formatTime(seg.end)}
                       </span>
