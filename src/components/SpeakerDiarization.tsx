@@ -218,11 +218,11 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:8765" }: Spea
     if (!result) return;
     const header = `זיהוי דוברים — ${result.speaker_count} דוברים | ${formatTime(result.duration)} | ${result.diarization_method}\n`;
     const statsSection = speakerStats.map(s =>
-      `${s.label}: ${formatDuration(s.totalTime)} (${Math.round(s.percentage)}%) | ${s.wordCount} מילים | ${s.segmentCount} קטעים`
+      `${getSpeakerName(s.label)}: ${formatDuration(s.totalTime)} (${Math.round(s.percentage)}%) | ${s.wordCount} מילים | ${s.segmentCount} קטעים`
     ).join("\n");
     const separator = "\n" + "─".repeat(50) + "\n\n";
     const segments = result.segments
-      .map(s => `[${s.speaker_label}] (${formatTime(s.start)}-${formatTime(s.end)}) ${s.text}`)
+      .map(s => `[${getSpeakerName(s.speaker_label)}] (${formatTime(s.start)}-${formatTime(s.end)}) ${s.text}`)
       .join("\n");
     
     const fullText = header + "\n" + statsSection + separator + segments;
