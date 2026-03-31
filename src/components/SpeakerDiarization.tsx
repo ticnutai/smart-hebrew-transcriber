@@ -361,7 +361,36 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:8765" }: Spea
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
                         <span className={`w-3 h-3 rounded-full ${SPEAKER_BADGE_COLORS[colorIdx % SPEAKER_BADGE_COLORS.length]}`} />
-                        <span className="font-semibold text-sm">{stat.label}</span>
+                        {editingSpeaker === stat.label ? (
+                          <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                            <Input
+                              value={editingName}
+                              onChange={e => setEditingName(e.target.value)}
+                              className="h-6 text-sm w-28 px-1"
+                              autoFocus
+                              onKeyDown={e => {
+                                if (e.key === "Enter") saveSpeakerName();
+                                if (e.key === "Escape") setEditingSpeaker(null);
+                              }}
+                            />
+                            <button onClick={saveSpeakerName} className="text-green-600 hover:text-green-700">
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                            <button onClick={() => setEditingSpeaker(null)} className="text-red-500 hover:text-red-600">
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1">
+                            <span className="font-semibold text-sm">{getSpeakerName(stat.label)}</span>
+                            <button
+                              onClick={e => { e.stopPropagation(); startEditingSpeaker(stat.label); }}
+                              className="text-muted-foreground hover:text-foreground transition-colors"
+                            >
+                              <Pencil className="w-3 h-3" />
+                            </button>
+                          </div>
+                        )}
                       </div>
                       <span className="text-lg font-bold" style={{ color: barColor }}>
                         {Math.round(stat.percentage)}%
