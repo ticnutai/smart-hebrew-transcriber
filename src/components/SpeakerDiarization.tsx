@@ -486,7 +486,7 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:8765" }: Spea
                         </div>
                       </TooltipTrigger>
                       <TooltipContent side="top" className="max-w-[250px]">
-                        <p className="font-semibold text-xs">{seg.speaker_label}</p>
+                        <p className="font-semibold text-xs">{getSpeakerName(seg.speaker_label)}</p>
                         <p className="text-xs">{formatTime(seg.start)} – {formatTime(seg.end)}</p>
                         <p className="text-xs mt-1 line-clamp-2">{seg.text}</p>
                       </TooltipContent>
