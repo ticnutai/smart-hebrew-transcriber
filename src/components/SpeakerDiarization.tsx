@@ -449,7 +449,7 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:8765" }: Spea
                           />
                         </TooltipTrigger>
                         <TooltipContent>
-                          <p>{stat.label}: {Math.round(stat.percentage)}% ({formatDuration(stat.totalTime)})</p>
+                          <p>{getSpeakerName(stat.label)}: {Math.round(stat.percentage)}% ({formatDuration(stat.totalTime)})</p>
                         </TooltipContent>
                       </Tooltip>
                     );
