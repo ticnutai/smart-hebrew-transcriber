@@ -85,7 +85,29 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:8765" }: Spea
   const [minGap, setMinGap] = useState(1.5);
   const [hfToken, setHfToken] = useState("");
   const [activeSpeakerFilter, setActiveSpeakerFilter] = useState<string | null>(null);
+  const [speakerNames, setSpeakerNames] = useState<Record<string, string>>({});
+  const [editingSpeaker, setEditingSpeaker] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Get display name for a speaker (custom name or original)
+  const getSpeakerName = (originalLabel: string) => speakerNames[originalLabel] || originalLabel;
+
+  const startEditingSpeaker = (label: string) => {
+    setEditingSpeaker(label);
+    setEditingName(getSpeakerName(label));
+  };
+
+  const saveSpeakerName = () => {
+    if (!editingSpeaker) return;
+    const trimmed = editingName.trim();
+    setSpeakerNames(prev => ({
+      ...prev,
+      [editingSpeaker]: trimmed || editingSpeaker,
+    }));
+    setEditingSpeaker(null);
+    toast({ title: "שם דובר עודכן", description: `${editingSpeaker} → ${trimmed || editingSpeaker}` });
+  };
 
   // Compute speaker statistics
   const speakerStats = useMemo<SpeakerStats[]>(() => {
