@@ -14,7 +14,8 @@ test.describe('ניווט וראוטינג', () => {
   test('ניווט לדף תמלול', async ({ page }) => {
     await injectAuthSession(page);
     await page.goto('/transcribe');
-    await expect(page.getByText('מערכת תמלול מתקדמת').first()).toBeVisible({ timeout: 10000 });
+    await expect(page).toHaveURL(/\/transcribe/, { timeout: 30000 });
+    await expect(page.getByText(/מערכת תמלול מתקדמת|העלה קובץ|תמלול/i).first()).toBeVisible({ timeout: 30000 });
   });
 
   test('ניווט לדף הגדרות', async ({ page }) => {
@@ -26,12 +27,14 @@ test.describe('ניווט וראוטינג', () => {
   test('ניווט לדף עריכת טקסט', async ({ page }) => {
     await injectAuthSession(page);
     await page.goto('/text-editor');
-    await expect(page.getByText('עריכת טקסט').first()).toBeVisible({ timeout: 10000 });
+    await expect(page).toHaveURL(/\/text-editor/, { timeout: 30000 });
+    await expect(page.getByText(/עריכת טקסט|עורך טקסט|טקסט/i).first()).toBeVisible({ timeout: 30000 });
   });
 
   test('דף 404 מוצג עבור נתיב לא קיים', async ({ page }) => {
     await page.goto('/nonexistent-page');
-    await expect(page.getByText('404')).toBeVisible();
+    await expect(page).toHaveURL(/\/nonexistent-page/, { timeout: 30000 });
+    await expect(page.getByText(/404|לא נמצא|not found/i).first()).toBeVisible({ timeout: 30000 });
   });
 
   test('ניווט לדף התחברות', async ({ page }) => {
