@@ -27,6 +27,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   Upload,
   FileAudio,
@@ -91,11 +93,13 @@ function JobCard({
   job,
   onRemove,
   onTranscribe,
+  onSaveAndTranscribe,
   onRetry,
 }: {
   job: ConversionJob;
   onRemove: (id: string) => void;
   onTranscribe: (job: ConversionJob) => void;
+  onSaveAndTranscribe: (job: ConversionJob) => void;
   onRetry: (job: ConversionJob) => void;
 }) {
   const elapsed =
@@ -159,6 +163,15 @@ function JobCard({
                 <Button
                   size="icon"
                   variant="ghost"
+                  className="h-8 w-8 text-green-600 hover:text-green-700"
+                  title="שמור + תמלל + ענן"
+                  onClick={() => onSaveAndTranscribe(job)}
+                >
+                  <Save className="w-4 h-4" />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
                   className="h-8 w-8 text-primary hover:text-primary"
                   title="תמלול"
                   onClick={() => onTranscribe(job)}
@@ -204,12 +217,33 @@ function JobCard({
 
 export default function VideoToMp3() {
   const navigate = useNavigate();
+  const { user, isAuthenticated } = useAuth();
   const [jobs, setJobs] = useState<ConversionJob[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [ffmpegReady, setFfmpegReady] = useState(false);
   const [promptJob, setPromptJob] = useState<ConversionJob | null>(null);
+  const [saveAndTranscribeBusyId, setSaveAndTranscribeBusyId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
+
+  const toMp3File = useCallback((job: ConversionJob): File | null => {
+    if (!job.outputBlob) return null;
+    const mp3Name = job.fileName.replace(/\.[^/.]+$/, "") + ".mp3";
+    return new File([job.outputBlob], mp3Name, { type: "audio/mpeg" });
+  }, []);
+
+  const uploadMp3ToCloud = useCallback(async (file: File): Promise<string | null> => {
+    if (!isAuthenticated || !user) return null;
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const filePath = `${user.id}/${Date.now()}_${safeName}`;
+
+    const { error } = await supabase.storage
+      .from("permanent-audio")
+      .upload(filePath, file, { cacheControl: "3600", upsert: false });
+
+    if (error) throw error;
+    return filePath;
+  }, [isAuthenticated, user]);
 
   // Preload FFmpeg on mount + restore persisted jobs
   useEffect(() => {
@@ -313,11 +347,10 @@ export default function VideoToMp3() {
 
   // Navigate to transcription page with the converted MP3
   const handleTranscribe = useCallback((job: ConversionJob) => {
-    if (!job.outputBlob) return;
-    const mp3Name = job.fileName.replace(/\.[^/.]+$/, "") + ".mp3";
-    const mp3File = new File([job.outputBlob], mp3Name, { type: "audio/mpeg" });
+    const mp3File = toMp3File(job);
+    if (!mp3File) return;
     navigate("/transcribe", { state: { file: mp3File } });
-  }, [navigate]);
+  }, [navigate, toMp3File]);
 
   // Download the MP3 file
   const handleSaveMp3 = useCallback((job: ConversionJob) => {
@@ -329,6 +362,43 @@ export default function VideoToMp3() {
     setPromptJob(null);
     toast({ title: "הקובץ נשמר ✓" });
   }, []);
+
+  const handleSaveAndTranscribe = useCallback(async (job: ConversionJob) => {
+    const mp3File = toMp3File(job);
+    if (!mp3File || !job.outputUrl) return;
+
+    setSaveAndTranscribeBusyId(job.id);
+    try {
+      // Keep an explicit local copy for the user before moving to transcription.
+      const a = document.createElement("a");
+      a.href = job.outputUrl;
+      a.download = mp3File.name;
+      a.click();
+
+      if (isAuthenticated) {
+        try {
+          await uploadMp3ToCloud(mp3File);
+          toast({ title: "הקובץ נשמר והועלה לענן ✓" });
+        } catch {
+          toast({
+            title: "התמלול ימשיך, אבל העלאה לענן נכשלה",
+            description: "ניתן לנסות להעלות שוב מתוך מסך התמלול",
+            variant: "destructive",
+          });
+        }
+      } else {
+        toast({
+          title: "הקובץ נשמר מקומית",
+          description: "כדי להעלות גם לענן יש להתחבר לחשבון",
+        });
+      }
+
+      navigate("/transcribe", { state: { file: mp3File } });
+      setPromptJob(null);
+    } finally {
+      setSaveAndTranscribeBusyId(null);
+    }
+  }, [isAuthenticated, navigate, toMp3File, uploadMp3ToCloud]);
 
   // Retry a failed conversion
   const handleRetry = useCallback((job: ConversionJob) => {
@@ -479,7 +549,14 @@ export default function VideoToMp3() {
         <ScrollArea className="max-h-[calc(100vh-420px)]">
           <div className="space-y-2 pb-2">
             {jobs.map((job) => (
-              <JobCard key={job.id} job={job} onRemove={handleRemove} onTranscribe={setPromptJob} onRetry={handleRetry} />
+              <JobCard
+                key={job.id}
+                job={job}
+                onRemove={handleRemove}
+                onTranscribe={setPromptJob}
+                onSaveAndTranscribe={(j) => void handleSaveAndTranscribe(j)}
+                onRetry={handleRetry}
+              />
             ))}
           </div>
         </ScrollArea>
@@ -528,6 +605,20 @@ export default function VideoToMp3() {
             מה תרצה לעשות עם הקובץ?
           </div>
           <DialogFooter className="flex-col sm:flex-row gap-2 sm:gap-2">
+            <Button
+              className="gap-2 flex-1"
+              disabled={!promptJob || saveAndTranscribeBusyId === promptJob?.id}
+              onClick={() => {
+                if (promptJob) void handleSaveAndTranscribe(promptJob);
+              }}
+            >
+              {saveAndTranscribeBusyId === promptJob?.id ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Save className="w-4 h-4" />
+              )}
+              שמור + תמלל + ענן
+            </Button>
             <Button
               className="gap-2 flex-1"
               onClick={() => {
