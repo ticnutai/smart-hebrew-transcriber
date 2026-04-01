@@ -5,7 +5,12 @@
 # ivrit-ai Hebrew models on your NVIDIA GPU.
 #
 # Usage: .\scripts\install-whisper-server.ps1
+# Usage: .\scripts\install-whisper-server.ps1 -WithWhisperX
 # ============================================
+
+param(
+    [switch]$WithWhisperX
+)
 
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Cyan
@@ -43,8 +48,8 @@ if ($nvidiaSmi) {
     Write-Host "[WARN] nvidia-smi not found. Server will use CPU mode (slower)." -ForegroundColor Yellow
 }
 
-# Create virtual environment
-$venvPath = Join-Path $PSScriptRoot "..\venv-whisper"
+# Create virtual environment (.venv is current standard; venv-whisper is legacy)
+$venvPath = Join-Path $PSScriptRoot "..\.venv"
 if (-not (Test-Path $venvPath)) {
     Write-Host ""
     Write-Host "Creating virtual environment..." -ForegroundColor Yellow
@@ -82,6 +87,13 @@ Write-Host "  [3/3] Installing Flask server..." -ForegroundColor Cyan
     if ($_ -match "Successfully installed") { Write-Host "  $_" -ForegroundColor Green }
 }
 
+if ($WithWhisperX) {
+    Write-Host "  [4/4] Installing WhisperX (alignment + diarization)..." -ForegroundColor Cyan
+    & $pipPath install whisperx 2>&1 | ForEach-Object {
+        if ($_ -match "Successfully installed") { Write-Host "  $_" -ForegroundColor Green }
+    }
+}
+
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Green
 Write-Host "  Installation Complete!" -ForegroundColor Green
@@ -89,6 +101,9 @@ Write-Host "============================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "  To start the server:" -ForegroundColor Yellow
 Write-Host "    .\scripts\start-whisper-server.ps1" -ForegroundColor White
+Write-Host "" 
+Write-Host "  To install WhisperX support:" -ForegroundColor Yellow
+Write-Host "    .\scripts\install-whisper-server.ps1 -WithWhisperX" -ForegroundColor White
 Write-Host ""
 Write-Host "  Or with specific model:" -ForegroundColor Yellow
 Write-Host "    .\scripts\start-whisper-server.ps1 -Model 'ivrit-ai/whisper-v2-d4-e3'" -ForegroundColor White

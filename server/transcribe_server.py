@@ -1764,6 +1764,8 @@ def diarize():
         language: language code (optional, default 'he')
         min_gap: minimum silence gap (seconds) to consider a speaker change (default 1.5)
         hf_token: HuggingFace token for pyannote (optional)
+        diarization_engine: auto | whisperx | pyannote | silence-gap (optional, default auto)
+        whisperx_model: WhisperX model id (optional, default large-v3)
     """
     if "file" not in request.files:
         return jsonify({"error": "No file provided"}), 400
@@ -1773,6 +1775,12 @@ def diarize():
     language = request.form.get("language", "he")
     min_gap = float(request.form.get("min_gap", "1.5"))
     hf_token = request.form.get("hf_token", "")
+    diarization_engine = request.form.get("diarization_engine", "auto").strip().lower()
+    whisperx_model = request.form.get("whisperx_model", "large-v3").strip() or "large-v3"
+
+    allowed_engines = {"auto", "whisperx", "pyannote", "silence-gap"}
+    if diarization_engine not in allowed_engines:
+        return jsonify({"error": f"Unsupported diarization_engine: {diarization_engine}", "supported": sorted(allowed_engines)}), 400
 
     resolved = MODEL_REGISTRY.get(model_id, model_id)
     suffix = _safe_suffix(audio_file.filename)
@@ -1782,9 +1790,147 @@ def diarize():
         tmp_path = tmp.name
 
     try:
-        model = load_model(resolved)
-        _log.info(f"Diarizing: {audio_file.filename} (model={resolved}, lang={language}, min_gap={min_gap})")
+        _log.info(
+            f"Diarizing: {audio_file.filename} "
+            f"(model={resolved}, lang={language}, min_gap={min_gap}, engine={diarization_engine})"
+        )
         start = time.time()
+
+        # ──────────────────────────────────────────────────────────────────
+        # WhisperX path (high-quality alignment + diarization)
+        # auto mode prefers WhisperX when available.
+        # ──────────────────────────────────────────────────────────────────
+        if diarization_engine in {"auto", "whisperx"}:
+            try:
+                import whisperx  # type: ignore
+
+                wx_device = "cuda" if (_has_torch and torch.cuda.is_available()) else "cpu"
+                wx_compute_type = "float16" if wx_device == "cuda" else "int8"
+                wx_language = None if language == "auto" else language
+
+                _log.info(
+                    f"Using WhisperX (model={whisperx_model}, device={wx_device}, compute={wx_compute_type}, lang={wx_language or 'auto'})"
+                )
+
+                wx_model = whisperx.load_model(
+                    whisperx_model,
+                    wx_device,
+                    compute_type=wx_compute_type,
+                    language=wx_language,
+                )
+                wx_result = wx_model.transcribe(tmp_path, batch_size=16)
+
+                # Force word-level alignment for higher timestamp precision
+                align_model, align_meta = whisperx.load_align_model(
+                    language_code=wx_result.get("language") or (wx_language or "he"),
+                    device=wx_device,
+                )
+                aligned = whisperx.align(
+                    wx_result.get("segments", []),
+                    align_model,
+                    align_meta,
+                    tmp_path,
+                    wx_device,
+                    return_char_alignments=False,
+                )
+
+                diarization_method = "whisperx+silence-gap"
+
+                # Optional neural diarization (pyannote via WhisperX)
+                if hf_token:
+                    try:
+                        diarize_pipeline = whisperx.DiarizationPipeline(
+                            use_auth_token=hf_token,
+                            device=wx_device,
+                        )
+                        diarized_segments = diarize_pipeline(tmp_path)
+                        aligned = whisperx.assign_word_speakers(diarized_segments, aligned)
+                        diarization_method = "whisperx+pyannote"
+                    except Exception as wx_diar_err:
+                        _log.warning(f"WhisperX diarization pipeline failed: {wx_diar_err} — using silence-gap labels")
+
+                raw_segments = []
+                for seg in aligned.get("segments", []):
+                    text = str(seg.get("text", "")).strip()
+                    if not text:
+                        continue
+                    seg_start = round(float(seg.get("start", 0.0) or 0.0), 3)
+                    seg_end = round(float(seg.get("end", seg_start) or seg_start), 3)
+
+                    words = []
+                    for w in seg.get("words", []) or []:
+                        w_text = str(w.get("word", "")).strip()
+                        if not w_text:
+                            continue
+                        words.append({
+                            "word": w_text,
+                            "start": round(float(w.get("start", seg_start) or seg_start), 3),
+                            "end": round(float(w.get("end", seg_end) or seg_end), 3),
+                            "probability": round(float(w.get("score", w.get("probability", 0.0)) or 0.0), 3),
+                        })
+
+                    raw_segments.append({
+                        "text": text,
+                        "start": seg_start,
+                        "end": seg_end,
+                        "words": words,
+                        "speaker": seg.get("speaker"),
+                    })
+
+                # If speaker was not assigned by WhisperX diarization, use silence-gap heuristic.
+                current_speaker = 0
+                for i, seg in enumerate(raw_segments):
+                    has_speaker = bool(seg.get("speaker"))
+                    if not has_speaker:
+                        if i > 0:
+                            gap = seg["start"] - raw_segments[i - 1]["end"]
+                            if gap >= min_gap:
+                                current_speaker = (current_speaker + 1) % 10
+                        seg["speaker"] = f"SPEAKER_{current_speaker:02d}"
+
+                # Normalize speaker labels to sequential Hebrew labels
+                seen_speakers = {}
+                speaker_counter = 0
+                for seg in raw_segments:
+                    sp = str(seg.get("speaker") or "SPEAKER_00")
+                    if sp not in seen_speakers:
+                        seen_speakers[sp] = f"דובר {speaker_counter + 1}"
+                        speaker_counter += 1
+                    seg["speaker"] = sp
+                    seg["speaker_label"] = seen_speakers[sp]
+
+                elapsed = time.time() - start
+                full_text = " ".join(s["text"] for s in raw_segments)
+                duration = round(max((s["end"] for s in raw_segments), default=0.0), 2)
+
+                _log.info(
+                    f"Diarization done in {elapsed:.1f}s — {len(raw_segments)} segments, "
+                    f"{speaker_counter} speakers ({diarization_method})"
+                )
+
+                return jsonify({
+                    "text": full_text,
+                    "segments": raw_segments,
+                    "speakers": list(seen_speakers.values()),
+                    "speaker_count": speaker_counter,
+                    "duration": duration,
+                    "language": wx_result.get("language") or language,
+                    "model": whisperx_model,
+                    "processing_time": round(elapsed, 2),
+                    "diarization_method": diarization_method,
+                })
+
+            except ImportError:
+                if diarization_engine == "whisperx":
+                    return jsonify({
+                        "error": "WhisperX is not installed. Install it with: pip install whisperx",
+                    }), 400
+                _log.info("WhisperX not installed — falling back to existing diarization pipeline")
+            except Exception as wx_err:
+                if diarization_engine == "whisperx":
+                    _log.error(f"WhisperX diarization error: {wx_err}\n{_tb_module.format_exc()}")
+                    return jsonify({"error": f"WhisperX diarization failed: {wx_err}"}), 500
+                _log.warning(f"WhisperX failed in auto mode: {wx_err} — falling back")
 
         def _run_diarize(m):
             return m.transcribe(
@@ -1823,7 +1969,7 @@ def diarize():
         speaker_segments = None
         diarization_method = "silence-gap"
 
-        if hf_token:
+        if hf_token and diarization_engine in {"auto", "pyannote"}:
             try:
                 from pyannote.audio import Pipeline as PyannotePipeline
                 _log.info("Using pyannote.audio for speaker diarization")

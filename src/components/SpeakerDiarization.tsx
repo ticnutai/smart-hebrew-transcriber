@@ -84,6 +84,7 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000" }: Spea
   const [isProcessing, setIsProcessing] = useState(false);
   const [minGap, setMinGap] = useState(1.5);
   const [hfToken, setHfToken] = useState("");
+  const [diarizationEngine, setDiarizationEngine] = useState<"auto" | "whisperx" | "pyannote" | "silence-gap">("auto");
   const [activeSpeakerFilter, setActiveSpeakerFilter] = useState<string | null>(null);
   const [speakerNames, setSpeakerNames] = useState<Record<string, string>>({});
   const [editingSpeaker, setEditingSpeaker] = useState<string | null>(null);
@@ -167,6 +168,7 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000" }: Spea
       const formData = new FormData();
       formData.append("file", file);
       formData.append("min_gap", minGap.toString());
+      formData.append("diarization_engine", diarizationEngine);
       if (hfToken.trim()) {
         formData.append("hf_token", hfToken.trim());
       }
@@ -309,6 +311,19 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000" }: Spea
             placeholder="אופציונלי — לזיהוי מתקדם עם pyannote"
             className="flex-1 text-sm"
           />
+        </div>
+        <div className="flex items-center gap-4">
+          <Label className="text-sm whitespace-nowrap min-w-[120px]">מנוע דיאריזציה</Label>
+          <select
+            value={diarizationEngine}
+            onChange={(e) => setDiarizationEngine(e.target.value as "auto" | "whisperx" | "pyannote" | "silence-gap")}
+            className="h-9 rounded-md border border-input bg-background px-3 text-sm flex-1"
+          >
+            <option value="auto">אוטומטי (מומלץ)</option>
+            <option value="whisperx">WhisperX (יישור מילים מדויק)</option>
+            <option value="pyannote">pyannote</option>
+            <option value="silence-gap">Silence Gap</option>
+          </select>
         </div>
       </div>
 

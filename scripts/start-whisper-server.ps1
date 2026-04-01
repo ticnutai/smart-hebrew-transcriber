@@ -6,11 +6,11 @@
 #
 # Usage:
 #   .\scripts\start-whisper-server.ps1
-#   .\scripts\start-whisper-server.ps1 -Port 8765 -Model ivrit-ai/faster-whisper-v2-d4
+#   .\scripts\start-whisper-server.ps1 -Port 3000 -Model ivrit-ai/faster-whisper-v2-d4
 # ============================================
 
 param(
-    [int]$Port = 8765,
+    [int]$Port = 3000,
     [string]$Model = "ivrit-ai/whisper-large-v3-turbo-ct2"
 )
 
