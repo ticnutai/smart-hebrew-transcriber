@@ -47,6 +47,7 @@ const Setup = lazyWithLog('Setup', () => import("./pages/Setup"));
 const TextEditor = lazyWithLog('TextEditor', () => import("./pages/TextEditor"));
 const Folders = lazyWithLog('Folders', () => import("./pages/Folders"));
 const Benchmark = lazyWithLog('Benchmark', () => import("./pages/Benchmark"));
+const Diarization = lazyWithLog('Diarization', () => import("./pages/Diarization"));
 const NotFound = lazyWithLog('NotFound', () => import("./pages/NotFound"));
 const ResetPassword = lazyWithLog('ResetPassword', () => import("./pages/ResetPassword"));
 const VideoToMp3 = lazyWithLog('VideoToMp3', () => import("./pages/VideoToMp3"));
@@ -133,6 +134,7 @@ const App = () => {
                 <Route path="/text-editor" element={<ProtectedRoute><TextEditor /></ProtectedRoute>} />
                 <Route path="/folders" element={<ProtectedRoute><Folders /></ProtectedRoute>} />
                 <Route path="/benchmark" element={<ProtectedRoute><Benchmark /></ProtectedRoute>} />
+                <Route path="/diarization" element={<ProtectedRoute><Diarization /></ProtectedRoute>} />
                 <Route path="/video-to-mp3" element={<ProtectedRoute><VideoToMp3 /></ProtectedRoute>} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
