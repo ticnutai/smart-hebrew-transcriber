@@ -207,7 +207,7 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
   }, []);
 
   // ─── CUDA Whisper Live Mode ───
-  const getBaseUrl = () => localStorage.getItem('whisper_server_url') || 'http://localhost:8765';
+  const getBaseUrl = () => localStorage.getItem('whisper_server_url') || 'http://localhost:3000';
 
   const sendChunk = useCallback(async (blob: Blob) => {
     if (blob.size < LIVE_MIN_BLOB_BYTES || processingRef.current) return;

@@ -6,11 +6,11 @@
 #
 #  Usage:
 #    .\scripts\start-lovable.ps1
-#    .\scripts\start-lovable.ps1 -Port 8765
+#    .\scripts\start-lovable.ps1 -Port 3000
 # ============================================
 
 param(
-    [int]$Port = 8765,
+    [int]$Port = 3000,
     [string]$Model = "ivrit-ai/whisper-large-v3-turbo-ct2",
     [string]$Url = "https://a1add912-bd72-490b-949a-bf5fe8ed03b5.lovable.app"
 )

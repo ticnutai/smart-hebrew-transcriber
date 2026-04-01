@@ -12,7 +12,7 @@ Tests:
 import requests, time, os, sys, threading, json, io
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-BASE = "http://localhost:8765"
+BASE = "http://localhost:3000"
 TEST_DIR = os.path.join(os.environ["TEMP"], "transcribe_test")
 FILES = {
     "short": ("test_short.mp3", "קצר ~7s"),

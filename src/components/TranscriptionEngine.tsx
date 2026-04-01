@@ -103,7 +103,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
   const [ollamaUrl, setOllamaUrl] = useState(() => localStorage.getItem('ollama_base_url') || '');
 
   // "True remote" = non-localhost site + custom remote URL configured
-  // If on Lovable but targeting localhost:8765, that's local-via-web, NOT remote
+  // If on Lovable but targeting localhost:3000, that's local-via-web, NOT remote
   const isRemoteAccess = isNonLocalHost && hasCustomServerUrl();
 
   // When user selects CUDA server — single check first, poll only if server responds
@@ -152,21 +152,21 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
           title: "🚀 השרת מופעל!",
           description: data.message === 'already running' ? 'השרת כבר רץ, ממתין לחיבור...' : 'השרת עולה, ממתין לחיבור...',
         });
-        startPolling(5000, 120000);
+        startPolling(3000, 120000);
       } else {
         throw new Error(data.error || 'Failed to start');
       }
     } catch (err: any) {
       // Fallback: try launcher service on 8764
       try {
-        const launcherRes = await fetch('http://localhost:8764/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target: 'whisper' }), signal: AbortSignal.timeout(5000) });
+        const launcherRes = await fetch('http://localhost:8764/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target: 'whisper' }), signal: AbortSignal.timeout(3000) });
         const launcherData = await launcherRes.json();
         if (launcherData.ok) {
           toast({
             title: "🚀 השרת מופעל!",
             description: launcherData.results?.whisper?.message === 'already running' ? 'השרת כבר רץ, ממתין לחיבור...' : 'שרת CUDA + Ollama עולים...',
           });
-          startPolling(5000, 120000);
+          startPolling(3000, 120000);
           setTimeout(() => setIsStarting(false), 120000);
           return;
         }
@@ -197,7 +197,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
               }`}
             >
               <RadioGroupItem value="groq" id="groq" className="sr-only" />
-              <Zap className="w-8 h-8 text-primary mb-2" />
+              <Zap className="w-8 h-8 text-blue-900 mb-2" />
               <span className="font-medium text-sm">Groq</span>
               <span className="text-[10px] text-muted-foreground mt-0.5">whisper-large-v3-turbo</span>
             </Label>
@@ -209,7 +209,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
               }`}
             >
               <RadioGroupItem value="openai" id="openai" className="sr-only" />
-              <Globe className="w-8 h-8 text-primary mb-2" />
+              <Globe className="w-8 h-8 text-blue-900 mb-2" />
               <span className="font-medium text-sm">OpenAI</span>
               <span className="text-[10px] text-muted-foreground mt-0.5">whisper-1</span>
             </Label>
@@ -221,7 +221,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
               }`}
             >
               <RadioGroupItem value="google" id="google" className="sr-only" />
-              <Chrome className="w-8 h-8 text-blue-500 mb-2" />
+              <Chrome className="w-8 h-8 text-blue-900 mb-2" />
               <span className="font-medium text-sm">Google</span>
               <span className="text-[10px] text-muted-foreground mt-0.5">Speech-to-Text</span>
             </Label>
@@ -233,7 +233,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
               }`}
             >
               <RadioGroupItem value="assemblyai" id="assemblyai" className="sr-only" />
-              <Mic className="w-8 h-8 text-green-500 mb-2" />
+              <Mic className="w-8 h-8 text-blue-900 mb-2" />
               <span className="font-medium text-sm">AssemblyAI</span>
               <span className="text-[10px] text-muted-foreground mt-0.5">Universal</span>
             </Label>
@@ -245,7 +245,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
               }`}
             >
               <RadioGroupItem value="deepgram" id="deepgram" className="sr-only" />
-              <Waves className="w-8 h-8 text-purple-500 mb-2" />
+              <Waves className="w-8 h-8 text-blue-900 mb-2" />
               <span className="font-medium text-sm">Deepgram</span>
               <span className="text-[10px] text-muted-foreground mt-0.5">nova-2</span>
             </Label>
@@ -274,7 +274,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
                   <XCircle className="w-4 h-4 text-red-400" />
                 )}
               </div>
-              <Server className="w-8 h-8 text-purple-500 mb-2" />
+              <Server className="w-8 h-8 text-blue-900 mb-2" />
               <span className="font-medium text-sm">שרת CUDA 🖥️</span>
               <span className="text-xs text-muted-foreground mt-1">GPU + ivrit-ai + faster-whisper</span>
               <Badge variant="secondary" className="mt-1 text-[10px]">
@@ -289,7 +289,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
               }`}
             >
               <RadioGroupItem value="local" id="local" className="sr-only" />
-              <Cpu className="w-8 h-8 text-accent mb-2" />
+              <Cpu className="w-8 h-8 text-blue-900 mb-2" />
               <span className="font-medium text-sm">דפדפן (ONNX)</span>
               <span className="text-xs text-muted-foreground mt-1">IndexedDB / WebGPU</span>
               <Badge variant="secondary" className="mt-1 text-[10px]">
@@ -377,7 +377,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ target: 'whisper' }),
-                        signal: AbortSignal.timeout(5000),
+                        signal: AbortSignal.timeout(3000),
                       });
                       const launcherData = await launcherRes.json();
                       if (launcherData.ok) {
@@ -387,7 +387,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
                             ? 'השרת כבר רץ, ממתין לחיבור...'
                             : 'שרת CUDA עולה, ממתין לחיבור...',
                         });
-                        startPolling(5000, 120000);
+                        startPolling(3000, 120000);
                         setTimeout(() => setIsStarting(false), 120000);
                         return;
                       }
@@ -397,7 +397,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
                     // 2. Fallback: just check if server is already running
                     const ok = await checkConnection();
                     if (ok) {
-                      toast({ title: '🟢 מחובר!', description: 'שרת CUDA זוהה ב־localhost:8765' });
+                      toast({ title: '🟢 מחובר!', description: 'שרת CUDA זוהה ב־localhost:3000' });
                       startPolling(10000);
                     } else {
                       toast({
@@ -447,7 +447,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ target: 'whisper' }),
-                      signal: AbortSignal.timeout(5000),
+                      signal: AbortSignal.timeout(3000),
                     });
                   } catch {
                     // Tray not available — fall through to direct shutdown
@@ -478,7 +478,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
           )}
           {!isConnected && !isRemoteAccess && isNonLocalHost && (
             <div className="text-[11px] text-muted-foreground space-y-1.5 border-t pt-2">
-              <p className="font-medium">🖥️ עובד מול השרת המקומי (localhost:8765)</p>
+              <p className="font-medium">🖥️ עובד מול השרת המקומי (localhost:3000)</p>
               <p className="text-muted-foreground">
                 לחץ "הפעל שרת" — האפליקציה תנסה להפעיל את השרת דרך ה-tray (פורט 8764).
                 אם ה-tray לא פועל, הפעל ידנית:
@@ -749,7 +749,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
                     type="url"
                     className="w-full h-8 text-xs rounded-md border bg-background px-3 text-left dir-ltr font-mono"
                     dir="ltr"
-                    placeholder="http://localhost:8765"
+                    placeholder="http://localhost:3000"
                     value={serverUrl}
                     onChange={(e) => {
                       const v = e.target.value.trim();

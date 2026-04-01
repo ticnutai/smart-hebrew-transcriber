@@ -7,7 +7,7 @@
  * speed AND accuracy against expected transcription.
  *
  * Prerequisites:
- *   - Whisper server running on localhost:8765 with a loaded model
+ *   - Whisper server running on localhost:3000 with a loaded model
  *   - Vite dev server running on localhost:8080
  *   - Run `python scripts/generate_hebrew_audio.py` to create fixtures
  *
@@ -89,7 +89,7 @@ function createSpeechLikeWavBuffer(durationSec = 5, sampleRate = 16000): Buffer 
 
 // ─── Server helpers ──────────────────────────────────────────────────────────
 
-const SERVER = 'http://localhost:8765';
+const SERVER = 'http://localhost:3000';
 
 // ─── Hebrew audio fixtures ──────────────────────────────────────────────────
 
@@ -478,7 +478,7 @@ test.describe('בנצ\'מארק תמלול — כל הערכות וכל ה-API',
 
     // Select CUDA engine
     const cudaOption = page.getByText('CUDA');
-    await expect(cudaOption.first()).toBeVisible({ timeout: 5000 });
+    await expect(cudaOption.first()).toBeVisible({ timeout: 3000 });
     await cudaOption.first().click();
 
     // Wait for server connected

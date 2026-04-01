@@ -6,8 +6,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { History, Trash2, FileText, Search, Tag, X, Edit, Cloud, HardDrive, Loader2, Calendar, Filter, FolderOpen, FolderPlus, Folder, Download } from "lucide-react";
+import { History, Trash2, FileText, Search, Tag, X, Edit, Cloud, HardDrive, Loader2, Calendar, Filter, FolderOpen, FolderPlus, Folder, Download, Brain } from "lucide-react";
 import type { CloudTranscript } from "@/hooks/useCloudTranscripts";
+import { semanticSearch } from "@/utils/semanticSearch";
 
 interface CloudTranscriptHistoryProps {
   transcripts: CloudTranscript[];
@@ -38,6 +39,7 @@ export const CloudTranscriptHistory = memo(({
   const [dateFilter, setDateFilter] = useState<string>("all");
   const [folderFilter, setFolderFilter] = useState<string>(initialFolderFilter || "all");
   const [showFilters, setShowFilters] = useState(false);
+  const [useSemanticSearch, setUseSemanticSearch] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [assigningFolderId, setAssigningFolderId] = useState<string | null>(null);
@@ -76,19 +78,28 @@ export const CloudTranscriptHistory = memo(({
     const q = searchQuery.toLowerCase();
     const dateThreshold = getDateThreshold(dateFilter);
 
-    return transcripts.filter(t => {
-      const matchesSearch = !q || 
+    let result = transcripts.filter(t => {
+      const matchesSearch = !q || !useSemanticSearch && (
         t.text.toLowerCase().includes(q) ||
         t.engine.toLowerCase().includes(q) ||
         t.title.toLowerCase().includes(q) ||
-        t.tags?.some(tag => tag.toLowerCase().includes(q));
+        t.tags?.some(tag => tag.toLowerCase().includes(q)));
       const matchesEngine = engineFilter === "all" || t.engine === engineFilter;
       const matchesDate = !dateThreshold || new Date(t.created_at) >= dateThreshold;
       const matchesFolder = folderFilter === "all" || 
         (folderFilter === "__none__" ? (!t.folder || t.folder.trim() === '') : t.folder === folderFilter);
-      return matchesSearch && matchesEngine && matchesDate && matchesFolder;
+      return (useSemanticSearch ? true : matchesSearch) && matchesEngine && matchesDate && matchesFolder;
     });
-  }, [transcripts, searchQuery, engineFilter, dateFilter, folderFilter]);
+
+    // Apply semantic search reranking
+    if (useSemanticSearch && q.length >= 2) {
+      const docs = result.map(t => `${t.title} ${t.text}`);
+      const ranked = semanticSearch(q, docs, result.length, 0.01);
+      result = ranked.map(r => result[r.index]);
+    }
+
+    return result;
+  }, [transcripts, searchQuery, engineFilter, dateFilter, folderFilter, useSemanticSearch]);
 
   if (transcripts.length === 0 && !isLoading) return null;
 
@@ -165,6 +176,203 @@ export const CloudTranscriptHistory = memo(({
     setAssigningFolderId(null);
   };
 
+  const renderEntryCard = (entry: CloudTranscript, key?: string) => (
+    <div
+      key={key}
+      className="p-4 rounded-lg border hover:bg-accent/50 transition-colors text-right"
+      style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 220px' }}
+    >
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground font-medium">{entry.engine}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+            onClick={() => onDelete(entry.id)}
+          >
+            <Trash2 className="w-3 h-3" />
+          </Button>
+          <span className="text-xs text-muted-foreground">{formatDate(entry.created_at)}</span>
+        </div>
+      </div>
+
+      {entry.title && (
+        <p className="text-sm font-medium mb-1 text-right">{entry.title}</p>
+      )}
+
+      <div className="flex items-start gap-2 mb-3">
+        <FileText className="w-4 h-4 mt-1 flex-shrink-0 text-muted-foreground" />
+        <p className="text-sm line-clamp-2 text-right flex-1 text-muted-foreground">
+          {highlightText(entry.text, searchQuery)}
+        </p>
+      </div>
+
+      <div className="flex gap-1 mt-2">
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 w-7 p-0"
+          onClick={() => navigate('/text-editor', { state: {
+            text: entry.edited_text || entry.text,
+            wordTimings: entry.word_timings || undefined,
+            transcriptId: entry.id,
+            audioFilePath: entry.audio_file_path || undefined,
+          } })}
+          title="ערוך"
+        >
+          <Edit className="w-3.5 h-3.5" />
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 w-7 p-0"
+          onClick={() => onSelect(entry.text)}
+          title="טען"
+        >
+          <FileText className="w-3.5 h-3.5" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 w-7 p-0"
+          onClick={() => {
+            setEditingTagId(editingTagId === entry.id ? null : entry.id);
+            setNewTag("");
+          }}
+          title="הוסף תגית"
+        >
+          <Tag className="w-3.5 h-3.5" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 w-7 p-0"
+          onClick={() => {
+            setAssigningFolderId(assigningFolderId === entry.id ? null : entry.id);
+            setShowNewFolder(false);
+          }}
+          title="שייך לתיקיה"
+        >
+          <FolderPlus className="w-3.5 h-3.5" />
+        </Button>
+      </div>
+
+      {entry.folder && entry.folder.trim() !== '' && (
+        <div className="mt-1">
+          <Badge variant="outline" className="text-[10px] gap-1">
+            <Folder className="w-2.5 h-2.5" />
+            {entry.folder}
+            <X
+              className="w-2.5 h-2.5 cursor-pointer hover:text-destructive"
+              onClick={(e) => {
+                e.stopPropagation();
+                onUpdate(entry.id, { folder: '' });
+              }}
+            />
+          </Badge>
+        </div>
+      )}
+
+      {assigningFolderId === entry.id && (
+        <div className="mt-2 p-2 rounded border bg-background space-y-1">
+          {folders.map(f => (
+            <Button
+              key={f}
+              variant={entry.folder === f ? "default" : "ghost"}
+              size="sm"
+              className="w-full justify-start text-xs h-7 gap-1"
+              onClick={() => handleAssignFolder(entry.id, f)}
+            >
+              <Folder className="w-3 h-3" />
+              {f}
+            </Button>
+          ))}
+          {entry.folder && entry.folder.trim() !== '' && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start text-xs h-7 gap-1 text-destructive"
+              onClick={() => handleAssignFolder(entry.id, '')}
+            >
+              <X className="w-3 h-3" />
+              הסר מתיקיה
+            </Button>
+          )}
+          {showNewFolder ? (
+            <div className="flex gap-1 mt-1">
+              <Input
+                placeholder="שם תיקיה..."
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleCreateFolder(); }}
+                className="text-xs h-7"
+                dir="rtl"
+                autoFocus
+              />
+              <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={handleCreateFolder}>
+                צור
+              </Button>
+            </div>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start text-xs h-7 gap-1"
+              onClick={() => setShowNewFolder(true)}
+            >
+              <FolderPlus className="w-3 h-3" />
+              תיקיה חדשה...
+            </Button>
+          )}
+        </div>
+      )}
+
+      {entry.tags && entry.tags.length > 0 && (
+        <div className="flex flex-wrap gap-1 mt-2">
+          {entry.tags.map((tag, tagIndex) => (
+            <Badge key={tagIndex} variant="secondary" className="text-xs">
+              {tag}
+              <X
+                className="w-3 h-3 mr-1 cursor-pointer hover:text-destructive"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleRemoveTag(entry.id, tag);
+                }}
+              />
+            </Badge>
+          ))}
+        </div>
+      )}
+
+      {editingTagId === entry.id && (
+        <div className="flex gap-2 mt-2">
+          <Input
+            placeholder="הוסף תגית..."
+            value={newTag}
+            onChange={(e) => setNewTag(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleAddTag(entry.id, newTag);
+            }}
+            className="text-xs h-7 text-right"
+            dir="rtl"
+            autoFocus
+          />
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2"
+            onClick={() => handleAddTag(entry.id, newTag)}
+          >
+            הוסף
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <Card className="p-6" dir="rtl">
       <div className="flex items-center justify-between mb-4">
@@ -225,6 +433,14 @@ export const CloudTranscriptHistory = memo(({
             dir="rtl"
           />
         </div>
+        <Button
+          variant={useSemanticSearch ? "default" : "outline"}
+          size="icon"
+          onClick={() => setUseSemanticSearch(!useSemanticSearch)}
+          title={useSemanticSearch ? "חיפוש סמנטי פעיל" : "הפעל חיפוש סמנטי"}
+        >
+          <Brain className="w-4 h-4" />
+        </Button>
         <Button
           variant={showFilters ? "default" : "outline"}
           size="icon"
@@ -325,206 +541,10 @@ export const CloudTranscriptHistory = memo(({
 
           {/* Transcript list */}
           <ScrollArea className="h-[400px] flex-1">
-          <div className="space-y-3">
-            {filtered.map((entry) => (
-              <div
-                key={entry.id}
-                className="p-4 rounded-lg border hover:bg-accent/50 transition-colors text-right"
-              >
-                <div className="flex items-center justify-between mb-2 flex-row-reverse">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground font-medium">{entry.engine}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
-                      onClick={() => onDelete(entry.id)}
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </Button>
-                    <span className="text-xs text-muted-foreground">{formatDate(entry.created_at)}</span>
-                  </div>
-                </div>
-
-                {entry.title && (
-                  <p className="text-sm font-medium mb-1 text-right">{entry.title}</p>
-                )}
-
-                <div className="flex items-start gap-2 mb-3 flex-row-reverse">
-                  <FileText className="w-4 h-4 mt-1 flex-shrink-0 text-muted-foreground" />
-                  <p className="text-sm line-clamp-2 text-right flex-1 text-muted-foreground">
-                    {highlightText(entry.text, searchQuery)}
-                  </p>
-                </div>
-
-                <div className="flex gap-1 mt-2 flex-row-reverse">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 w-7 p-0"
-                    onClick={() => navigate('/text-editor', { state: { 
-                      text: entry.edited_text || entry.text,
-                      wordTimings: entry.word_timings || undefined,
-                      transcriptId: entry.id,
-                      audioFilePath: entry.audio_file_path || undefined,
-                    } })}
-                    title="ערוך"
-                  >
-                    <Edit className="w-3.5 h-3.5" />
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 w-7 p-0"
-                    onClick={() => onSelect(entry.text)}
-                    title="טען"
-                  >
-                    <FileText className="w-3.5 h-3.5" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 w-7 p-0"
-                    onClick={() => {
-                      setEditingTagId(editingTagId === entry.id ? null : entry.id);
-                      setNewTag("");
-                    }}
-                    title="הוסף תגית"
-                  >
-                    <Tag className="w-3.5 h-3.5" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 w-7 p-0"
-                    onClick={() => {
-                      setAssigningFolderId(assigningFolderId === entry.id ? null : entry.id);
-                      setShowNewFolder(false);
-                    }}
-                    title="שייך לתיקיה"
-                  >
-                    <FolderPlus className="w-3.5 h-3.5" />
-                  </Button>
-                </div>
-
-                {/* Folder badge */}
-                {entry.folder && entry.folder.trim() !== '' && (
-                  <div className="mt-1">
-                    <Badge variant="outline" className="text-[10px] gap-1">
-                      <Folder className="w-2.5 h-2.5" />
-                      {entry.folder}
-                      <X
-                        className="w-2.5 h-2.5 cursor-pointer hover:text-destructive"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onUpdate(entry.id, { folder: '' });
-                        }}
-                      />
-                    </Badge>
-                  </div>
-                )}
-
-                {/* Folder assignment dropdown */}
-                {assigningFolderId === entry.id && (
-                  <div className="mt-2 p-2 rounded border bg-background space-y-1">
-                    {folders.map(f => (
-                      <Button
-                        key={f}
-                        variant={entry.folder === f ? "default" : "ghost"}
-                        size="sm"
-                        className="w-full justify-start text-xs h-7 gap-1"
-                        onClick={() => handleAssignFolder(entry.id, f)}
-                      >
-                        <Folder className="w-3 h-3" />
-                        {f}
-                      </Button>
-                    ))}
-                    {entry.folder && entry.folder.trim() !== '' && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="w-full justify-start text-xs h-7 gap-1 text-destructive"
-                        onClick={() => handleAssignFolder(entry.id, '')}
-                      >
-                        <X className="w-3 h-3" />
-                        הסר מתיקיה
-                      </Button>
-                    )}
-                    {showNewFolder ? (
-                      <div className="flex gap-1 mt-1">
-                        <Input
-                          placeholder="שם תיקיה..."
-                          value={newFolderName}
-                          onChange={(e) => setNewFolderName(e.target.value)}
-                          onKeyDown={(e) => { if (e.key === 'Enter') handleCreateFolder(); }}
-                          className="text-xs h-7"
-                          dir="rtl"
-                          autoFocus
-                        />
-                        <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={handleCreateFolder}>
-                          צור
-                        </Button>
-                      </div>
-                    ) : (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="w-full justify-start text-xs h-7 gap-1"
-                        onClick={() => setShowNewFolder(true)}
-                      >
-                        <FolderPlus className="w-3 h-3" />
-                        תיקיה חדשה...
-                      </Button>
-                    )}
-                  </div>
-                )}
-
-                {entry.tags && entry.tags.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-2">
-                    {entry.tags.map((tag, tagIndex) => (
-                      <Badge key={tagIndex} variant="secondary" className="text-xs">
-                        {tag}
-                        <X
-                          className="w-3 h-3 mr-1 cursor-pointer hover:text-destructive"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleRemoveTag(entry.id, tag);
-                          }}
-                        />
-                      </Badge>
-                    ))}
-                  </div>
-                )}
-
-                {editingTagId === entry.id && (
-                  <div className="flex gap-2 mt-2">
-                    <Input
-                      placeholder="הוסף תגית..."
-                      value={newTag}
-                      onChange={(e) => setNewTag(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') handleAddTag(entry.id, newTag);
-                      }}
-                      className="text-xs h-7 text-right"
-                      dir="rtl"
-                      autoFocus
-                    />
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 px-2"
-                      onClick={() => handleAddTag(entry.id, newTag)}
-                    >
-                      הוסף
-                    </Button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </ScrollArea>
+            <div className="space-y-3">
+              {filtered.map((entry) => renderEntryCard(entry, entry.id))}
+            </div>
+          </ScrollArea>
         </div>
       )}
     </Card>

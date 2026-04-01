@@ -11,7 +11,7 @@ interface YouTubeTranscriberProps {
   onTranscriptComplete: (text: string) => void;
 }
 
-export const YouTubeTranscriber = ({ serverUrl = "http://localhost:8765", onTranscriptComplete }: YouTubeTranscriberProps) => {
+export const YouTubeTranscriber = ({ serverUrl = "http://localhost:3000", onTranscriptComplete }: YouTubeTranscriberProps) => {
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{

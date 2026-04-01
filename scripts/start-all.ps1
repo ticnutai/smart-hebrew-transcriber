@@ -5,7 +5,7 @@
 
 param(
     [int]$Port = 5050,
-    [int]$WhisperPort = 8765
+    [int]$WhisperPort = 3000
 )
 
 $ErrorActionPreference = "Continue"

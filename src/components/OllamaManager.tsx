@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   Server, Wifi, WifiOff, Download, Trash2, RefreshCw,
-  HardDrive, Loader2, CheckCircle2, XCircle, Cpu
+  HardDrive, Loader2, CheckCircle2, XCircle, Cpu, ExternalLink
 } from "lucide-react";
 import { useOllama, getOllamaUrl, setOllamaUrl, formatModelSize } from "@/hooks/useOllama";
 import { toast } from "@/hooks/use-toast";
@@ -46,13 +46,51 @@ const RECOMMENDED_MODELS = [
 export const OllamaManager = () => {
   const {
     isConnected, isChecking, models,
-    isPulling, pullProgress,
-    checkConnection, pullModel, cancelPull, deleteModel,
+    isPulling, pullProgress, pullJobs,
+    connectionError,
+    checkConnection, pullModel, cancelPull, resumePull, deleteModel,
   } = useOllama();
 
   const [urlInput, setUrlInput] = useState(getOllamaUrl());
   const [selectedModel, setSelectedModel] = useState('');
   const [customModelName, setCustomModelName] = useState('');
+  const [localVersion, setLocalVersion] = useState<string | null>(null);
+  const [latestVersion, setLatestVersion] = useState<string | null>(null);
+  const [isCheckingVersion, setIsCheckingVersion] = useState(false);
+  const [detectedGpuLabel, setDetectedGpuLabel] = useState<string | null>(null);
+
+  const installedNames = useMemo(() => new Set(models.map(m => m.name)), [models]);
+  const missingRecommended = useMemo(
+    () => RECOMMENDED_MODELS.filter(m => !installedNames.has(m.name)),
+    [installedNames]
+  );
+
+  useEffect(() => {
+    try {
+      const canvas = document.createElement('canvas');
+      const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+      if (!gl) return;
+
+      const ext = (gl as WebGLRenderingContext).getExtension('WEBGL_debug_renderer_info');
+      if (!ext) return;
+
+      const rawRenderer = (gl as WebGLRenderingContext).getParameter(
+        (ext as { UNMASKED_RENDERER_WEBGL: number }).UNMASKED_RENDERER_WEBGL
+      ) as string;
+
+      const rtxMatch = rawRenderer.match(/RTX\s*\d{3,4}/i);
+      if (rtxMatch) {
+        setDetectedGpuLabel(rtxMatch[0].toUpperCase().replace(/\s+/, ' '));
+        return;
+      }
+
+      if (/NVIDIA/i.test(rawRenderer)) {
+        setDetectedGpuLabel('NVIDIA');
+      }
+    } catch {
+      // Keep fallback label
+    }
+  }, []);
 
   const handleUrlSave = () => {
     const trimmed = urlInput.trim().replace(/\/+$/, '');
@@ -66,14 +104,81 @@ export const OllamaManager = () => {
     if (!modelName) return;
     try {
       await pullModel(modelName);
-      toast({ title: "הצלחה", description: `${modelName} הורד בהצלחה` });
+      toast({ title: "הצלחה", description: `${modelName} ירד ונשמר מקומית` });
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
-        toast({ title: "בוטל", description: "ההורדה בוטלה" });
+        toast({ title: "בוטל", description: "ההורדה נעצרה — אפשר להמשיך מאותה נקודה" });
       } else {
         toast({ title: "שגיאה", description: err instanceof Error ? err.message : "שגיאה בהורדה", variant: "destructive" });
       }
     }
+  };
+
+  const handlePullMissingParallel = async () => {
+    if (missingRecommended.length === 0) {
+      toast({ title: "הכל מותקן", description: "אין מנועים חסרים" });
+      return;
+    }
+    await Promise.allSettled(missingRecommended.map(m => pullModel(m.name)));
+    toast({ title: "הופעלו הורדות רקע", description: `${missingRecommended.length} מנועים רצים במקביל` });
+  };
+
+  const parseVersion = (v: string): number[] => {
+    return v.replace(/^v/i, '').split('.').map(x => Number.parseInt(x, 10) || 0);
+  };
+
+  const isVersionNewer = (latest: string, current: string): boolean => {
+    const a = parseVersion(latest);
+    const b = parseVersion(current);
+    const len = Math.max(a.length, b.length);
+    for (let i = 0; i < len; i += 1) {
+      const av = a[i] || 0;
+      const bv = b[i] || 0;
+      if (av > bv) return true;
+      if (av < bv) return false;
+    }
+    return false;
+  };
+
+  const handleCheckVersions = async () => {
+    setIsCheckingVersion(true);
+    try {
+      const baseUrl = getOllamaUrl();
+      const localRes = await fetch(`${baseUrl}/api/version`, { signal: AbortSignal.timeout(5000) });
+      if (!localRes.ok) throw new Error('לא ניתן לקרוא גרסה מקומית');
+      const localData = await localRes.json();
+      const current = (localData?.version || '').toString();
+      setLocalVersion(current || null);
+
+      const latestRes = await fetch('https://api.github.com/repos/ollama/ollama/releases/latest', { signal: AbortSignal.timeout(8000) });
+      if (!latestRes.ok) throw new Error('לא ניתן לקרוא גרסה אחרונה מ-GitHub');
+      const latestData = await latestRes.json();
+      const latest = (latestData?.tag_name || '').toString().replace(/^v/i, '');
+      setLatestVersion(latest || null);
+
+      if (current && latest && isVersionNewer(latest, current)) {
+        toast({ title: 'קיימת גרסה חדשה', description: `מקומית: ${current} | חדשה: ${latest}` });
+      } else {
+        toast({ title: 'המערכת מעודכנת', description: current ? `גרסה ${current}` : 'לא זוהתה גרסה' });
+      }
+    } catch (err) {
+      toast({
+        title: 'בדיקת גרסאות נכשלה',
+        description: err instanceof Error ? err.message : 'שגיאה לא ידועה',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsCheckingVersion(false);
+    }
+  };
+
+  const handleUpdateInstalledModels = async () => {
+    if (models.length === 0) {
+      toast({ title: 'אין מודלים לעדכון', description: 'התקן קודם מודל אחד לפחות' });
+      return;
+    }
+    await Promise.allSettled(models.map(m => pullModel(m.name)));
+    toast({ title: 'עדכון מודלים הופעל', description: `${models.length} מודלים נבדקים/מתעדכנים ברקע` });
   };
 
   const handleDelete = async (modelName: string) => {
@@ -132,11 +237,42 @@ export const OllamaManager = () => {
             <Button onClick={handleUrlSave} variant="outline">שמור</Button>
           </div>
           {!isConnected && !isChecking && (
-            <p className="text-xs text-destructive">
-              ודא ש-Ollama רץ: <code className="text-xs bg-muted px-1 rounded" dir="ltr">ollama serve</code>
-              {" "}ושהגדרת <code className="text-xs bg-muted px-1 rounded" dir="ltr">OLLAMA_ORIGINS=*</code>
-            </p>
+            <div className="space-y-1">
+              <p className="text-xs text-destructive">
+                ודא ש-Ollama רץ: <code className="text-xs bg-muted px-1 rounded" dir="ltr">ollama serve</code>
+                {" "}ושהגדרת <code className="text-xs bg-muted px-1 rounded" dir="ltr">OLLAMA_ORIGINS=*</code>
+              </p>
+              {connectionError && (
+                <p className="text-xs text-destructive/90">{connectionError}</p>
+              )}
+            </div>
           )}
+        </div>
+
+        {/* Version checker and one-click update */}
+        <div className="space-y-2 p-3 border rounded-lg bg-muted/20">
+          <div className="flex items-center justify-between gap-2">
+            <Label className="text-sm font-semibold">בדיקת גרסאות Ollama</Label>
+            <Button size="sm" variant="outline" onClick={handleCheckVersions} disabled={isCheckingVersion || !isConnected}>
+              {isCheckingVersion ? <Loader2 className="w-3 h-3 animate-spin ml-1" /> : <RefreshCw className="w-3 h-3 ml-1" />}
+              בדוק גרסה חדשה
+            </Button>
+          </div>
+          <div className="text-xs text-muted-foreground space-y-1">
+            <div>גרסה מקומית: <span dir="ltr">{localVersion || 'לא נבדק'}</span></div>
+            <div>גרסה אחרונה: <span dir="ltr">{latestVersion || 'לא נבדק'}</span></div>
+          </div>
+          {localVersion && latestVersion && isVersionNewer(latestVersion, localVersion) && (
+            <Button size="sm" className="w-full" onClick={() => window.open('https://ollama.com/download/windows', '_blank', 'noopener,noreferrer')}>
+              <Download className="w-4 h-4 ml-1" />
+              הורד עדכון Ollama
+              <ExternalLink className="w-3 h-3 mr-1" />
+            </Button>
+          )}
+          <Button size="sm" variant="secondary" className="w-full" onClick={handleUpdateInstalledModels} disabled={!isConnected || models.length === 0}>
+            <Cpu className="w-4 h-4 ml-1" />
+            בדוק/עדכן את כל המודלים המותקנים
+          </Button>
         </div>
 
         {/* Installed Models */}
@@ -151,8 +287,8 @@ export const OllamaManager = () => {
               {isConnected ? "אין מודלים מותקנים — הורד מודל מהרשימה למטה" : "חבר ל-Ollama כדי לראות מודלים"}
             </div>
           ) : (
-            <ScrollArea className="max-h-[250px]">
-              <div className="space-y-2">
+            <ScrollArea className="h-[300px] pr-2">
+              <div className="space-y-2 pb-1">
                 {models.map((m) => (
                   <div key={m.name} className="flex items-center justify-between p-3 border rounded-lg bg-background">
                     <div className="flex items-center gap-3">
@@ -201,7 +337,9 @@ export const OllamaManager = () => {
 
             {/* Recommended */}
             <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">מומלצים ל-RTX 4060</Label>
+              <Label className="text-xs text-muted-foreground">
+                {detectedGpuLabel ? `מומלצים ל-${detectedGpuLabel}` : 'מומלצים לפי הכרטיס שלך'}
+              </Label>
               <Select value={selectedModel} onValueChange={setSelectedModel}>
                 <SelectTrigger className="text-xs" dir="ltr">
                   <SelectValue placeholder="בחר מודל מומלץ..." />
@@ -219,12 +357,22 @@ export const OllamaManager = () => {
               </Select>
               <Button
                 onClick={() => handlePull(selectedModel)}
-                disabled={!selectedModel || isPulling}
+                disabled={!selectedModel}
                 size="sm"
                 className="w-full"
               >
-                {isPulling ? <Loader2 className="w-4 h-4 animate-spin ml-1" /> : <Download className="w-4 h-4 ml-1" />}
-                {isPulling ? 'מוריד...' : 'הורד מודל'}
+                <Download className="w-4 h-4 ml-1" />
+                הורד מודל ברקע
+              </Button>
+              <Button
+                onClick={handlePullMissingParallel}
+                disabled={missingRecommended.length === 0}
+                size="sm"
+                variant="outline"
+                className="w-full"
+              >
+                <Cpu className="w-4 h-4 ml-1" />
+                הורד את כל החסרים במקביל
               </Button>
             </div>
 
@@ -241,7 +389,7 @@ export const OllamaManager = () => {
                 />
                 <Button
                   onClick={() => handlePull(customModelName.trim())}
-                  disabled={!customModelName.trim() || isPulling}
+                  disabled={!customModelName.trim()}
                   size="sm"
                   variant="outline"
                 >
@@ -260,8 +408,98 @@ export const OllamaManager = () => {
                 {pullPercent > 0 && <Progress value={pullPercent} />}
                 <Button variant="ghost" size="sm" onClick={cancelPull} className="text-xs text-destructive">
                   <XCircle className="w-3 h-3 ml-1" />
-                  בטל הורדה
+                  בטל את כל ההורדות
                 </Button>
+              </div>
+            )}
+
+            {RECOMMENDED_MODELS.length > 0 && (
+              <div className="space-y-2 pt-2 border-t">
+                <Label className="text-xs text-muted-foreground">ניהול הורדה פר מנוע (רקע, מקבילי, עם המשך)</Label>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {RECOMMENDED_MODELS.map((m) => {
+                    const job = pullJobs[m.name];
+                    const isInstalled = installedNames.has(m.name);
+                    const isActive = job?.status === 'starting' || job?.status === 'pulling' || job?.status === 'retrying';
+                    const canResume = job?.status === 'error' || job?.status === 'cancelled';
+                    const percent = job?.percent || 0;
+                    const speedMBs = (job?.speedBps || 0) / (1024 * 1024);
+                    const etaSec = job?.etaSeconds || 0;
+                    const dlMB = (job?.downloadedBytes || 0) / (1024 * 1024);
+                    const totalMB = (job?.totalBytes || 0) / (1024 * 1024);
+
+                    return (
+                      <div key={m.name} className="rounded-md border p-2 bg-background space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-xs" dir="ltr">{m.name}</div>
+                          {isInstalled ? (
+                            <Badge variant="default" className="bg-green-600 text-[10px]">מותקן</Badge>
+                          ) : job?.status === 'completed' ? (
+                            <Badge variant="default" className="bg-green-600 text-[10px]">הושלם</Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-[10px]">
+                              {job?.status || 'idle'}
+                            </Badge>
+                          )}
+                        </div>
+
+                        {!isInstalled && (
+                          <>
+                            {isActive && percent > 0 && (
+                              <div className="space-y-1">
+                                <div className="relative w-full h-3 rounded-full bg-muted overflow-hidden">
+                                  <div
+                                    className="absolute inset-y-0 left-0 bg-primary rounded-full transition-all duration-300 ease-out"
+                                    style={{ width: `${percent}%` }}
+                                  >
+                                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-shimmer" />
+                                  </div>
+                                </div>
+                                <div className="flex items-center justify-between text-[10px] text-muted-foreground" dir="ltr">
+                                  <span className="font-mono font-bold">{percent}%</span>
+                                  <span>{dlMB.toFixed(0)} / {totalMB.toFixed(0)} MB</span>
+                                  {speedMBs > 0.1 && <span>{speedMBs.toFixed(1)} MB/s</span>}
+                                  {etaSec > 0 && etaSec < 86400 && (
+                                    <span>
+                                      {etaSec >= 3600
+                                        ? `${Math.floor(etaSec / 3600)}h ${Math.floor((etaSec % 3600) / 60)}m`
+                                        : etaSec >= 60
+                                          ? `${Math.floor(etaSec / 60)}m ${Math.floor(etaSec % 60)}s`
+                                          : `${Math.floor(etaSec)}s`}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                            {!isActive && percent > 0 && percent < 100 && (
+                              <Progress value={percent} />
+                            )}
+                            {job?.status === 'retrying' && (
+                              <div className="text-[10px] text-amber-600">ניסיון חוזר #{(job.retries || 0) + 1}...</div>
+                            )}
+                            {job?.error && (
+                              <div className="text-[10px] text-destructive">{job.error}</div>
+                            )}
+                            <div className="flex gap-1">
+                              {!isActive && job?.status !== 'completed' && (
+                                <Button size="sm" variant="outline" className="text-[10px] h-7" onClick={() => handlePull(m.name)}>
+                                  <Download className="w-3 h-3 ml-1" />
+                                  {canResume ? 'המשך' : 'הורד'}
+                                </Button>
+                              )}
+                              {isActive && (
+                                <Button size="sm" variant="ghost" className="text-[10px] h-7 text-destructive" onClick={() => cancelPull(m.name)}>
+                                  <XCircle className="w-3 h-3 ml-1" />
+                                  עצור
+                                </Button>
+                              )}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
           </div>

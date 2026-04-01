@@ -35,7 +35,7 @@ CORS(app)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 WHISPER_SERVER_SCRIPT = PROJECT_ROOT / "server" / "transcribe_server.py"
-WHISPER_PORT = 8765
+WHISPER_PORT = 3000
 WHISPER_PROCESS = None
 
 

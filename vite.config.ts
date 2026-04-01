@@ -40,7 +40,7 @@ function whisperServerLauncher(): Plugin {
           const scriptPath = path.join(projectRoot, 'server', 'transcribe_server.py');
 
           try {
-            serverProcess = spawn(pythonExe, [scriptPath, '--port', '8765'], {
+            serverProcess = spawn(pythonExe, [scriptPath, '--port', '3000'], {
               cwd: projectRoot,
               stdio: 'pipe',
               detached: false,
@@ -130,6 +130,10 @@ export default defineConfig(({ mode }) => {
     },
     // Allow Cloudflare Tunnel and external preview origins
     allowedHosts: ['localhost', '.trycloudflare.com', '.lovable.app', '.lovableproject.com'],
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    },
   },
   plugins: [
     react(),
@@ -148,6 +152,7 @@ export default defineConfig(({ mode }) => {
   },
   optimizeDeps: {
     include: ['react', 'react-dom'],
+    exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/util'],
   },
   build: {
     rollupOptions: {
@@ -166,6 +171,7 @@ export default defineConfig(({ mode }) => {
           'vendor-pdf': ['jspdf'],
           'vendor-docx': ['docx'],
           'vendor-ai': ['@huggingface/transformers'],
+          'vendor-ffmpeg': ['@ffmpeg/ffmpeg', '@ffmpeg/util'],
         },
       },
     },

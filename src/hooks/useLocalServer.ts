@@ -61,7 +61,7 @@ interface ServerStatus {
   model_ready: boolean;
 }
 
-const DEFAULT_SERVER_URL = 'http://localhost:8765';
+const DEFAULT_SERVER_URL = 'http://localhost:3000';
 
 /** Key used to persist partial transcription in localStorage */
 const PARTIAL_STORAGE_KEY = 'transcription_partial';
@@ -143,7 +143,7 @@ export const useLocalServer = () => {
       const host = window.location.hostname;
       const isLocalPage = host === 'localhost' || host === '127.0.0.1';
       if (isLocalPage) return false;
-      return baseUrl.includes('localhost:8765') || baseUrl.includes('127.0.0.1:8765');
+      return baseUrl.includes('localhost:3000') || baseUrl.includes('127.0.0.1:3000');
     })();
 
     if (shouldTryLauncherHealth) {
@@ -396,6 +396,9 @@ export const useLocalServer = () => {
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        if (res.status === 503) {
+          throw new Error('המודל עדיין לא מוכן — נסה שוב בעוד כמה שניות');
+        }
         throw new Error(err.error || `Server error ${res.status}`);
       }
 

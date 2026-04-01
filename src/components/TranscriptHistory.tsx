@@ -110,7 +110,7 @@ export const TranscriptHistory = ({ history, onSelect, onClear, onUpdateEntry }:
             return (
               <div
                 key={actualIndex}
-                className="p-4 rounded-lg border hover:bg-accent/50 transition-colors"
+                className="p-4 rounded-lg border hover:bg-accent/50 transition-colors text-right"
               >
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs text-muted-foreground font-medium">{entry.engine}</span>

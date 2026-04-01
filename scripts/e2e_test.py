@@ -4,7 +4,7 @@ Usage: .venv\Scripts\python.exe scripts\e2e_test.py
 """
 import os, sys, re, time, subprocess, signal, socket, json
 
-SERVER = "http://localhost:8765"
+SERVER = "http://localhost:3000"
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VENV_PYTHON = os.path.join(PROJECT_ROOT, ".venv", "Scripts", "python.exe")
 SERVER_SCRIPT = os.path.join(PROJECT_ROOT, "server", "transcribe_server.py")
@@ -106,10 +106,10 @@ def main():
 
     # --- Step 1: Check/start server ---
     server_proc = None
-    server_was_running = port_open(8765)
+    server_was_running = port_open(3000)
 
     if server_was_running:
-        print("[1/3] Whisper server already running on :8765")
+        print("[1/3] Whisper server already running on :3000")
     else:
         print("[1/3] Starting Whisper server...")
         if not os.path.exists(VENV_PYTHON):
@@ -120,7 +120,7 @@ def main():
             sys.exit(1)
 
         server_proc = subprocess.Popen(
-            [VENV_PYTHON, SERVER_SCRIPT, "--port", "8765"],
+            [VENV_PYTHON, SERVER_SCRIPT, "--port", "3000"],
             cwd=PROJECT_ROOT,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,

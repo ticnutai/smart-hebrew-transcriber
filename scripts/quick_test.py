@@ -1,7 +1,7 @@
 """Quick upload & transcription test — speed + quality."""
 import os, re, time, requests
 
-SERVER = "http://localhost:8765"
+SERVER = "http://localhost:3000"
 TEST_DIR = os.path.join(os.environ["TEMP"], "transcribe_test")
 FILES = [
     ("short",  "test_short.mp3",  7.3),

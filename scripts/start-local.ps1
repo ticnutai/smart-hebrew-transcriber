@@ -13,7 +13,7 @@
 
 param(
     [int]$VitePort = 8080,
-    [int]$WhisperPort = 8765,
+    [int]$WhisperPort = 3000,
     [string]$Model = "ivrit-ai/whisper-large-v3-turbo-ct2"
 )
 

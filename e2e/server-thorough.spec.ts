@@ -15,7 +15,7 @@
  *
  * IMPLEMENTATION NOTES:
  *  - Routes are added in the order they need to match (specific AFTER generic — Playwright LIFO).
- *  - No catch-all `** /localhost:8765/**` is used — only specific endpoint routes.
+ *  - No catch-all `** /localhost:3000/**` is used — only specific endpoint routes.
  *    A catch-all registered last would intercept all requests (LIFO) including health, defeating mocks.
  *  - For pure API contract tests (Groups 6-13) we use page.evaluate() which goes through
  *    page.route() interceptors. page.request.get/fetch does NOT go through these interceptors.
@@ -27,7 +27,7 @@ import { mockSupabase, injectAuthSession } from './helpers';
 
 // ─── Local constants ─────────────────────────────────────────────────────────
 
-const SERVER_BASE = 'http://localhost:8765';
+const SERVER_BASE = 'http://localhost:3000';
 
 /** CORS headers required when fulfilling routes intercepted by page.evaluate fetch() */
 const CORS_HEADERS = {
@@ -102,7 +102,7 @@ function healthOk(overrides: Record<string, unknown> = {}) {
 
 /** Mock the /health endpoint with the given state */
 async function mockHealth(page: import('@playwright/test').Page, data: Record<string, unknown> = healthOk()) {
-  await page.route('**/localhost:8765/health', (route) => {
+  await page.route('**/localhost:3000/health', (route) => {
     if (route.request().method() === 'OPTIONS') {
       return route.fulfill({ status: 204, headers: CORS_HEADERS });
     }
@@ -116,7 +116,7 @@ async function mockHealth(page: import('@playwright/test').Page, data: Record<st
 
 /** Mock /preload-stream to return instant ready (prevents auto-preload side-effects) */
 async function mockPreloadInstant(page: import('@playwright/test').Page) {
-  await page.route('**/localhost:8765/preload-stream', (route) => {
+  await page.route('**/localhost:3000/preload-stream', (route) => {
     if (route.request().method() === 'OPTIONS') {
       return route.fulfill({ status: 204, headers: CORS_HEADERS });
     }
@@ -130,10 +130,10 @@ async function mockPreloadInstant(page: import('@playwright/test').Page) {
 
 /** Mock /models and /downloaded-models (component may call these on connect) */
 async function mockModelsList(page: import('@playwright/test').Page) {
-  await page.route('**/localhost:8765/models', (route) =>
+  await page.route('**/localhost:3000/models', (route) =>
     route.fulfill({ status: 200, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS }, body: JSON.stringify({ models: [], current: null }) })
   );
-  await page.route('**/localhost:8765/downloaded-models', (route) =>
+  await page.route('**/localhost:3000/downloaded-models', (route) =>
     route.fulfill({ status: 200, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS }, body: JSON.stringify({ models: [] }) })
   );
 }
@@ -205,8 +205,8 @@ test.describe('1. Health endpoint — שדות וזיהוי מצב', () => {
     await selectCuda(page);
 
     await expect(page.getByText('מחובר')).toBeVisible({ timeout: 8000 });
-    await expect(page.getByText(/GPU|RTX|cuda/i).first()).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText('מודל מוכן')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/GPU|RTX|cuda/i).first()).toBeVisible({ timeout: 3000 });
+    await expect(page.getByText('מודל מוכן')).toBeVisible({ timeout: 3000 });
     await expect(page.getByRole('button', { name: 'כבה שרת' })).toBeVisible({ timeout: 3000 });
   });
 
@@ -219,7 +219,7 @@ test.describe('1. Health endpoint — שדות וזיהוי מצב', () => {
     await selectCuda(page);
 
     await expect(page.getByText('מחובר')).toBeVisible({ timeout: 8000 });
-    await expect(page.getByText('טוען מודל...')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('טוען מודל...')).toBeVisible({ timeout: 3000 });
   });
 
   test('1.3 — שרת מחובר + model_ready=false, model_loading=false: "מודל לא טעון"', async ({ page }) => {
@@ -231,11 +231,11 @@ test.describe('1. Health endpoint — שדות וזיהוי מצב', () => {
     await selectCuda(page);
 
     await expect(page.getByText('מחובר')).toBeVisible({ timeout: 8000 });
-    await expect(page.getByText('מודל לא טעון')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('מודל לא טעון')).toBeVisible({ timeout: 3000 });
   });
 
   test('1.4 — שרת לא מחובר: מציג "לא מחובר" + כפתור "הפעל שרת"', async ({ page }) => {
-    await page.route('**/localhost:8765/health', route => route.abort('connectionrefused'));
+    await page.route('**/localhost:3000/health', route => route.abort('connectionrefused'));
 
     await gotoTranscribe(page);
     await selectCuda(page);
@@ -277,7 +277,7 @@ test.describe('2. Model badges — מצבי מודל ב-UI', () => {
     await selectCuda(page);
 
     await expect(page.getByText('מחובר')).toBeVisible({ timeout: 8000 });
-    await expect(page.getByText('מודל מוכן')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('מודל מוכן')).toBeVisible({ timeout: 3000 });
   });
 
   test('2.2 — model_loading=true: amber badge "טוען מודל..." גלוי', async ({ page }) => {
@@ -288,7 +288,7 @@ test.describe('2. Model badges — מצבי מודל ב-UI', () => {
     await selectCuda(page);
 
     await expect(page.getByText('מחובר')).toBeVisible({ timeout: 8000 });
-    await expect(page.getByText('טוען מודל...')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('טוען מודל...')).toBeVisible({ timeout: 3000 });
   });
 
   test('2.3 — model_ready=false && model_loading=false: gray "מודל לא טעון" badge', async ({ page }) => {
@@ -300,7 +300,7 @@ test.describe('2. Model badges — מצבי מודל ב-UI', () => {
     await selectCuda(page);
 
     await expect(page.getByText('מחובר')).toBeVisible({ timeout: 8000 });
-    await expect(page.getByText('מודל לא טעון')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('מודל לא טעון')).toBeVisible({ timeout: 3000 });
   });
 });
 
@@ -323,7 +323,7 @@ test.describe('3. Preload stream — טעינת מודל ברקע', () => {
       { type: 'progress', message: 'Loading model...' },
       { type: 'status', status: 'ready', model: 'large-v3-turbo', elapsed: 8.3, message: 'Model loaded in 8.3s' },
     ];
-    await page.route('**/localhost:8765/preload-stream', route =>
+    await page.route('**/localhost:3000/preload-stream', route =>
       route.fulfill({ status: 200, headers: { 'Content-Type': 'text/event-stream' }, body: sseBody(preloadEvents) })
     );
 
@@ -334,7 +334,7 @@ test.describe('3. Preload stream — טעינת מודל ברקע', () => {
     await expect(loadBtn).toBeVisible({ timeout: 8000 });
     await loadBtn.click();
 
-    await expect(page.getByText(/טוען|loading|מוכן|loaded/i).first()).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(/טוען|loading|מוכן|loaded/i).first()).toBeVisible({ timeout: 13000 });
   });
 
   test('3.2 — preload שגיאה: מציג הודעת שגיאה או failure state', async ({ page }) => {
@@ -342,7 +342,7 @@ test.describe('3. Preload stream — טעינת מודל ברקע', () => {
       { type: 'status', status: 'loading', model: 'large-v3-turbo', message: 'Loading model...' },
       { type: 'status', status: 'error', message: 'CUDA out of memory' },
     ];
-    await page.route('**/localhost:8765/preload-stream', route =>
+    await page.route('**/localhost:3000/preload-stream', route =>
       route.fulfill({ status: 200, headers: { 'Content-Type': 'text/event-stream' }, body: sseBody(preloadEvents) })
     );
 
@@ -356,7 +356,7 @@ test.describe('3. Preload stream — טעינת מודל ברקע', () => {
     // After error: should eventually show "מודל לא טעון" again OR an error indicator
     await expect(
       page.getByText(/שגיאה|כישלון|error|failed|מודל לא טעון/i).first()
-    ).toBeVisible({ timeout: 15000 });
+    ).toBeVisible({ timeout: 13000 });
   });
 });
 
@@ -378,7 +378,7 @@ test.describe('4. ערכות תמלול — fast / balanced / accurate', () => {
     await selectCuda(page);
 
     await expect(page.getByText('מחובר')).toBeVisible({ timeout: 8000 });
-    await expect(page.getByRole('button', { name: /מהיר/ }).first()).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('button', { name: /מהיר/ }).first()).toBeVisible({ timeout: 3000 });
     await expect(page.getByRole('button', { name: /מאוזן/ }).first()).toBeVisible({ timeout: 3000 });
     await expect(page.getByRole('button', { name: /מדויק/ }).first()).toBeVisible({ timeout: 3000 });
   });
@@ -390,7 +390,7 @@ test.describe('4. ערכות תמלול — fast / balanced / accurate', () => {
     await expect(page.getByText('מחובר')).toBeVisible({ timeout: 8000 });
     await page.getByRole('button', { name: /מהיר/ }).first().click();
 
-    await expect(page.getByText(/ערכת תמלול|מהיר/i).first()).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/ערכת תמלול|מהיר/i).first()).toBeVisible({ timeout: 3000 });
   });
 
   test('4.3 — בחירת ערכה "מדויק" נלחצת', async ({ page }) => {
@@ -408,7 +408,7 @@ test.describe('4. ערכות תמלול — fast / balanced / accurate', () => {
     await selectCuda(page);
 
     await expect(page.getByText('מחובר')).toBeVisible({ timeout: 8000 });
-    await expect(page.getByRole('button', { name: /טען מראש/ }).first()).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('button', { name: /טען מראש/ }).first()).toBeVisible({ timeout: 3000 });
     await expect(page.getByRole('button', { name: /תמלל ישיר/ }).first()).toBeVisible({ timeout: 3000 });
   });
 
@@ -419,7 +419,7 @@ test.describe('4. ערכות תמלול — fast / balanced / accurate', () => {
     await expect(page.getByText('מחובר')).toBeVisible({ timeout: 8000 });
     await page.getByRole('button', { name: /תמלל ישיר/ }).first().click();
 
-    await expect(page.getByText(/תמלול ישיר|VRAM|direct/i).first()).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/תמלול ישיר|VRAM|direct/i).first()).toBeVisible({ timeout: 3000 });
   });
 });
 
@@ -441,7 +441,7 @@ test.describe('5. Lifecycle — מחזורי הפעלה/כיבוי', () => {
     let serverRunning = false;
 
     // Health: state-driven (like server-lifecycle.spec.ts)
-    await page.route('**/localhost:8765/health', route => {
+    await page.route('**/localhost:3000/health', route => {
       if (serverRunning) {
         return route.fulfill({
           status: 200, contentType: 'application/json',
@@ -460,10 +460,10 @@ test.describe('5. Lifecycle — מחזורי הפעלה/כיבוי', () => {
     await page.goto('/transcribe');
     await selectCuda(page);
 
-    await expect(page.getByText(/לא מחובר — הפעל שרת CUDA/)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/לא מחובר — הפעל שרת CUDA/)).toBeVisible({ timeout: 3000 });
     await page.getByRole('button', { name: 'הפעל שרת' }).click();
     await expect(page.getByText('מחובר')).toBeVisible({ timeout: 12000 });
-    await expect(page.getByText(/RTX 5090|NVIDIA/i)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/RTX 5090|NVIDIA/i)).toBeVisible({ timeout: 3000 });
   });
 
   test('5.2 — stop: כיבוי קורא ל-/shutdown', async ({ page }) => {
@@ -471,11 +471,11 @@ test.describe('5. Lifecycle — מחזורי הפעלה/כיבוי', () => {
 
     // Routes registered in LIFO-safe order: catch-all last? No — just no catch-all.
     // Specific routes only, registered before navigation.
-    await page.route('**/localhost:8765/health', route =>
+    await page.route('**/localhost:3000/health', route =>
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(healthOk()) })
     );
     // Shutdown — registered AFTER health so checked FIRST in LIFO:
-    await page.route('**/localhost:8765/shutdown', route => {
+    await page.route('**/localhost:3000/shutdown', route => {
       shutdownCalled = true;
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'shutting_down' }) });
     });
@@ -496,7 +496,7 @@ test.describe('5. Lifecycle — מחזורי הפעלה/כיבוי', () => {
   });
 
   test('5.3 — שגיאת הפעלה: 500 מ-start-server מציג toast', async ({ page }) => {
-    await page.route('**/localhost:8765/health', route => route.abort('connectionrefused'));
+    await page.route('**/localhost:3000/health', route => route.abort('connectionrefused'));
     await page.route('**/__api/start-server', route =>
       route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ ok: false, error: 'Process crashed' }) })
     );
@@ -513,14 +513,14 @@ test.describe('5. Lifecycle — מחזורי הפעלה/כיבוי', () => {
   test('5.4 — מחזור מלא: start → stop → disconnected', async ({ page }) => {
     let serverRunning = false;
 
-    await page.route('**/localhost:8765/health', route => {
+    await page.route('**/localhost:3000/health', route => {
       if (serverRunning) {
         return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(healthOk()) });
       }
       return route.abort('connectionrefused');
     });
     await mockLauncherStart(page, () => { serverRunning = true; });
-    await page.route('**/localhost:8765/shutdown', route => {
+    await page.route('**/localhost:3000/shutdown', route => {
       serverRunning = false;
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'shutting_down' }) });
     });
@@ -581,7 +581,7 @@ test.describe('6. Endpoints API — ולידציית חוזה', () => {
       },
       default: 'balanced',
     };
-    await page.route('**/localhost:8765/presets', route =>
+    await page.route('**/localhost:3000/presets', route =>
       route.fulfill({ status: 200, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS }, body: JSON.stringify(presets) })
     );
 
@@ -620,7 +620,7 @@ test.describe('6. Endpoints API — ולידציית חוזה', () => {
       stats: { total_requests: 5, errors: 0, avg_rtf: 0.24 },
       recent_requests: [],
     };
-    await page.route('**/localhost:8765/debug', route =>
+    await page.route('**/localhost:3000/debug', route =>
       route.fulfill({ status: 200, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS }, body: JSON.stringify(debugData) })
     );
 
@@ -641,7 +641,7 @@ test.describe('6. Endpoints API — ולידציית חוזה', () => {
       { type: 'info', duration: 2.0, language: 'he', start_from: 0 },
       { type: 'done', text: 'בדיקה', wordTimings: [], duration: 2.0, processing_time: 0.5, rtf: 0.25, fast_mode: true },
     ];
-    await page.route('**/localhost:8765/transcribe-stream', route =>
+    await page.route('**/localhost:3000/transcribe-stream', route =>
       route.fulfill({ status: 200, headers: { 'Content-Type': 'text/event-stream', ...CORS_HEADERS }, body: sseBody(events) })
     );
 
@@ -652,7 +652,7 @@ test.describe('6. Endpoints API — ולידציית חוזה', () => {
   });
 
   test('6.6 — /transcribe-stream: אין קובץ → 400', async ({ page }) => {
-    await page.route('**/localhost:8765/transcribe-stream', route =>
+    await page.route('**/localhost:3000/transcribe-stream', route =>
       route.fulfill({ status: 400, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS }, body: JSON.stringify({ error: 'No file or stage_id provided' }) })
     );
 
@@ -663,7 +663,7 @@ test.describe('6. Endpoints API — ולידציית חוזה', () => {
   });
 
   test('6.7 — /transcribe-stream: קובץ גדול → 413', async ({ page }) => {
-    await page.route('**/localhost:8765/transcribe-stream', route =>
+    await page.route('**/localhost:3000/transcribe-stream', route =>
       route.fulfill({ status: 413, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS }, body: JSON.stringify({ error: 'File too large: 520.0 MB (max 500 MB)' }) })
     );
 
@@ -675,7 +675,7 @@ test.describe('6. Endpoints API — ולידציית חוזה', () => {
 
   test('6.8 — /stage-audio: מחזיר stage_id', async ({ page }) => {
     const stageResp = { stage_id: 'aaaa-bbbb-cccc-dddd', filename: 'test.wav', file_size: 16044 };
-    await page.route('**/localhost:8765/stage-audio', route =>
+    await page.route('**/localhost:3000/stage-audio', route =>
       route.fulfill({ status: 200, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS }, body: JSON.stringify(stageResp) })
     );
 
@@ -693,7 +693,7 @@ test.describe('6. Endpoints API — ולידציית חוזה', () => {
       { type: 'info', duration: 3.0, language: 'he', start_from: 0 },
       { type: 'done', text: 'שלום', wordTimings: [], duration: 3.0, processing_time: 0.7, rtf: 0.23, fast_mode: true },
     ];
-    await page.route('**/localhost:8765/transcribe-stream', route =>
+    await page.route('**/localhost:3000/transcribe-stream', route =>
       route.fulfill({ status: 200, headers: { 'Content-Type': 'text/event-stream', ...CORS_HEADERS }, body: sseBody(events) })
     );
 
@@ -703,7 +703,7 @@ test.describe('6. Endpoints API — ולידציית חוזה', () => {
   });
 
   test('6.10 — /unload-models: מחזיר status:ok + count', async ({ page }) => {
-    await page.route('**/localhost:8765/unload-models', route =>
+    await page.route('**/localhost:3000/unload-models', route =>
       route.fulfill({ status: 200, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS }, body: JSON.stringify({ status: 'ok', unloaded: 2 }) })
     );
 
@@ -716,7 +716,7 @@ test.describe('6. Endpoints API — ולידציית חוזה', () => {
   });
 
   test('6.11 — /warmup: מחזיר status:ok + warmup_time', async ({ page }) => {
-    await page.route('**/localhost:8765/warmup', route =>
+    await page.route('**/localhost:3000/warmup', route =>
       route.fulfill({ status: 200, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS }, body: JSON.stringify({ status: 'ok', warmup_time: 0.34 }) })
     );
 
@@ -729,7 +729,7 @@ test.describe('6. Endpoints API — ולידציית חוזה', () => {
   });
 
   test('6.12 — /shutdown: מחזיר status:shutting_down', async ({ page }) => {
-    await page.route('**/localhost:8765/shutdown', route =>
+    await page.route('**/localhost:3000/shutdown', route =>
       route.fulfill({ status: 200, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS }, body: JSON.stringify({ status: 'shutting_down' }) })
     );
 
@@ -740,7 +740,7 @@ test.describe('6. Endpoints API — ולידציית חוזה', () => {
   });
 
   test('6.13 — /load-model: מחזיר status:loaded', async ({ page }) => {
-    await page.route('**/localhost:8765/load-model', route =>
+    await page.route('**/localhost:3000/load-model', route =>
       route.fulfill({ status: 200, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS }, body: JSON.stringify({ status: 'loaded', model: 'large-v3-turbo' }) })
     );
 
@@ -767,7 +767,7 @@ test.describe('7. Rate limiting + error codes', () => {
   });
 
   test('7.1 — 429 rate limit: error ב-JSON', async ({ page }) => {
-    await page.route('**/localhost:8765/transcribe-stream', route =>
+    await page.route('**/localhost:3000/transcribe-stream', route =>
       route.fulfill({ status: 429, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS }, body: JSON.stringify({ error: 'Rate limit exceeded', limit: '30 requests per 60s' }) })
     );
 
@@ -779,7 +779,7 @@ test.describe('7. Rate limiting + error codes', () => {
   });
 
   test('7.2 — 401 unauthorized: X-API-Key חסר', async ({ page }) => {
-    await page.route('**/localhost:8765/transcribe-stream', route =>
+    await page.route('**/localhost:3000/transcribe-stream', route =>
       route.fulfill({ status: 401, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS }, body: JSON.stringify({ error: 'Invalid or missing API key' }) })
     );
 
@@ -814,7 +814,7 @@ test.describe('8. Concurrency — GPU lock', () => {
     const events = [
       { type: 'error', error: 'Server busy — GPU lock timeout. Try again later.', error_type: 'TimeoutError', request_id: 'xyz999' },
     ];
-    await page.route('**/localhost:8765/transcribe-stream', route =>
+    await page.route('**/localhost:3000/transcribe-stream', route =>
       route.fulfill({ status: 200, headers: { 'Content-Type': 'text/event-stream', ...CORS_HEADERS }, body: sseBody(events) })
     );
 
@@ -840,7 +840,7 @@ test.describe('9. YouTube endpoint — ולידציה', () => {
   });
 
   test('9.1 — URL לא חוקי → 400', async ({ page }) => {
-    await page.route('**/localhost:8765/youtube-transcribe', route => {
+    await page.route('**/localhost:3000/youtube-transcribe', route => {
       const body = route.request().postData() || '';
       if (!body.includes('youtube.com')) {
         return route.fulfill({ status: 400, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS }, body: JSON.stringify({ error: 'Invalid YouTube URL' }) });
@@ -855,7 +855,7 @@ test.describe('9. YouTube endpoint — ולידציה', () => {
   });
 
   test('9.2 — URL ריק → 400', async ({ page }) => {
-    await page.route('**/localhost:8765/youtube-transcribe', route =>
+    await page.route('**/localhost:3000/youtube-transcribe', route =>
       route.fulfill({ status: 400, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS }, body: JSON.stringify({ error: 'No URL provided' }) })
     );
 
@@ -893,7 +893,7 @@ test.describe('10. Diarization — פיצול דוברים', () => {
       processing_time: 1.8,
       diarization_method: 'silence-gap',
     };
-    await page.route('**/localhost:8765/diarize', route =>
+    await page.route('**/localhost:3000/diarize', route =>
       route.fulfill({ status: 200, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS }, body: JSON.stringify(diarizationResp) })
     );
 
@@ -911,7 +911,7 @@ test.describe('10. Diarization — פיצול דוברים', () => {
   });
 
   test('10.2 — /diarize: אין קובץ → 400', async ({ page }) => {
-    await page.route('**/localhost:8765/diarize', route =>
+    await page.route('**/localhost:3000/diarize', route =>
       route.fulfill({ status: 400, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS }, body: JSON.stringify({ error: 'No file provided' }) })
     );
 
@@ -940,9 +940,9 @@ test.describe('11. Setup scan — בדיקת מערכת', () => {
       gpu: { name: 'NVIDIA GeForce RTX 4090', device: 'cuda', cuda_available: true, cuda_version: '12.1' },
       packages: { faster_whisper: '1.0.3', flask: '3.0.3', torch: '2.2.1' },
       models: { current: null, downloaded: ['large-v3-turbo'] },
-      server: { uptime_seconds: 45, port: 8765 },
+      server: { uptime_seconds: 45, port: 3000 },
     };
-    await page.route('**/localhost:8765/setup/scan', route =>
+    await page.route('**/localhost:3000/setup/scan', route =>
       route.fulfill({ status: 200, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS }, body: JSON.stringify(scanResp) })
     );
 
@@ -978,7 +978,7 @@ test.describe('12. פרמטרים ידניים — API contract', () => {
       { type: 'info', duration: 2.0, language: 'he', start_from: 0 },
       { type: 'done', text: 'בדיקה ידנית', wordTimings: [], duration: 2.0, processing_time: 0.4, rtf: 0.2, fast_mode: true, beam_size: 1 },
     ];
-    await page.route('**/localhost:8765/transcribe-stream', route =>
+    await page.route('**/localhost:3000/transcribe-stream', route =>
       route.fulfill({ status: 200, headers: { 'Content-Type': 'text/event-stream', ...CORS_HEADERS }, body: sseBody(events) })
     );
 
@@ -998,7 +998,7 @@ test.describe('12. פרמטרים ידניים — API contract', () => {
       { type: 'info', duration: 60.0, language: 'he', start_from: 30 },
       { type: 'done', text: 'המשך', wordTimings: [], duration: 60.0, processing_time: 5.0, rtf: 0.167, fast_mode: true, start_from: 30 },
     ];
-    await page.route('**/localhost:8765/transcribe-stream', route =>
+    await page.route('**/localhost:3000/transcribe-stream', route =>
       route.fulfill({ status: 200, headers: { 'Content-Type': 'text/event-stream', ...CORS_HEADERS }, body: sseBody(events) })
     );
 
@@ -1019,7 +1019,7 @@ test.describe('12. פרמטרים ידניים — API contract', () => {
       { type: 'segment', text: 'אחרי הפסקה.', words: [], progress: 80, segEnd: 16.0, paragraphBreak: true },
       { type: 'done', text: 'משפט ראשון. אחרי הפסקה.', wordTimings: [], duration: 20.0, processing_time: 3.5, rtf: 0.175, fast_mode: true },
     ];
-    await page.route('**/localhost:8765/transcribe-stream', route =>
+    await page.route('**/localhost:3000/transcribe-stream', route =>
       route.fulfill({ status: 200, headers: { 'Content-Type': 'text/event-stream', ...CORS_HEADERS }, body: sseBody(events) })
     );
 
@@ -1029,7 +1029,7 @@ test.describe('12. פרמטרים ידניים — API contract', () => {
   });
 
   test('12.4 — /transcribe-live: מחזיר text ו-processing_time', async ({ page }) => {
-    await page.route('**/localhost:8765/transcribe-live', route =>
+    await page.route('**/localhost:3000/transcribe-live', route =>
       route.fulfill({ status: 200, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS }, body: JSON.stringify({ text: 'תמלול חי', wordTimings: [], processing_time: 0.12, audio_duration: 3.0 }) })
     );
 
@@ -1062,7 +1062,7 @@ test.describe('13. preload-stream SSE — חוזה', () => {
       { type: 'progress', message: 'Loading model into GPU...' },
       { type: 'status', status: 'ready', model: 'large-v3-turbo', elapsed: 7.2, message: 'Model loaded in 7.2s' },
     ];
-    await page.route('**/localhost:8765/preload-stream', route =>
+    await page.route('**/localhost:3000/preload-stream', route =>
       route.fulfill({ status: 200, headers: { 'Content-Type': 'text/event-stream', ...CORS_HEADERS }, body: sseBody(preloadEvents) })
     );
 
@@ -1077,7 +1077,7 @@ test.describe('13. preload-stream SSE — חוזה', () => {
     const preloadEvents = [
       { type: 'status', status: 'ready', model: 'large-v3-turbo', message: 'Model already loaded', elapsed: 0 },
     ];
-    await page.route('**/localhost:8765/preload-stream', route =>
+    await page.route('**/localhost:3000/preload-stream', route =>
       route.fulfill({ status: 200, headers: { 'Content-Type': 'text/event-stream', ...CORS_HEADERS }, body: sseBody(preloadEvents) })
     );
 

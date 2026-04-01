@@ -64,7 +64,7 @@ test.describe('תמלול חי - בורר תיקיות', () => {
     await page.getByRole('button', { name: '✓' }).click();
 
     // Verify folder was created - toast appears
-    await expect(page.getByText(/תיקייה.*נוצרה/).first()).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/תיקייה.*נוצרה/).first()).toBeVisible({ timeout: 3000 });
 
     // Verify it's now selected in the dropdown
     await expect(page.getByRole('combobox').filter({ hasText: 'ישיבות צוות' })).toBeVisible();
@@ -106,7 +106,7 @@ test.describe('תמלול חי - כפתורי שליטה', () => {
     await injectAuthSession(page);
     await mockLocalServer(page, { connected: true });
     // Mock the transcribe-live endpoint for CUDA mode
-    await page.route('**/localhost:8765/transcribe-live', async (route) => {
+    await page.route('**/localhost:3000/transcribe-live', async (route) => {
       return route.fulfill({
         status: 200,
         json: { text: 'בדיקת תמלול חי', wordTimings: [] },

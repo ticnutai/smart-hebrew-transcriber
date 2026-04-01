@@ -13,10 +13,14 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from "@/components/ui/select";
 import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuCheckboxItem
+} from "@/components/ui/dropdown-menu";
+import {
   FolderOpen, FolderPlus, FileText, Search, Edit, Trash2,
   Star, StarOff, Tag, Grid3X3, List, ArrowUpDown, X, Check,
   StickyNote, Briefcase, GraduationCap, Users, MessageSquare, MoreHorizontal,
-  Download, Loader2, Play, Pause, Volume2
+  Download, Loader2, Play, Pause, Volume2, Table2, RectangleHorizontal, LayoutGrid,
+  Eye, Filter, SortAsc, SortDesc
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import type { CloudTranscript } from "@/hooks/useCloudTranscripts";
@@ -30,7 +34,7 @@ const CATEGORIES = [
 ] as const;
 
 type SortKey = "date" | "title" | "length" | "engine";
-type ViewMode = "list" | "grid";
+type ViewMode = "cards" | "grid" | "table" | "rectangles";
 
 interface FolderManagerProps {
   transcripts: CloudTranscript[];
@@ -59,7 +63,7 @@ export const FolderManager = ({ transcripts, onUpdate, onDelete, onGetAudioUrl }
   const [movingId, setMovingId] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("date");
   const [sortAsc, setSortAsc] = useState(false);
-  const [viewMode, setViewMode] = useState<ViewMode>("list");
+  const [viewMode, setViewMode] = useState<ViewMode>("cards");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [editingTitleId, setEditingTitleId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
@@ -262,9 +266,29 @@ export const FolderManager = ({ transcripts, onUpdate, onDelete, onGetAudioUrl }
                 </Dialog>
               </div>
             )}
-            <Button variant="ghost" size="icon" onClick={() => setViewMode(v => v === 'list' ? 'grid' : 'list')}>
-              {viewMode === 'list' ? <Grid3X3 className="w-4 h-4" /> : <List className="w-4 h-4" />}
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="icon" className="h-8 w-8" title="תצוגה">
+                  {viewMode === 'cards' ? <LayoutGrid className="w-4 h-4" /> : viewMode === 'table' ? <Table2 className="w-4 h-4" /> : viewMode === 'rectangles' ? <RectangleHorizontal className="w-4 h-4" /> : <Grid3X3 className="w-4 h-4" />}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent dir="rtl" align="start">
+                <DropdownMenuLabel>תצוגה</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem className={viewMode === 'cards' ? 'bg-accent' : ''} onClick={() => setViewMode('cards')}>
+                  <LayoutGrid className="w-4 h-4 ml-2" />כרטיסיות
+                </DropdownMenuItem>
+                <DropdownMenuItem className={viewMode === 'table' ? 'bg-accent' : ''} onClick={() => setViewMode('table')}>
+                  <Table2 className="w-4 h-4 ml-2" />טבלה
+                </DropdownMenuItem>
+                <DropdownMenuItem className={viewMode === 'rectangles' ? 'bg-accent' : ''} onClick={() => setViewMode('rectangles')}>
+                  <RectangleHorizontal className="w-4 h-4 ml-2" />מלבנים
+                </DropdownMenuItem>
+                <DropdownMenuItem className={viewMode === 'grid' ? 'bg-accent' : ''} onClick={() => setViewMode('grid')}>
+                  <Grid3X3 className="w-4 h-4 ml-2" />רשת
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button variant="outline" size="sm" onClick={() => handleExportFolderZip(selectedFolder)} disabled={isExportingZip}>
               {isExportingZip ? <Loader2 className="w-4 h-4 ml-1 animate-spin" /> : <Download className="w-4 h-4 ml-1" />}
               ייצוא ZIP
@@ -322,15 +346,35 @@ export const FolderManager = ({ transcripts, onUpdate, onDelete, onGetAudioUrl }
           })}
         </div>
 
-        {/* Categories */}
+        {/* Categories dropdown */}
         <div className="flex flex-wrap gap-2 items-center">
-          <span className="text-xs text-muted-foreground">קטגוריות:</span>
-          {CATEGORIES.map(cat => (
-            <Badge key={cat.value} variant={selectedCategory === cat.value ? "default" : "outline"}
-              className="cursor-pointer gap-1" onClick={() => setSelectedCategory(selectedCategory === cat.value ? null : cat.value)}>
-              <cat.icon className="w-3 h-3" />{cat.label}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-1">
+                <Filter className="w-3.5 h-3.5" />
+                {selectedCategory ? CATEGORIES.find(c => c.value === selectedCategory)?.label : 'קטגוריות'}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent dir="rtl" align="start">
+              <DropdownMenuLabel>קטגוריות</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className={!selectedCategory ? 'bg-accent' : ''} onClick={() => setSelectedCategory(null)}>
+                הכל
+              </DropdownMenuItem>
+              {CATEGORIES.map(cat => (
+                <DropdownMenuItem key={cat.value} className={selectedCategory === cat.value ? 'bg-accent' : ''}
+                  onClick={() => setSelectedCategory(selectedCategory === cat.value ? null : cat.value)}>
+                  <cat.icon className="w-4 h-4 ml-2" />{cat.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {selectedCategory && (
+            <Badge variant="default" className="cursor-pointer gap-1" onClick={() => setSelectedCategory(null)}>
+              {CATEGORIES.find(c => c.value === selectedCategory)?.label}
+              <X className="w-3 h-3" />
             </Badge>
-          ))}
+          )}
         </div>
 
         {/* Tags filter */}
@@ -366,61 +410,104 @@ export const FolderManager = ({ transcripts, onUpdate, onDelete, onGetAudioUrl }
               <SelectItem value="engine">מנוע</SelectItem>
             </SelectContent>
           </Select>
-          <Button size="icon" variant="ghost" onClick={() => setSortAsc(!sortAsc)}>
-            <ArrowUpDown className={`w-4 h-4 transition-transform ${sortAsc ? 'rotate-180' : ''}`} />
+          <Button size="icon" variant="ghost" onClick={() => setSortAsc(!sortAsc)} title={sortAsc ? 'א → ת' : 'ת → א'} className="gap-0.5 w-auto px-2">
+            {sortAsc ? <SortAsc className="w-4 h-4" /> : <SortDesc className="w-4 h-4" />}
+            <span className="text-[10px] font-medium">{sortAsc ? 'א→ת' : 'ת→א'}</span>
           </Button>
         </div>
 
         {/* Transcript list */}
         <ScrollArea className="h-[400px]">
-          <div className={viewMode === 'grid' ? 'grid grid-cols-2 gap-3' : 'space-y-2'}>
-            {filteredTranscripts.map(t => (
-              <TranscriptItem
-                key={t.id}
-                t={t}
-                isSelected={selectedIds.has(t.id)}
-                onToggleSelect={() => toggleSelect(t.id)}
-                onToggleFavorite={() => onUpdate(t.id, { is_favorite: !t.is_favorite })}
-                onCategoryChange={(cat) => onUpdate(t.id, { category: cat })}
-                editingTitleId={editingTitleId}
-                editingTitle={editingTitle}
-                onStartEditTitle={() => { setEditingTitleId(t.id); setEditingTitle(t.title || ''); }}
-                onEditTitleChange={setEditingTitle}
-                onSaveTitle={() => saveTitle(t.id)}
-                onCancelEditTitle={() => setEditingTitleId(null)}
-                editingNotesId={editingNotesId}
-                editingNotes={editingNotes}
-                onStartEditNotes={() => { setEditingNotesId(t.id); setEditingNotes(t.notes || ''); }}
-                onEditNotesChange={setEditingNotes}
-                onSaveNotes={() => saveNotes(t.id)}
-                onCancelEditNotes={() => setEditingNotesId(null)}
-                addingTagId={addingTagId}
-                newTagInput={newTagInput}
-                allTags={allTags}
-                onStartAddTag={() => { setAddingTagId(t.id); setNewTagInput(''); }}
-                onNewTagChange={setNewTagInput}
-                onAddTag={() => addTag(t.id, t.tags || [])}
-                onRemoveTag={(tag) => removeTag(t.id, t.tags || [], tag)}
-                onCancelAddTag={() => setAddingTagId(null)}
-                onNavigateEdit={() => navigate('/text-editor', { state: { text: t.edited_text || t.text, transcriptId: t.id, audioFilePath: t.audio_file_path } })}
-                onDelete={() => onDelete(t.id)}
-                movingId={movingId}
-                setMovingId={setMovingId}
-                folders={folders}
-                onMoveToFolder={(folder) => handleMoveToFolder(t.id, folder)}
-                onGetAudioUrl={onGetAudioUrl}
-                formatDate={formatDate}
-                getCategoryLabel={getCategoryLabel}
-                viewMode={viewMode}
-              />
-            ))}
-            {filteredTranscripts.length === 0 && (
-              <div className="text-center py-8 text-muted-foreground col-span-2">
-                <FileText className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                <p>אין תמלולים {selectedFolder ? `בתיקיה "${selectedFolder}"` : ''}</p>
-              </div>
-            )}
-          </div>
+          {viewMode === 'table' ? (
+            <div className="rounded-lg border overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/40">
+                  <tr>
+                    <th className="text-right px-3 py-2 font-medium">שם</th>
+                    <th className="text-right px-3 py-2 font-medium">מנוע</th>
+                    <th className="text-right px-3 py-2 font-medium">תיקיה</th>
+                    <th className="text-right px-3 py-2 font-medium">תאריך</th>
+                    <th className="text-right px-3 py-2 font-medium">פעולות</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredTranscripts.map(t => (
+                    <tr key={t.id} className="border-t hover:bg-accent/30">
+                      <td className="px-3 py-2 text-right max-w-[280px] truncate">{t.title || t.text.substring(0, 55)}</td>
+                      <td className="px-3 py-2 text-right">{t.engine}</td>
+                      <td className="px-3 py-2 text-right">{t.folder || 'ללא'}</td>
+                      <td className="px-3 py-2 text-right whitespace-nowrap">{formatDate(t.created_at)}</td>
+                      <td className="px-3 py-2 text-right">
+                        <div className="flex items-center gap-1">
+                          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => navigate('/text-editor', { state: { text: t.edited_text || t.text, transcriptId: t.id, audioFilePath: t.audio_file_path } })}>
+                            ערוך
+                          </Button>
+                          <Button size="sm" variant="ghost" className="h-7 text-xs text-destructive" onClick={() => onDelete(t.id)}>
+                            מחק
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {filteredTranscripts.length === 0 && (
+                <div className="text-center py-8 text-muted-foreground">
+                  <FileText className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <p>אין תמלולים {selectedFolder ? `בתיקיה "${selectedFolder}"` : ''}</p>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className={viewMode === 'grid' ? 'grid grid-cols-2 gap-3' : 'space-y-2'}>
+              {filteredTranscripts.map(t => (
+                <TranscriptItem
+                  key={t.id}
+                  t={t}
+                  isSelected={selectedIds.has(t.id)}
+                  onToggleSelect={() => toggleSelect(t.id)}
+                  onToggleFavorite={() => onUpdate(t.id, { is_favorite: !t.is_favorite })}
+                  onCategoryChange={(cat) => onUpdate(t.id, { category: cat })}
+                  editingTitleId={editingTitleId}
+                  editingTitle={editingTitle}
+                  onStartEditTitle={() => { setEditingTitleId(t.id); setEditingTitle(t.title || ''); }}
+                  onEditTitleChange={setEditingTitle}
+                  onSaveTitle={() => saveTitle(t.id)}
+                  onCancelEditTitle={() => setEditingTitleId(null)}
+                  editingNotesId={editingNotesId}
+                  editingNotes={editingNotes}
+                  onStartEditNotes={() => { setEditingNotesId(t.id); setEditingNotes(t.notes || ''); }}
+                  onEditNotesChange={setEditingNotes}
+                  onSaveNotes={() => saveNotes(t.id)}
+                  onCancelEditNotes={() => setEditingNotesId(null)}
+                  addingTagId={addingTagId}
+                  newTagInput={newTagInput}
+                  allTags={allTags}
+                  onStartAddTag={() => { setAddingTagId(t.id); setNewTagInput(''); }}
+                  onNewTagChange={setNewTagInput}
+                  onAddTag={() => addTag(t.id, t.tags || [])}
+                  onRemoveTag={(tag) => removeTag(t.id, t.tags || [], tag)}
+                  onCancelAddTag={() => setAddingTagId(null)}
+                  onNavigateEdit={() => navigate('/text-editor', { state: { text: t.edited_text || t.text, transcriptId: t.id, audioFilePath: t.audio_file_path } })}
+                  onDelete={() => onDelete(t.id)}
+                  movingId={movingId}
+                  setMovingId={setMovingId}
+                  folders={folders}
+                  onMoveToFolder={(folder) => handleMoveToFolder(t.id, folder)}
+                  onGetAudioUrl={onGetAudioUrl}
+                  formatDate={formatDate}
+                  getCategoryLabel={getCategoryLabel}
+                  viewMode={viewMode}
+                />
+              ))}
+              {filteredTranscripts.length === 0 && (
+                <div className="text-center py-8 text-muted-foreground col-span-2">
+                  <FileText className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <p>אין תמלולים {selectedFolder ? `בתיקיה "${selectedFolder}"` : ''}</p>
+                </div>
+              )}
+            </div>
+          )}
         </ScrollArea>
       </CardContent>
     </Card>
@@ -502,8 +589,8 @@ const TranscriptItem = ({
   return (
     <div dir="rtl" className={`p-3 rounded-lg border hover:bg-accent/50 transition-colors text-right ${isSelected ? 'ring-2 ring-primary bg-primary/5' : ''}`}>
       {/* Top row */}
-      <div className="flex items-center justify-between mb-1 gap-2 flex-row-reverse">
-        <div className="flex items-center gap-2 flex-row-reverse">
+      <div className="flex items-center justify-between mb-1 gap-2">
+        <div className="flex items-center gap-2">
           <Checkbox checked={isSelected} onCheckedChange={onToggleSelect} />
           <button onClick={onToggleFavorite} className="hover:scale-110 transition-transform">
             {t.is_favorite
@@ -544,7 +631,7 @@ const TranscriptItem = ({
         </p>
       )}
 
-      {viewMode === 'list' && (
+      {viewMode !== 'rectangles' && (
         <p className="text-xs text-muted-foreground line-clamp-1 mb-1">{(t.text ?? '').substring(0, 100)}</p>
       )}
 
@@ -557,7 +644,7 @@ const TranscriptItem = ({
           <Button size="sm" variant="ghost" className="h-7 px-2" onClick={onSaveNotes}><Check className="w-3 h-3" /></Button>
           <Button size="sm" variant="ghost" className="h-7 px-2" onClick={onCancelEditNotes}><X className="w-3 h-3" /></Button>
         </div>
-      ) : t.notes ? (
+      ) : t.notes && viewMode !== 'rectangles' ? (
         <p className="text-xs text-muted-foreground italic cursor-pointer hover:text-foreground mb-1"
           onDoubleClick={onStartEditNotes}>
           <StickyNote className="w-3 h-3 inline ml-1" />{t.notes}
@@ -574,7 +661,7 @@ const TranscriptItem = ({
             </button>
           </Badge>
         ))}
-        {addingTagId === t.id ? (
+        {viewMode !== 'rectangles' && addingTagId === t.id ? (
           <div className="flex gap-1 items-center">
             <Input value={newTagInput} onChange={e => onNewTagChange(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') onAddTag(); if (e.key === 'Escape') onCancelAddTag(); }}
@@ -585,11 +672,11 @@ const TranscriptItem = ({
             </datalist>
             <Button size="sm" variant="ghost" className="h-6 px-1" onClick={onAddTag}><Check className="w-3 h-3" /></Button>
           </div>
-        ) : (
+        ) : viewMode !== 'rectangles' ? (
           <button onClick={onStartAddTag} className="text-xs text-muted-foreground hover:text-primary">
             <Tag className="w-3 h-3 inline" /> +
           </button>
-        )}
+        ) : null}
       </div>
 
       {/* Actions */}
@@ -603,39 +690,45 @@ const TranscriptItem = ({
         <Button size="sm" variant="outline" className="text-xs h-7" onClick={onNavigateEdit}>
           <Edit className="w-3 h-3 ml-1" />ערוך
         </Button>
-        <Button size="sm" variant="ghost" className="text-xs h-7" onClick={onStartEditNotes}>
-          <StickyNote className="w-3 h-3 ml-1" />הערה
-        </Button>
+        {viewMode !== 'rectangles' && (
+          <Button size="sm" variant="ghost" className="text-xs h-7" onClick={onStartEditNotes}>
+            <StickyNote className="w-3 h-3 ml-1" />הערה
+          </Button>
+        )}
         {/* Category dropdown */}
-        <Select value={t.category || 'none'} onValueChange={v => onCategoryChange(v === 'none' ? '' : v)}>
-          <SelectTrigger className="h-7 w-[100px] text-xs">
-            <SelectValue placeholder="קטגוריה" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="none">ללא</SelectItem>
-            {CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
-          </SelectContent>
-        </Select>
+        {viewMode !== 'rectangles' && (
+          <Select value={t.category || 'none'} onValueChange={v => onCategoryChange(v === 'none' ? '' : v)}>
+            <SelectTrigger className="h-7 w-[100px] text-xs">
+              <SelectValue placeholder="קטגוריה" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">ללא</SelectItem>
+              {CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        )}
         {/* Move */}
-        <Dialog open={movingId === t.id} onOpenChange={o => setMovingId(o ? t.id : null)}>
-          <DialogTrigger asChild>
-            <Button size="sm" variant="ghost" className="text-xs h-7">
-              <FolderOpen className="w-3 h-3 ml-1" />העבר
-            </Button>
-          </DialogTrigger>
-          <DialogContent dir="rtl" className="max-w-sm">
-            <DialogHeader><DialogTitle>העבר לתיקיה</DialogTitle></DialogHeader>
-            <div className="space-y-2 py-2">
-              <Button variant="outline" className="w-full justify-start" onClick={() => onMoveToFolder('')}>ללא תיקיה</Button>
-              {folders.map(f => (
-                <Button key={f} variant={t.folder === f ? "default" : "outline"} className="w-full justify-start gap-2"
-                  onClick={() => onMoveToFolder(f)}>
-                  <FolderOpen className="w-4 h-4" />{f}
-                </Button>
-              ))}
-            </div>
-          </DialogContent>
-        </Dialog>
+        {viewMode !== 'rectangles' && (
+          <Dialog open={movingId === t.id} onOpenChange={o => setMovingId(o ? t.id : null)}>
+            <DialogTrigger asChild>
+              <Button size="sm" variant="ghost" className="text-xs h-7">
+                <FolderOpen className="w-3 h-3 ml-1" />העבר
+              </Button>
+            </DialogTrigger>
+            <DialogContent dir="rtl" className="max-w-sm">
+              <DialogHeader><DialogTitle>העבר לתיקיה</DialogTitle></DialogHeader>
+              <div className="space-y-2 py-2">
+                <Button variant="outline" className="w-full justify-start" onClick={() => onMoveToFolder('')}>ללא תיקיה</Button>
+                {folders.map(f => (
+                  <Button key={f} variant={t.folder === f ? "default" : "outline"} className="w-full justify-start gap-2"
+                    onClick={() => onMoveToFolder(f)}>
+                    <FolderOpen className="w-4 h-4" />{f}
+                  </Button>
+                ))}
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
         <Button size="sm" variant="ghost" className="text-xs h-7 text-destructive hover:text-destructive" onClick={onDelete}>
           <Trash2 className="w-3 h-3" />
         </Button>

@@ -221,7 +221,7 @@ export async function mockLocalServer(page: Page, options?: {
 }) {
   const { connected = false, model = 'ivrit-ai/whisper-large-v3-turbo' } = options ?? {};
 
-  await page.route('**/localhost:8765/health', async (route) => {
+  await page.route('**/localhost:3000/health', async (route) => {
     if (!connected) {
       return route.abort('connectionrefused');
     }
@@ -237,7 +237,7 @@ export async function mockLocalServer(page: Page, options?: {
     });
   });
 
-  await page.route('**/localhost:8765/transcribe-stream', async (route) => {
+  await page.route('**/localhost:3000/transcribe-stream', async (route) => {
     if (!connected) return route.abort('connectionrefused');
     // Return a simple SSE mock with a done event
     const sseBody = [
@@ -252,18 +252,18 @@ export async function mockLocalServer(page: Page, options?: {
     });
   });
 
-  await page.route('**/localhost:8765/shutdown', async (route) => {
+  await page.route('**/localhost:3000/shutdown', async (route) => {
     return route.fulfill({ status: 200, json: { status: 'shutting_down' } });
   });
 
-  await page.route('**/localhost:8765/models', async (route) => {
+  await page.route('**/localhost:3000/models', async (route) => {
     return route.fulfill({
       status: 200,
       json: { models: [model], current: model },
     });
   });
 
-  await page.route('**/localhost:8765/downloaded-models', async (route) => {
+  await page.route('**/localhost:3000/downloaded-models', async (route) => {
     return route.fulfill({
       status: 200,
       json: { models: [{ name: model, size_mb: 1500 }] },

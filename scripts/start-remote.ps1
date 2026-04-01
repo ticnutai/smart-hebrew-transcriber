@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Start remote access to Smart Hebrew Transcriber via Cloudflare Tunnel.
     Exposes the local Vite frontend and Whisper CUDA server to the internet.
@@ -9,7 +9,7 @@
     2. Auto-starts Whisper CUDA server and Vite frontend if not running
     3. Creates tunnels for:
        - Frontend (port 8080) -> public URL
-       - Whisper server (port 8765) -> public URL
+       - Whisper server (port 3000) -> public URL
        - Ollama (port 11434) -> public URL (if Ollama is running)
     4. Generates QR codes for easy mobile access
     5. Copies frontend URL to clipboard
@@ -123,11 +123,11 @@ $autoStartedProcesses = @()
 
 # Check Whisper server
 try {
-    $r = Invoke-RestMethod -Uri "http://localhost:8765/health" -TimeoutSec 3 -ErrorAction Stop
+    $r = Invoke-RestMethod -Uri "http://localhost:3000/health" -TimeoutSec 3 -ErrorAction Stop
     $whisperOk = $true
     Write-Host "  Whisper server: RUNNING (GPU: $($r.gpu), Model: $($r.current_model))" -ForegroundColor Green
 } catch {
-    Write-Host "  Whisper server: NOT RUNNING on port 8765" -ForegroundColor Yellow
+    Write-Host "  Whisper server: NOT RUNNING on port 3000" -ForegroundColor Yellow
     # Auto-start Whisper server
     $venvPython = Join-Path $projectRoot ".venv\Scripts\python.exe"
     $serverScript = Join-Path $projectRoot "server\transcribe_server.py"
@@ -144,7 +144,7 @@ try {
             Start-Sleep -Seconds 2
             $retries++
             try {
-                $r = Invoke-RestMethod -Uri "http://localhost:8765/health" -TimeoutSec 2 -ErrorAction Stop
+                $r = Invoke-RestMethod -Uri "http://localhost:3000/health" -TimeoutSec 2 -ErrorAction Stop
                 $whisperOk = $true
                 Write-Host "  Whisper server: STARTED (GPU: $($r.gpu))" -ForegroundColor Green
                 break
@@ -229,7 +229,7 @@ $viteLog = [System.IO.Path]::GetTempFileName()
 $ollamaLog = [System.IO.Path]::GetTempFileName()
 
 # Start Whisper tunnel
-$whisperTunnelProc = Start-Process -FilePath "cloudflared" -ArgumentList "tunnel", "--url", "http://localhost:8765", "--no-autoupdate" `
+$whisperTunnelProc = Start-Process -FilePath "cloudflared" -ArgumentList "tunnel", "--url", "http://localhost:3000", "--no-autoupdate" `
     -PassThru -NoNewWindow -RedirectStandardError $whisperLog
 
 # Start Vite tunnel
@@ -373,7 +373,7 @@ try {
         if ($statusInterval % 12 -eq 0) {
             $wOk = $false
             $vOk = $false
-            try { $null = Invoke-RestMethod -Uri "http://localhost:8765/health" -TimeoutSec 2 -ErrorAction Stop; $wOk = $true } catch {}
+            try { $null = Invoke-RestMethod -Uri "http://localhost:3000/health" -TimeoutSec 2 -ErrorAction Stop; $wOk = $true } catch {}
             try { $null = Invoke-WebRequest -Uri "http://localhost:8080" -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop; $vOk = $true } catch {}
             $wStatus = if ($wOk) { "OK" } else { "DOWN" }
             $vStatus = if ($vOk) { "OK" } else { "DOWN" }

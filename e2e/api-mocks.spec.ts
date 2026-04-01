@@ -12,7 +12,7 @@ test.describe('Supabase API - תמלולים', () => {
   test('טעינת רשימת תמלולים מ-Supabase', async ({ page }) => {
     await page.goto('/');
     // Wait for dashboard to finish loading data from mock API
-    await expect(page.getByText(/תמלול בדיקה|בדיקה/i).first()).toBeVisible({ timeout: 45000 });
+    await expect(page.getByText(/תמלול בדיקה|בדיקה/i).first()).toBeVisible({ timeout: 43000 });
   });
 
   test('שמירת תמלול חדש', async ({ page }) => {
@@ -162,7 +162,7 @@ test.describe('שגיאות רשת', () => {
   });
 
   test('timeout מ-CUDA שרת לא קורס את האפליקציה', async ({ page }) => {
-    await page.route('**/localhost:8765/health', async (route) => {
+    await page.route('**/localhost:3000/health', async (route) => {
       // Simulate timeout — never respond
       await new Promise(resolve => setTimeout(resolve, 30000));
     });

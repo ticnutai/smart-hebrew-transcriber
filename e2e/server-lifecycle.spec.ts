@@ -8,8 +8,8 @@
  *  - /__api/start-server      — Vite dev-server proxy for the launcher
  *  - localhost:8764/start     — Launcher tray fallback start
  *  - localhost:8764/stop      — Launcher tray stop
- *  - localhost:8765/health    — Whisper server health (state-driven)
- *  - localhost:8765/shutdown  — Whisper server shutdown
+ *  - localhost:3000/health    — Whisper server health (state-driven)
+ *  - localhost:3000/shutdown  — Whisper server shutdown
  */
 
 import { test, expect, mockSupabase, injectAuthSession } from './helpers';
@@ -20,7 +20,7 @@ async function setupServerMocks(page: import('@playwright/test').Page) {
   let serverRunning = false;
 
   // Health endpoint — state-driven
-  await page.route('**/localhost:8765/health', (route) => {
+  await page.route('**/localhost:3000/health', (route) => {
     if (serverRunning) {
       return route.fulfill({
         status: 200,
@@ -40,7 +40,7 @@ async function setupServerMocks(page: import('@playwright/test').Page) {
   });
 
   // Shutdown endpoint — sets state to off
-  await page.route('**/localhost:8765/shutdown', (route) => {
+  await page.route('**/localhost:3000/shutdown', (route) => {
     serverRunning = false;
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'shutting_down' }) });
   });
@@ -68,10 +68,10 @@ async function setupServerMocks(page: import('@playwright/test').Page) {
   });
 
   // Other whisper endpoints (not needed for lifecycle but prevent unhandled errors)
-  await page.route('**/localhost:8765/models', (route) =>
+  await page.route('**/localhost:3000/models', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ models: [], current: null }) })
   );
-  await page.route('**/localhost:8765/downloaded-models', (route) =>
+  await page.route('**/localhost:3000/downloaded-models', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ models: [] }) })
   );
   // NOTE: no catch-all — Playwright uses LIFO so a catch-all registered last would override specific routes above
@@ -111,7 +111,7 @@ test.describe('CUDA Server Lifecycle', () => {
     await selectCudaEngine(page);
 
     // Initially disconnected
-    await expect(page.getByText(/לא מחובר — הפעל שרת CUDA/)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/לא מחובר — הפעל שרת CUDA/)).toBeVisible({ timeout: 3000 });
     expect(server.serverRunning).toBe(false);
 
     // ── Start ───────────────────────────────────────────────────────────────
@@ -131,7 +131,7 @@ test.describe('CUDA Server Lifecycle', () => {
   // ── Test 2: start shows "ממתין לחיבור..." spinner text ───────────────────
   test('כפתור הפעלה מציג מצב "ממתין לחיבור..." בזמן ההפעלה', async ({ page }) => {
     // Make health always fail so we can observe the waiting state
-    await page.route('**/localhost:8765/health', (route) => route.abort('connectionrefused'));
+    await page.route('**/localhost:3000/health', (route) => route.abort('connectionrefused'));
     await page.route('**/__api/start-server', (route) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, message: 'started' }) })
     );
@@ -139,7 +139,7 @@ test.describe('CUDA Server Lifecycle', () => {
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, results: { whisper: { message: 'started' } } }) })
     );
     await page.route('**/localhost:8764/stop', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }) }));
-    await page.route('**/localhost:8765/**', (route) => route.abort('connectionrefused'));
+    await page.route('**/localhost:3000/**', (route) => route.abort('connectionrefused'));
 
     await page.goto('/transcribe');
     await selectCudaEngine(page);
@@ -147,7 +147,7 @@ test.describe('CUDA Server Lifecycle', () => {
     await page.getByRole('button', { name: 'הפעל שרת' }).click();
 
     // Should immediately show waiting state — button text changes to spinner
-    await expect(page.getByRole('button', { name: /ממתין לחיבור/ })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('button', { name: /ממתין לחיבור/ })).toBeVisible({ timeout: 3000 });
   });
 
   // ── Test 3: 3x start/stop cycle ───────────────────────────────────────────
@@ -183,7 +183,7 @@ test.describe('CUDA Server Lifecycle', () => {
   // ── Test 4: server already running on load ────────────────────────────────
   test('מציג "מחובר" אם השרת כבר עלה לפני כניסה לדף', async ({ page }) => {
     // Health returns OK immediately (server was already running)
-    await page.route('**/localhost:8765/health', (route) =>
+    await page.route('**/localhost:3000/health', (route) =>
       route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -198,7 +198,7 @@ test.describe('CUDA Server Lifecycle', () => {
         }),
       })
     );
-    await page.route('**/localhost:8765/**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
+    await page.route('**/localhost:3000/**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
     await page.route('**/localhost:8764/**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
 
     await page.goto('/transcribe');
@@ -216,7 +216,7 @@ test.describe('CUDA Server Lifecycle', () => {
     // All start endpoints fail
     await page.route('**/__api/start-server', (route) => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ ok: false, error: 'Process failed to start' }) }));
     await page.route('**/localhost:8764/start', (route) => route.abort('connectionrefused'));
-    await page.route('**/localhost:8765/**', (route) => route.abort('connectionrefused'));
+    await page.route('**/localhost:3000/**', (route) => route.abort('connectionrefused'));
 
     await page.goto('/transcribe');
     await selectCudaEngine(page);

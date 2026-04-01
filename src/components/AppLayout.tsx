@@ -32,6 +32,7 @@ const AppLayout = ({ children }: { children: ReactNode }) => {
   return (
     <div
       className="min-h-screen transition-all duration-300"
+      dir="rtl"
       style={{ marginRight: showMargin ? SIDEBAR_WIDTH : 0 }}
     >
       {children}

@@ -1,4 +1,4 @@
-import { useState, memo } from "react";
+import { useState, useMemo, memo } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -7,19 +7,26 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Progress } from "@/components/ui/progress";
 import {
   Wand2, Loader2, Sparkles, MessageSquare, BookOpen, FileText,
   Languages, Users, List, Heading, Maximize2, Minimize2,
-  CheckCheck, Volume2, AlignJustify, Quote, Cpu, Save, Gauge, Trophy
+  CheckCheck, Volume2, AlignJustify, Quote, Cpu, Save, Gauge, Trophy,
+  Eye, EyeOff, GitCompareArrows, Download
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { editTranscriptCloud } from "@/utils/editTranscriptApi";
 import { useOllama, isOllamaModel, getOllamaModelName } from "@/hooks/useOllama";
+import DiffMatchPatch from "diff-match-patch";
 
 interface AIEditorDualProps {
   text: string;
   onTextChange: (text: string, source: string, customPrompt?: string) => void;
   onSaveVersion?: (text: string, source: string, engineLabel: string, actionLabel: string) => void;
+  onSaveAndReplaceOriginal?: (text: string, source: string, engineLabel: string, actionLabel: string) => Promise<void> | void;
+  onDuplicateAndSave?: (text: string, source: string, engineLabel: string, actionLabel: string) => Promise<void> | void;
+  onSyncToPlayer?: (editedText: string) => void;
 }
 
 const CLOUD_MODELS = [
@@ -68,6 +75,41 @@ const RECOMMENDED_OLLAMA_MODELS = [
   'gemma2:27b',
   'deepseek-v2:16b',
 ];
+
+// --- Smart auto-select: best model per action category ---
+const DEFAULT_MODEL_KEY = 'ai_editor_default_model';
+
+// Action → best model mapping (cloud + local considerations)
+// Categories: quality-heavy tasks get bigger models, speed tasks get lighter ones
+const AUTO_MODEL_MAP: Record<string, { cloud: string; local: string }> = {
+  // Quality-critical: grammar, improve, readable
+  improve:     { cloud: 'gemini-flash', local: 'command-r:35b' },
+  grammar:     { cloud: 'gemini-flash', local: 'command-r:35b' },
+  readable:    { cloud: 'gemini-flash', local: 'command-r:35b' },
+  punctuation: { cloud: 'gemini-flash', local: 'qwen2.5:14b' },
+  // Structural: paragraphs, headings, bullets
+  paragraphs:  { cloud: 'gpt-4o', local: 'qwen2.5:14b' },
+  headings:    { cloud: 'gpt-4o', local: 'qwen2.5:14b' },
+  bullets:     { cloud: 'gpt-4o', local: 'qwen2.5:14b' },
+  // Length transforms
+  expand:      { cloud: 'gemini-flash', local: 'command-r:35b' },
+  shorten:     { cloud: 'gpt-4o-mini', local: 'mistral-nemo:12b' },
+  summarize:   { cloud: 'gemini-flash', local: 'command-r:35b' },
+  // Specialized
+  sources:     { cloud: 'gemini-flash', local: 'command-r:35b' },
+  translate:   { cloud: 'gemini-flash', local: 'aya:8b' },
+  speakers:    { cloud: 'gpt-4o', local: 'command-r:35b' },
+  tone:        { cloud: 'gemini-flash', local: 'command-r:35b' },
+  custom:      { cloud: 'gemini-flash', local: 'command-r:35b' },
+};
+
+function getSavedDefaultModel(): string | null {
+  return localStorage.getItem(DEFAULT_MODEL_KEY);
+}
+function saveDefaultModel(value: string | null) {
+  if (value) localStorage.setItem(DEFAULT_MODEL_KEY, value);
+  else localStorage.removeItem(DEFAULT_MODEL_KEY);
+}
 
 type CompareMetrics = {
   latencyMs: number;
@@ -147,6 +189,27 @@ function downloadFile(filename: string, content: string, mime: string) {
   URL.revokeObjectURL(url);
 }
 
+function formatBytes(bytes?: number): string {
+  if (!bytes || bytes <= 0) return '0 B';
+  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
+  if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(1)} MB`;
+  if (bytes >= 1e3) return `${(bytes / 1e3).toFixed(1)} KB`;
+  return `${bytes} B`;
+}
+
+function mapPullStatusLabel(status?: string): string {
+  switch (status) {
+    case 'starting': return 'מתחיל';
+    case 'pulling': return 'מוריד';
+    case 'retrying': return 'ממשיך אחרי תקיעה';
+    case 'completed': return 'הורדה הושלמה';
+    case 'cancelled': return 'נעצר';
+    case 'error': return 'שגיאה';
+    case 'idle': return 'מוכן להורדה';
+    default: return status || 'מוכן';
+  }
+}
+
 function scoreText(source: string, output: string, latencyMs: number): CompareMetrics {
   const src = source.trim();
   const out = output.trim();
@@ -202,11 +265,11 @@ const TRANSLATE_LANGS = [
   { value: 'גרמנית', label: '🇩🇪 גרמנית' },
 ];
 
-const AIEditorDualInner = ({ text, onTextChange, onSaveVersion }: AIEditorDualProps) => {
+const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplaceOriginal, onDuplicateAndSave, onSyncToPlayer }: AIEditorDualProps) => {
   const [isEditing1, setIsEditing1] = useState(false);
   const [isEditing2, setIsEditing2] = useState(false);
   const [isMerging, setIsMerging] = useState(false);
-  const [model1, setModel1] = useState('gemini-flash');
+  const [model1, setModel1] = useState(() => getSavedDefaultModel() || 'gemini-flash');
   const [model2, setModel2] = useState('gpt-4o');
   const [result1, setResult1] = useState("");
   const [result2, setResult2] = useState("");
@@ -236,7 +299,11 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion }: AIEditorDualPr
   const [lastAction, setLastAction] = useState<EditAction | null>(null);
   const [customPrompt, setCustomPrompt] = useState("");
   const [showCustomDialog, setShowCustomDialog] = useState(false);
+  const [showDiffHighlight, setShowDiffHighlight] = useState(false);
+  const [autoCompare, setAutoCompare] = useState(true);
   const ollama = useOllama();
+
+  const dmp = useMemo(() => new DiffMatchPatch(), []);
 
   const installedOllamaNames = new Set(ollama.models.map(m => m.name));
   const missingRecommended = RECOMMENDED_OLLAMA_MODELS.filter(m => !installedOllamaNames.has(m));
@@ -253,21 +320,36 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion }: AIEditorDualPr
   ];
 
   const getModelApi = (v: string) => AI_MODELS.find(m => m.value === v)?.apiModel || 'google/gemini-2.5-flash';
-  const getModelLabel = (v: string) => AI_MODELS.find(m => m.value === v)?.label || v;
+  const getModelLabel = (v: string) => {
+    if (v === '_auto') return '🤖 אוטומטי';
+    return AI_MODELS.find(m => m.value === v)?.label || v;
+  };
+
+  /** Resolve _auto to actual model based on action + available Ollama models */
+  const resolveModel = (v: string, action: EditAction): string => {
+    if (v !== '_auto') return v;
+    const mapping = AUTO_MODEL_MAP[action] || AUTO_MODEL_MAP.improve;
+    // Prefer local if available
+    const localName = mapping.local;
+    if (installedOllamaNames.has(localName)) return `ollama:${localName}`;
+    // Fallback to cloud
+    return mapping.cloud;
+  };
 
   const runEditOnce = async (
     action: EditAction,
     modelValue: string,
     extra?: { customPrompt?: string; toneStyle?: string; targetLanguage?: string }
   ): Promise<{ text: string; latencyMs: number }> => {
+    const resolved = resolveModel(modelValue, action);
     const startedAt = performance.now();
     let resultText: string;
 
-    if (isOllamaModel(modelValue)) {
+    if (isOllamaModel(resolved)) {
       resultText = await ollama.editText({
         text,
         action,
-        model: getOllamaModelName(modelValue),
+        model: getOllamaModelName(resolved),
         customPrompt: extra?.customPrompt,
         toneStyle: extra?.toneStyle,
         targetLanguage: extra?.targetLanguage,
@@ -276,7 +358,7 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion }: AIEditorDualPr
       resultText = await editTranscriptCloud({
         text,
         action,
-        model: getModelApi(modelValue),
+        model: getModelApi(resolved),
         customPrompt: extra?.customPrompt,
         toneStyle: extra?.toneStyle,
         targetLanguage: extra?.targetLanguage,
@@ -304,17 +386,21 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion }: AIEditorDualPr
 
     setLoading(true);
     try {
+      const resolved = resolveModel(modelValue, action);
+      const resolvedLabel = modelValue === '_auto' ? `${getModelLabel(resolved)} (אוטומטי)` : getModelLabel(modelValue);
       const { text: resultText, latencyMs } = await runEditOnce(action, modelValue, extra);
 
       if (resultText) {
         setLatency?.(latencyMs);
         setResult(resultText);
-        toast({ title: "הצלחה", description: `עריכה עם ${getModelLabel(modelValue)} הושלמה` });
+        toast({ title: "הצלחה", description: `עריכה עם ${resolvedLabel} הושלמה` });
       }
     } catch (error) {
-      console.error(`Error editing with ${getModelLabel(modelValue)}:`, error);
+      const resolved = resolveModel(modelValue, action);
+      const resolvedLabel = modelValue === '_auto' ? `${getModelLabel(resolved)} (אוטומטי)` : getModelLabel(modelValue);
+      console.error(`Error editing with ${resolvedLabel}:`, error);
       toast({
-        title: `שגיאה ב-${getModelLabel(modelValue)}`,
+        title: `שגיאה ב-${resolvedLabel}`,
         description: error instanceof Error ? error.message : "שגיאה בעריכה",
         variant: "destructive",
       });
@@ -731,7 +817,7 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion }: AIEditorDualPr
   );
 
   const EnginePanel = ({
-    num, modelValue, setModelValue, isEditingState, result, onApply, onSave
+    num, modelValue, setModelValue, isEditingState, result, onApply, onSave, onSaveReplace, onDuplicateSave
   }: {
     num: number;
     modelValue: string;
@@ -740,15 +826,46 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion }: AIEditorDualPr
     result: string;
     onApply: () => void;
     onSave: () => void;
-  }) => (
+    onSaveReplace: () => Promise<void> | void;
+    onDuplicateSave: () => Promise<void> | void;
+  }) => {
+    let diffElements: React.ReactNode = null;
+    if (showDiffHighlight && result && text) {
+      const d = dmp.diff_main(text, result);
+      dmp.diff_cleanupSemantic(d);
+      diffElements = d.map(([op, chunk], i) => {
+        if (op === -1) return <span key={i} className="bg-destructive/20 line-through decoration-destructive/60">{chunk}</span>;
+        if (op === 1) return <span key={i} className="bg-green-500/20 font-medium underline decoration-green-500/60">{chunk}</span>;
+        return <span key={i}>{chunk}</span>;
+      });
+    }
+
+    return (
     <div className="border rounded-lg p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <Label className="text-sm font-semibold">מנוע {num}</Label>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1">
+          <Label className="text-sm font-semibold">מנוע {num}</Label>
+          {modelValue !== '_auto' && modelValue !== getSavedDefaultModel() && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-1.5 text-[10px] text-muted-foreground hover:text-primary"
+              title="הגדר כברירת מחדל"
+              onClick={() => { saveDefaultModel(modelValue); toast({ title: "ברירת מחדל נשמרה", description: getModelLabel(modelValue) }); }}
+            >
+              📌
+            </Button>
+          )}
+          {modelValue === getSavedDefaultModel() && (
+            <Badge variant="outline" className="text-[9px] h-4 px-1">ברירת מחדל</Badge>
+          )}
+        </div>
         <Select value={modelValue} onValueChange={setModelValue}>
           <SelectTrigger className="w-[200px] text-xs" dir="rtl">
             <SelectValue />
           </SelectTrigger>
           <SelectContent dir="rtl">
+            <SelectItem value="_auto" className="text-xs font-semibold">🤖 אוטומטי (הכי טוב לפעולה)</SelectItem>
             <SelectItem disabled value="_cloud_header" className="text-xs font-semibold text-muted-foreground">☁️ ענן</SelectItem>
             {CLOUD_MODELS.map(m => (
               <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
@@ -768,32 +885,59 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion }: AIEditorDualPr
       {isEditingState && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground py-4 justify-center">
           <Loader2 className="w-4 h-4 animate-spin" />
-          מעבד עם {getModelLabel(modelValue)}...
+          מעבד עם {modelValue === '_auto' && lastAction ? `${getModelLabel(resolveModel(modelValue, lastAction))} (אוטומטי)` : getModelLabel(modelValue)}...
         </div>
       )}
 
       {result && !isEditingState && (
         <>
-          <Textarea
-            value={result}
-            readOnly
-            className="min-h-[200px] text-right bg-accent/10"
-            dir="rtl"
-            style={{ fontFamily: 'inherit', fontSize: 'inherit', lineHeight: 'inherit' }}
-          />
-          <Button size="sm" onClick={onApply} className="w-full">
-            החלף בטקסט הראשי
-          </Button>
-          {onSaveVersion && (
-            <Button size="sm" variant="outline" onClick={onSave} className="w-full">
-              <Save className="w-3 h-3 ml-1" />
-              שמור גרסה
-            </Button>
+          {showDiffHighlight && diffElements ? (
+            <ScrollArea className="min-h-[200px] max-h-[400px] rounded-md border p-3 bg-accent/10">
+              <pre className="whitespace-pre-wrap text-right" dir="rtl" style={{ fontFamily: 'inherit', fontSize: 'inherit', lineHeight: 'inherit' }}>
+                {diffElements}
+              </pre>
+            </ScrollArea>
+          ) : (
+            <Textarea
+              value={result}
+              readOnly
+              className="min-h-[200px] text-right bg-accent/10"
+              dir="rtl"
+              style={{ fontFamily: 'inherit', fontSize: 'inherit', lineHeight: 'inherit' }}
+            />
           )}
+          <div className="flex gap-2 flex-wrap">
+            <Button size="sm" onClick={onApply} className="flex-1">
+              החלף בטקסט הראשי
+            </Button>
+            {onSaveAndReplaceOriginal && (
+              <Button size="sm" variant="default" onClick={onSaveReplace}>
+                <Save className="w-3 h-3 ml-1" />
+                שמור והחלף מקור
+              </Button>
+            )}
+            {onDuplicateAndSave && (
+              <Button size="sm" variant="outline" onClick={onDuplicateSave}>
+                <Download className="w-3 h-3 ml-1" />
+                שכפל ושמור
+              </Button>
+            )}
+            {onSaveVersion && (
+              <Button size="sm" variant="outline" onClick={onSave}>
+                <Save className="w-3 h-3 ml-1" />
+                שמור
+              </Button>
+            )}
+            {onSyncToPlayer && (
+              <Button size="sm" variant="outline" onClick={() => onSyncToPlayer(result)} title="סנכרן לנגן">
+                🎧
+              </Button>
+            )}
+          </div>
         </>
       )}
     </div>
-  );
+  );};
 
   return (
     <Card className="p-6" dir="rtl">
@@ -809,32 +953,169 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion }: AIEditorDualPr
         )}
       </div>
 
+      {/* Quick Save Actions (always visible near top) */}
+      {(onSaveAndReplaceOriginal || onDuplicateAndSave || onSaveVersion) && (
+        <div className="mb-4 rounded-lg border p-3 bg-background/80">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <Label className="text-sm font-semibold">שמירה מהירה לתוצאות</Label>
+            <Badge variant="outline" className="text-xs">גלוי תמיד</Badge>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="default"
+              disabled={!result1}
+              onClick={() => onSaveAndReplaceOriginal?.(result1, `ai-${lastAction || 'improve'}`, getModelLabel(model1), lastAction || 'improve')}
+              title="שמור והחלף מקור - מנוע 1"
+            >
+              <Save className="w-3 h-3 ml-1" />
+              שמור+החלף (מנוע 1)
+            </Button>
+
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!result1}
+              onClick={() => onDuplicateAndSave?.(result1, `ai-${lastAction || 'improve'}`, getModelLabel(model1), lastAction || 'improve')}
+              title="שכפל ושמור - מנוע 1"
+            >
+              <Download className="w-3 h-3 ml-1" />
+              שכפל+שמור (מנוע 1)
+            </Button>
+
+            <Button
+              size="sm"
+              variant="default"
+              disabled={!result2}
+              onClick={() => onSaveAndReplaceOriginal?.(result2, `ai-${lastAction || 'improve'}`, getModelLabel(model2), lastAction || 'improve')}
+              title="שמור והחלף מקור - מנוע 2"
+            >
+              <Save className="w-3 h-3 ml-1" />
+              שמור+החלף (מנוע 2)
+            </Button>
+
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!result2}
+              onClick={() => onDuplicateAndSave?.(result2, `ai-${lastAction || 'improve'}`, getModelLabel(model2), lastAction || 'improve')}
+              title="שכפל ושמור - מנוע 2"
+            >
+              <Download className="w-3 h-3 ml-1" />
+              שכפל+שמור (מנוע 2)
+            </Button>
+
+            {onSaveVersion && (
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={!result1 && !result2}
+                onClick={() => {
+                  if (result1) onSaveVersion(result1, `ai-${lastAction || 'improve'}`, getModelLabel(model1), `${lastAction || 'improve'} • מנוע 1`);
+                  if (result2) onSaveVersion(result2, `ai-${lastAction || 'improve'}`, getModelLabel(model2), `${lastAction || 'improve'} • מנוע 2`);
+                  toast({ title: 'נשמרו גרסאות', description: 'נשמרו כל התוצאות הזמינות' });
+                }}
+                title="שמור היסטוריית גרסאות"
+              >
+                <Save className="w-3 h-3 ml-1" />
+                שמור גרסאות
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+
       {missingRecommended.length > 0 && ollama.isConnected && (
         <div className="mb-4 rounded-lg border p-3 bg-muted/20">
           <div className="flex items-center justify-between gap-2 mb-2">
             <Label className="text-sm font-semibold">מנועים מומלצים לעברית שעדיין לא מותקנים</Label>
             <Badge variant="outline" className="text-xs">{missingRecommended.length} חסרים</Badge>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {missingRecommended.map(m => (
-              <Button
-                key={m}
-                size="sm"
-                variant="outline"
-                disabled={ollama.isPulling}
-                onClick={async () => {
-                  try {
-                    await ollama.pullModel(m);
-                    toast({ title: 'הורדה הושלמה', description: `${m} מוכן לשימוש` });
-                  } catch (e) {
-                    toast({ title: 'שגיאה בהורדה', description: e instanceof Error ? e.message : 'שגיאה', variant: 'destructive' });
-                  }
-                }}
-              >
-                {ollama.isPulling ? <Loader2 className="w-3 h-3 animate-spin ml-1" /> : <Cpu className="w-3 h-3 ml-1" />}
-                התקן {m}
+          <div className="flex flex-wrap gap-2 mb-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={async () => {
+                const results = await Promise.allSettled(missingRecommended.map(m => ollama.pullModel(m)));
+                const okCount = results.filter(r => r.status === 'fulfilled').length;
+                toast({ title: 'הופעלו הורדות רקע', description: `${okCount}/${missingRecommended.length} התחילו` });
+              }}
+            >
+              <Cpu className="w-3 h-3 ml-1" />
+              הורד הכל במקביל
+            </Button>
+            {ollama.isPulling && (
+              <Button size="sm" variant="ghost" onClick={() => ollama.cancelPull()}>
+                עצור את כל ההורדות
               </Button>
-            ))}
+            )}
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            {missingRecommended.map(m => {
+              const job = ollama.pullJobs?.[m];
+              const isActive = job?.status === 'starting' || job?.status === 'pulling' || job?.status === 'retrying';
+              const canResume = job?.status === 'cancelled' || job?.status === 'error';
+              const percent = job?.percent || 0;
+              const completed = job?.progress?.completed;
+              const total = job?.progress?.total;
+              const statusText = mapPullStatusLabel(job?.status);
+              const progressText = total && completed
+                ? `${formatBytes(completed)} / ${formatBytes(total)}`
+                : (job?.progress?.status || 'ממתין לעדכון');
+
+              return (
+                <div key={m} className="rounded-md border p-2 bg-background">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs" dir="ltr">{m}</span>
+                    <Badge variant="outline" className="text-[10px]">{statusText}</Badge>
+                  </div>
+                  <div className="mt-1 space-y-1">
+                    <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                      <span>{progressText}</span>
+                      <span className="font-medium">{percent}%</span>
+                    </div>
+                    <Progress value={percent} className="h-1.5" />
+                  </div>
+                  {job?.status === 'retrying' && (
+                    <div className="text-[10px] text-amber-600 mt-1">
+                      ממשיך אוטומטית מהחלק שכבר ירד (ניסיון {job.retries + 1})
+                    </div>
+                  )}
+                  {job?.error && job.status !== 'retrying' && (
+                    <div className="text-[10px] text-destructive mt-1">{job.error}</div>
+                  )}
+                  <div className="flex gap-1 mt-1">
+                    {!isActive && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={async () => {
+                          try {
+                            await ollama.pullModel(m);
+                            toast({ title: 'הורדה הושלמה', description: `${m} מוכן לשימוש` });
+                          } catch (e) {
+                            toast({ title: 'שגיאה בהורדה', description: e instanceof Error ? e.message : 'שגיאה', variant: 'destructive' });
+                          }
+                        }}
+                      >
+                        {job?.status === 'starting' || job?.status === 'pulling' ? <Loader2 className="w-3 h-3 ml-1 animate-spin" /> : <Cpu className="w-3 h-3 ml-1" />}
+                        {canResume ? 'המשך' : 'התקן'}
+                      </Button>
+                    )}
+                    {isActive && (
+                      <Button size="sm" variant="ghost" onClick={() => ollama.cancelPull(m)}>
+                        עצור
+                      </Button>
+                    )}
+                    {canResume && !isActive && (
+                      <Button size="sm" variant="ghost" onClick={() => ollama.resumePull(m)}>
+                        המשך מאותה נקודה
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -1284,6 +1565,8 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion }: AIEditorDualPr
           result={result1}
           onApply={() => onTextChange(result1, `ai-${lastAction || 'improve'}`, `${getModelLabel(model1)}`)}
           onSave={() => onSaveVersion?.(result1, `ai-${lastAction || 'improve'}`, getModelLabel(model1), lastAction || 'improve')}
+          onSaveReplace={() => onSaveAndReplaceOriginal?.(result1, `ai-${lastAction || 'improve'}`, getModelLabel(model1), lastAction || 'improve')}
+          onDuplicateSave={() => onDuplicateAndSave?.(result1, `ai-${lastAction || 'improve'}`, getModelLabel(model1), lastAction || 'improve')}
         />
         <EnginePanel
           num={2}
@@ -1293,8 +1576,74 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion }: AIEditorDualPr
           result={result2}
           onApply={() => onTextChange(result2, `ai-${lastAction || 'improve'}`, `${getModelLabel(model2)}`)}
           onSave={() => onSaveVersion?.(result2, `ai-${lastAction || 'improve'}`, getModelLabel(model2), lastAction || 'improve')}
+          onSaveReplace={() => onSaveAndReplaceOriginal?.(result2, `ai-${lastAction || 'improve'}`, getModelLabel(model2), lastAction || 'improve')}
+          onDuplicateSave={() => onDuplicateAndSave?.(result2, `ai-${lastAction || 'improve'}`, getModelLabel(model2), lastAction || 'improve')}
         />
       </div>
+
+      {/* Diff Highlight Toggle + Save Both + Auto-Compare */}
+      {(result1 || result2) && !isEditing1 && !isEditing2 && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 p-3 rounded-lg bg-muted/30 border">
+          <Button
+            variant={showDiffHighlight ? "default" : "outline"}
+            size="sm"
+            onClick={() => setShowDiffHighlight(v => !v)}
+            title="הצג/הסתר סימון שינויים"
+          >
+            {showDiffHighlight ? <EyeOff className="w-3 h-3 ml-1" /> : <Eye className="w-3 h-3 ml-1" />}
+            {showDiffHighlight ? 'הסתר שינויים' : 'סמן שינויים'}
+          </Button>
+
+          {onSaveVersion && result1 && result2 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                onSaveVersion(text, 'original', 'מקור', 'טקסט מקורי');
+                onSaveVersion(result1, `ai-${lastAction || 'improve'}`, getModelLabel(model1), lastAction || 'improve');
+                onSaveVersion(result2, `ai-${lastAction || 'improve'}`, getModelLabel(model2), lastAction || 'improve');
+                toast({ title: 'נשמרו 3 גרסאות', description: 'מקורי + מנוע 1 + מנוע 2' });
+              }}
+            >
+              <Download className="w-3 h-3 ml-1" />
+              שמור מקורי + שתי גרסאות
+            </Button>
+          )}
+        </div>
+      )}
+
+      {/* Auto-Compare Summary - shown when both results are ready */}
+      {autoCompare && result1 && result2 && !isEditing1 && !isEditing2 && metrics1 && metrics2 && (
+        <div className="mt-3 border rounded-lg p-4 space-y-3 bg-muted/20">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <GitCompareArrows className="w-4 h-4 text-primary" />
+              <Label className="text-sm font-semibold">השוואה אוטומטית</Label>
+            </div>
+            <Badge variant={winner === 1 ? "default" : "secondary"} className="text-xs">
+              <Trophy className="w-3 h-3 ml-1" />
+              מנצח: {winner === 1 ? getModelLabel(model1) : getModelLabel(model2)}
+            </Badge>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 text-xs">
+            <div className={`rounded-md border p-2 ${winner === 1 ? 'border-primary bg-primary/5' : ''}`}>
+              <div className="font-semibold mb-1">{getModelLabel(model1)}</div>
+              <div>מהירות: {metrics1.latencyMs}ms</div>
+              <div>שימור: {(metrics1.preserveScore * 100).toFixed(0)}%</div>
+              <div>עברית: {(metrics1.hebrewRatio * 100).toFixed(0)}%</div>
+              <div className="font-semibold">ציון: {metrics1.qualityScore.toFixed(1)}</div>
+            </div>
+            <div className={`rounded-md border p-2 ${winner === 2 ? 'border-primary bg-primary/5' : ''}`}>
+              <div className="font-semibold mb-1">{getModelLabel(model2)}</div>
+              <div>מהירות: {metrics2.latencyMs}ms</div>
+              <div>שימור: {(metrics2.preserveScore * 100).toFixed(0)}%</div>
+              <div>עברית: {(metrics2.hebrewRatio * 100).toFixed(0)}%</div>
+              <div className="font-semibold">ציון: {metrics2.qualityScore.toFixed(1)}</div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {mergedResult && (
         <div className="mt-4 border rounded-lg p-4 space-y-3 bg-accent/5">

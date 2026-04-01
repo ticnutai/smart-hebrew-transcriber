@@ -93,7 +93,7 @@ function Test-Endpoint {
 
 function Get-WhisperHealth {
     try {
-        $r = Invoke-RestMethod -Uri 'http://localhost:8765/health' -TimeoutSec 3 -ErrorAction Stop
+        $r = Invoke-RestMethod -Uri 'http://localhost:3000/health' -TimeoutSec 3 -ErrorAction Stop
         return @{ Running = $true; Gpu = $r.gpu; Model = $r.current_model; Device = $r.device }
     } catch {
         return @{ Running = $false }
@@ -198,9 +198,9 @@ function Show-Status {
         $info = 'ON'
         if ($wh.Gpu)   { $info += " | GPU: $($wh.Gpu)" }
         if ($wh.Model) { $short = ($wh.Model -split '/')[-1]; $info += " | $short" }
-        Write-OK "CUDA Whisper :8765 = $info"
+        Write-OK "CUDA Whisper :3000 = $info"
     } else {
-        Write-Fail 'CUDA Whisper :8765 = OFF'
+        Write-Fail 'CUDA Whisper :3000 = OFF'
     }
 
     # Ollama
@@ -476,9 +476,9 @@ function Show-Menu {
                     $p = Find-VenvPython
                     $s = Join-Path $projectRoot 'server\transcribe_server.py'
                     if ($p -and (Test-Path $s)) {
-                        Start-Process -FilePath $p -ArgumentList "`"$s`" --port 8765" `
+                        Start-Process -FilePath $p -ArgumentList "`"$s`" --port 3000" `
                             -WorkingDirectory $projectRoot -WindowStyle Minimized
-                        Write-OK 'CUDA server starting on port 8765'
+                        Write-OK 'CUDA server starting on port 3000'
                     } else { Write-Fail 'Python or server script not found' }
                 }
             }
@@ -504,7 +504,7 @@ function Show-Menu {
                 Write-Note 'Stopping all services...'
                 Stop-Tray
                 try {
-                    $null = Invoke-WebRequest -Uri 'http://localhost:8765/shutdown' -Method Post `
+                    $null = Invoke-WebRequest -Uri 'http://localhost:3000/shutdown' -Method Post `
                         -TimeoutSec 5 -ErrorAction SilentlyContinue
                 } catch { }
                 Write-OK 'All stopped'

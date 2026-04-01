@@ -22,7 +22,24 @@ export interface OllamaPullProgress {
   completed?: number;
 }
 
+export interface OllamaPullJob {
+  modelName: string;
+  status: 'idle' | 'starting' | 'pulling' | 'retrying' | 'completed' | 'error' | 'cancelled';
+  progress: OllamaPullProgress | null;
+  percent: number;
+  retries: number;
+  error?: string;
+  updatedAt: number;
+  // Speed & ETA fields
+  speedBps: number;       // bytes per second
+  etaSeconds: number;     // estimated seconds remaining
+  startedAt: number;      // when this pull started
+  downloadedBytes: number;
+  totalBytes: number;
+}
+
 const OLLAMA_URL_KEY = 'ollama_base_url';
+const OLLAMA_PULL_JOBS_KEY = 'ollama_pull_jobs_v1';
 
 export function getOllamaUrl(): string {
   return localStorage.getItem(OLLAMA_URL_KEY) || DEFAULT_OLLAMA_URL;
@@ -36,27 +53,102 @@ export function useOllama() {
   const [isConnected, setIsConnected] = useState(false);
   const [models, setModels] = useState<OllamaModel[]>([]);
   const [isChecking, setIsChecking] = useState(false);
-  const [isPulling, setIsPulling] = useState(false);
-  const [pullProgress, setPullProgress] = useState<OllamaPullProgress | null>(null);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [pullJobs, setPullJobs] = useState<Record<string, OllamaPullJob>>(() => {
+    try {
+      const raw = localStorage.getItem(OLLAMA_PULL_JOBS_KEY);
+      const parsed = raw ? JSON.parse(raw) : {};
+      if (!parsed || typeof parsed !== 'object') return {};
+      const entries = Object.entries(parsed as Record<string, OllamaPullJob>).map(([name, job]) => {
+        // Any persisted in-flight state becomes resumable
+        const normalizedStatus = ['starting', 'pulling', 'retrying'].includes(job.status)
+          ? 'cancelled'
+          : job.status;
+        return [name, {
+          ...job,
+          status: normalizedStatus,
+          updatedAt: Date.now(),
+        } satisfies OllamaPullJob];
+      });
+      return Object.fromEntries(entries);
+    } catch {
+      return {};
+    }
+  });
   const abortRef = useRef<AbortController | null>(null);
+  const pullControllersRef = useRef<Map<string, AbortController>>(new Map());
 
   const checkConnection = useCallback(async () => {
     setIsChecking(true);
+    setConnectionError(null);
     try {
       const baseUrl = getOllamaUrl();
-      const res = await fetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(5000) });
-      if (!res.ok) throw new Error('Bad response');
-      const data = await res.json();
-      setModels(data.models || []);
-      setIsConnected(true);
-      return true;
-    } catch {
+      const fallbackUrls = baseUrl.includes('localhost')
+        ? [baseUrl, baseUrl.replace('localhost', '127.0.0.1')]
+        : [baseUrl];
+
+      for (const url of fallbackUrls) {
+        try {
+          const res = await fetch(`${url}/api/tags`, { signal: AbortSignal.timeout(5000) });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
+          setModels(data.models || []);
+          setIsConnected(true);
+          setConnectionError(null);
+          if (url !== baseUrl) setOllamaUrl(url);
+          return true;
+        } catch {
+          // Try next URL
+        }
+      }
+
+      throw new Error('CONNECTION_FAILED');
+    } catch (err) {
       setIsConnected(false);
       setModels([]);
+      if (err instanceof Error && err.name === 'TimeoutError') {
+        setConnectionError('נגמר זמן ההמתנה לחיבור (Timeout). בדוק ש-ollama serve רץ.');
+      } else {
+        setConnectionError('לא ניתן להתחבר ל-Ollama. ודא שהשירות רץ וש-CORS מוגדר (OLLAMA_ORIGINS=*).');
+      }
       return false;
     } finally {
       setIsChecking(false);
     }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(OLLAMA_PULL_JOBS_KEY, JSON.stringify(pullJobs));
+    } catch {
+      // Ignore storage failures (private mode/quota)
+    }
+  }, [pullJobs]);
+
+  const upsertPullJob = useCallback((modelName: string, patch: Partial<OllamaPullJob>) => {
+    setPullJobs(prev => {
+      const existing: OllamaPullJob = prev[modelName] || {
+        modelName,
+        status: 'idle',
+        progress: null,
+        percent: 0,
+        retries: 0,
+        updatedAt: Date.now(),
+        speedBps: 0,
+        etaSeconds: 0,
+        startedAt: 0,
+        downloadedBytes: 0,
+        totalBytes: 0,
+      };
+      return {
+        ...prev,
+        [modelName]: {
+          ...existing,
+          ...patch,
+          updatedAt: Date.now(),
+        },
+      };
+    });
   }, []);
 
   // Smart polling: fast when connected, exponential backoff when disconnected,
@@ -96,50 +188,178 @@ export function useOllama() {
   }, [checkConnection]);
 
   const pullModel = useCallback(async (modelName: string, onProgress?: (p: OllamaPullProgress) => void) => {
-    setIsPulling(true);
-    setPullProgress({ status: 'starting' });
+    const normalizedName = modelName.trim();
+    if (!normalizedName) throw new Error('Model name is required');
 
-    try {
+    if (pullControllersRef.current.has(normalizedName)) {
+      return;
+    }
+
+    const MAX_RETRIES = 3;
+    const STALL_MS = 45_000;
+
+    const runAttempt = async (attempt: number): Promise<void> => {
       const baseUrl = getOllamaUrl();
-      abortRef.current = new AbortController();
+      const controller = new AbortController();
+      abortRef.current = controller;
+      pullControllersRef.current.set(normalizedName, controller);
 
-      const res = await fetch(`${baseUrl}/api/pull`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: modelName }),
-        signal: abortRef.current.signal,
+      upsertPullJob(normalizedName, {
+        status: attempt === 0 ? 'starting' : 'retrying',
+        retries: attempt,
+        error: undefined,
+        startedAt: Date.now(),
+        speedBps: 0,
+        etaSeconds: 0,
       });
 
-      if (!res.ok) throw new Error(`Pull failed: ${res.statusText}`);
-      if (!res.body) throw new Error('No response body');
+      try {
+        const res = await fetch(`${baseUrl}/api/pull`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: normalizedName }),
+          signal: controller.signal,
+        });
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
+        if (!res.ok) throw new Error(`Pull failed: ${res.statusText}`);
+        if (!res.body) throw new Error('No response body');
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+        let lastActivity = Date.now();
+        let layerStartTime = Date.now();
+        let layerStartBytes = 0;
+        let lastDigest = '';
+        const stallTimer = setInterval(() => {
+          if (Date.now() - lastActivity > STALL_MS) {
+            controller.abort('stalled');
+          }
+        }, 10_000);
 
-        const lines = decoder.decode(value, { stream: true }).split('\n').filter(Boolean);
-        for (const line of lines) {
-          try {
-            const progress = JSON.parse(line) as OllamaPullProgress;
-            setPullProgress(progress);
-            onProgress?.(progress);
-          } catch { /* skip malformed lines */ }
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let pending = '';
+
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            lastActivity = Date.now();
+
+            pending += decoder.decode(value, { stream: true });
+            const lines = pending.split('\n');
+            pending = lines.pop() || '';
+
+            for (const line of lines) {
+              if (!line.trim()) continue;
+              try {
+                const progress = JSON.parse(line) as OllamaPullProgress;
+                setPullJobs(prev => {
+                  const existing = prev[normalizedName];
+                  const completed = progress.completed || 0;
+                  const total = progress.total || 0;
+                  const computedPercent = total > 0
+                    ? Math.round((completed / total) * 100)
+                    : existing?.percent || 0;
+
+                  // Track per-layer speed: reset when digest changes
+                  const now = Date.now();
+                  if (progress.digest && progress.digest !== lastDigest) {
+                    lastDigest = progress.digest;
+                    layerStartTime = now;
+                    layerStartBytes = 0;
+                  }
+
+                  const elapsedSec = Math.max((now - layerStartTime) / 1000, 0.5);
+                  const downloadedSinceStart = completed - layerStartBytes;
+                  const speedBps = downloadedSinceStart > 0 ? downloadedSinceStart / elapsedSec : 0;
+                  const remaining = total - completed;
+                  const etaSeconds = speedBps > 0 ? remaining / speedBps : 0;
+
+                  const nextJob: OllamaPullJob = {
+                    modelName: normalizedName,
+                    status: 'pulling',
+                    progress,
+                    percent: computedPercent,
+                    retries: attempt,
+                    error: undefined,
+                    updatedAt: now,
+                    speedBps,
+                    etaSeconds,
+                    startedAt: existing?.startedAt || layerStartTime,
+                    downloadedBytes: completed,
+                    totalBytes: total,
+                  };
+
+                  return {
+                    ...prev,
+                    [normalizedName]: nextJob,
+                  };
+                });
+                onProgress?.(progress);
+              } catch {
+                // Ignore malformed stream lines
+              }
+            }
+          }
+        } finally {
+          clearInterval(stallTimer);
+        }
+
+        upsertPullJob(normalizedName, {
+          status: 'completed',
+          percent: 100,
+          progress: { status: 'success' },
+          error: undefined,
+        });
+
+        await checkConnection();
+      } catch (err) {
+        const isAbort = err instanceof Error && err.name === 'AbortError';
+        if (isAbort && attempt < MAX_RETRIES) {
+          pullControllersRef.current.delete(normalizedName);
+          upsertPullJob(normalizedName, {
+            status: 'retrying',
+            retries: attempt + 1,
+            error: 'חיבור נתקע, מנסה להמשיך מאותה נקודה...',
+          });
+          await new Promise(r => setTimeout(r, 1200));
+          return runAttempt(attempt + 1);
+        }
+
+        upsertPullJob(normalizedName, {
+          status: isAbort ? 'cancelled' : 'error',
+          error: err instanceof Error ? err.message : 'שגיאת הורדה',
+        });
+        throw err;
+      } finally {
+        pullControllersRef.current.delete(normalizedName);
+        if (abortRef.current === controller) {
+          abortRef.current = null;
         }
       }
+    };
 
-      // Refresh model list
-      await checkConnection();
-    } finally {
-      setIsPulling(false);
-      setPullProgress(null);
-      abortRef.current = null;
+    return runAttempt(0);
+  }, [checkConnection, upsertPullJob]);
+
+  const cancelPull = useCallback((modelName?: string) => {
+    if (modelName) {
+      const c = pullControllersRef.current.get(modelName);
+      c?.abort();
+      upsertPullJob(modelName, {
+        status: 'cancelled',
+        error: 'בוטל על ידי המשתמש',
+      });
+      return;
     }
-  }, [checkConnection]);
 
-  const cancelPull = useCallback(() => {
+    // Backward-compatible global cancel
+    pullControllersRef.current.forEach((controller, name) => {
+      controller.abort();
+      upsertPullJob(name, {
+        status: 'cancelled',
+        error: 'בוטל על ידי המשתמש',
+      });
+    });
     abortRef.current?.abort();
   }, []);
 
@@ -153,6 +373,18 @@ export function useOllama() {
     if (!res.ok) throw new Error(`Delete failed: ${res.statusText}`);
     await checkConnection();
   }, [checkConnection]);
+
+  const resumePull = useCallback(async (modelName: string) => {
+    return pullModel(modelName);
+  }, [pullModel]);
+
+  const isPulling = Object.values(pullJobs).some(job =>
+    job.status === 'starting' || job.status === 'pulling' || job.status === 'retrying'
+  );
+  const latestActiveJob = [...Object.values(pullJobs)]
+    .filter(job => job.status === 'starting' || job.status === 'pulling' || job.status === 'retrying')
+    .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+  const pullProgress = latestActiveJob?.progress || null;
 
   const editText = useCallback(async (params: {
     text: string;
@@ -230,12 +462,15 @@ export function useOllama() {
   return {
     isConnected,
     isChecking,
+    connectionError,
     models,
     isPulling,
     pullProgress,
+    pullJobs,
     checkConnection,
     pullModel,
     cancelPull,
+    resumePull,
     deleteModel,
     editText,
   };

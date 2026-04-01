@@ -44,7 +44,7 @@ interface PresetInfo {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const SERVER = "http://localhost:8765";
+const SERVER = "http://localhost:3000";
 
 const PRESETS: PresetInfo[] = [
   {

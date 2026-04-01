@@ -22,6 +22,7 @@ import {
   Trash2,
   Server,
   BarChart3,
+  Music,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
@@ -44,6 +45,7 @@ const navItems: NavItem[] = [
   { label: "תיקיות", icon: FolderOpen, path: "/folders" },
   { label: "עורך טקסט", icon: FileText, path: "/text-editor" },
   { label: "בנצ'מארק", icon: BarChart3, path: "/benchmark" },
+  { label: "ממיר ל-MP3", icon: Music, path: "/video-to-mp3" },
   { label: "התקנת שרת", icon: Server, path: "/setup" },
   { label: "הגדרות", icon: Settings, path: "/settings" },
 ];
@@ -180,8 +182,8 @@ const AppSidebar = () => {
         onMouseLeave={handleMouseLeaveSidebar}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-4">
-          <h2 className="text-base font-bold text-foreground tracking-tight">
+        <div className="flex items-center justify-between px-4 py-4" dir="rtl">
+          <h2 className="text-base font-bold text-foreground tracking-tight text-right">
             ניווט
           </h2>
           <div className="flex items-center gap-1">
@@ -212,7 +214,7 @@ const AppSidebar = () => {
 
         {/* Nav items */}
         <ScrollArea className="flex-1 py-2">
-          <nav className="flex flex-col gap-1 px-3">
+          <nav className="flex flex-col gap-1 px-3" dir="rtl">
             {navItems.map((item) => (
               <button
                 key={item.path}
@@ -221,21 +223,21 @@ const AppSidebar = () => {
                   if (!isPinned) setIsOpen(false);
                 }}
                 className={cn(
-                  "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors w-full text-right",
+                  "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors w-full",
                   isActive(item.path)
                     ? "bg-primary text-primary-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground hover:bg-muted"
                 )}
               >
-                <item.icon className="w-5 h-5 shrink-0" />
-                <span>{item.label}</span>
+                <item.icon className="w-5 h-5 shrink-0 text-blue-900" />
+                <span className="flex-1 text-right">{item.label}</span>
               </button>
             ))}
           </nav>
 
           {/* Folders section - always visible */}
           <Separator className="my-2" />
-          <div className="px-3">
+          <div className="px-3" dir="rtl">
             <div className="flex items-center justify-between">
               <button
                 onClick={() => {
@@ -250,7 +252,7 @@ const AppSidebar = () => {
                 )}
               >
                 <FolderOpen className="w-4 h-4" />
-                <span>תיקיות</span>
+                <span className="text-right">תיקיות</span>
                 {folders.length > 0 && (
                   <span className={cn("text-[10px] rounded-full px-1.5 py-0.5", isActive('/folders') ? "bg-primary-foreground/20 text-primary-foreground" : "text-muted-foreground bg-muted")}>{folders.length}</span>
                 )}
@@ -335,7 +337,7 @@ const AppSidebar = () => {
                 })}
 
                 {folders.length === 0 && !showNewFolder && (
-                  <p className="text-[11px] text-muted-foreground px-3 py-1">אין תיקיות עדיין — לחץ + להוספה</p>
+                  <p className="text-[11px] text-muted-foreground px-3 py-1 text-right">אין תיקיות עדיין — לחץ + להוספה</p>
                 )}
 
                 {/* Create new folder */}
@@ -372,14 +374,14 @@ const AppSidebar = () => {
         <Separator />
 
         {/* Footer - user info */}
-        <div className="px-3 py-3">
+        <div className="px-3 py-3" dir="rtl">
           {isLoading ? null : isAuthenticated ? (
             <div className="flex items-center gap-3 px-2">
               <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                <User className="w-4 h-4 text-primary" />
+                <User className="w-4 h-4 text-blue-900" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-foreground truncate">
+                <p className="text-sm font-medium text-foreground truncate text-right">
                   {displayName}
                 </p>
               </div>
@@ -402,7 +404,7 @@ const AppSidebar = () => {
               }}
               className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-primary hover:bg-primary/10 transition-colors w-full"
             >
-              <LogIn className="w-5 h-5" />
+              <LogIn className="w-5 h-5 text-blue-900" />
               <span>התחבר</span>
             </button>
           )}

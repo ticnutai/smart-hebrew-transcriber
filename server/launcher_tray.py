@@ -49,7 +49,7 @@ except ImportError:
 # ─── Config ─────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 WHISPER_SERVER_SCRIPT = PROJECT_ROOT / "server" / "transcribe_server.py"
-WHISPER_PORT = 8765
+WHISPER_PORT = 3000
 VITE_PORT = 8080
 LAUNCHER_PORT = 8764
 TASK_NAME = "SmartTranscriberLauncher"
@@ -679,10 +679,16 @@ def main():
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
 
-    # Do initial status check before creating icon
+    # Auto-boot essential services (CUDA + Ollama only)
+    # Vite and Cloudflare can be started manually from the tray menu
     global whisper_running, ollama_running, vite_running, cloudflare_running
     whisper_running, _ = check_whisper()
     ollama_running, _ = check_ollama()
+    if not whisper_running:
+        start_whisper()
+    if not ollama_running:
+        start_ollama()
+    # Just check status for Vite and Cloudflare (don't auto-start)
     vite_running = check_vite()
     cloudflare_running = check_cloudflare()
 

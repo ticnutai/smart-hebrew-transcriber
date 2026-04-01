@@ -26,7 +26,7 @@ import {
   FileAudio,
 } from "lucide-react";
 
-const SERVER_URL = localStorage.getItem('whisper_server_url') || "http://localhost:8765";
+const SERVER_URL = localStorage.getItem('whisper_server_url') || "http://localhost:3000";
 
 interface ScanResult {
   system: {
@@ -132,7 +132,7 @@ const Setup = () => {
         toast.success("השרת מחובר! / Server connected!");
         await runScan();
       }
-    }, 5000);
+    }, 3000);
 
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
@@ -210,7 +210,7 @@ const Setup = () => {
 
     try {
       // Check health first
-      const healthRes = await fetch(`${SERVER_URL}/health`, { signal: AbortSignal.timeout(5000) });
+      const healthRes = await fetch(`${SERVER_URL}/health`, { signal: AbortSignal.timeout(3000) });
       if (!healthRes.ok) throw new Error("Server not responding");
       const health = await healthRes.json();
 

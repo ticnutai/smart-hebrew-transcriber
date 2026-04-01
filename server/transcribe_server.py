@@ -6,7 +6,7 @@ Returns word-level timestamps for audio sync.
 
 Usage:
     python server/transcribe_server.py
-    python server/transcribe_server.py --port 8765 --model ivrit-ai/whisper-large-v3-turbo
+    python server/transcribe_server.py --port 3000 --model ivrit-ai/whisper-large-v3-turbo
 """
 
 import os
@@ -74,7 +74,7 @@ app = Flask(__name__)
 @app.after_request
 def _add_private_network_header(response):
     """Allow Chrome Private Network Access (PNA).
-    Required for HTTPS pages (Lovable preview) to reach localhost:8765.
+    Required for HTTPS pages (Lovable preview) to reach localhost:3000.
     Without this, Chrome 94+ blocks all requests from public sites to private networks.
     """
     response.headers["Access-Control-Allow-Private-Network"] = "true"
@@ -740,15 +740,24 @@ def setup_scan():
     disk_free_gb = round(disk.free / (1024**3), 1)
     disk_total_gb = round(disk.total / (1024**3), 1)
 
-    # CUDA info
-    cuda_available = False
+    # CUDA info — use CTranslate2 detection (same as get_device) since torch may be CPU-only
+    cuda_available = device == "cuda"
     cuda_version = None
     gpu_device_name = None
-    if _has_torch:
-        cuda_available = torch.cuda.is_available()
-        if cuda_available:
+    if cuda_available:
+        # Try torch first, then nvidia-smi for CUDA version
+        if _has_torch and torch.cuda.is_available():
             cuda_version = torch.version.cuda
             gpu_device_name = torch.cuda.get_device_name(0)
+        else:
+            try:
+                import subprocess as _sp
+                r = _sp.run(["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader"],
+                            capture_output=True, text=True, timeout=5)
+                if r.returncode == 0:
+                    cuda_version = f"NVIDIA Driver {r.stdout.strip()}"
+            except Exception:
+                cuda_version = "available (via CTranslate2)"
 
     # Package versions
     packages = {}
@@ -785,7 +794,7 @@ def setup_scan():
         },
         "server": {
             "uptime_seconds": int(time.time() - _server_start_time),
-            "port": int(os.environ.get("PORT", 8765)),
+            "port": int(os.environ.get("PORT", 3000)),
         },
     })
 
@@ -1984,7 +1993,7 @@ def _evict_stale_models():
 def main():
     global _api_key
     parser = argparse.ArgumentParser(description="Local Whisper Transcription Server")
-    parser.add_argument("--port", type=int, default=8765, help="Port to listen on")
+    parser.add_argument("--port", type=int, default=3000, help="Port to listen on")
     parser.add_argument("--model", type=str, default=DEFAULT_MODEL, help="Default model to preload")
     parser.add_argument("--no-preload", action="store_true", help="Don't preload the default model")
     parser.add_argument("--api-key", type=str, default=None, help="Require API key for requests (or set WHISPER_API_KEY env var)")

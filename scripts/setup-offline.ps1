@@ -14,7 +14,7 @@
     Skip downloading the Hebrew model (~3GB).
 
 .PARAMETER Port
-    Server port (default: 8765).
+    Server port (default: 3000).
 
 .PARAMETER CpuOnly
     Force CPU-only mode (skip CUDA/GPU).
@@ -23,7 +23,7 @@
 param(
     [switch]$Force,
     [switch]$SkipModel,
-    [int]$Port = 8765,
+    [int]$Port = 3000,
     [switch]$CpuOnly
 )
 

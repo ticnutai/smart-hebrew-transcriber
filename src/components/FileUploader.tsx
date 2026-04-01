@@ -127,6 +127,17 @@ export const FileUploader = ({
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
 
+  // Clear selectedFile when transcription ends (success or failure)
+  const prevLoadingRef = useRef(isLoading);
+  useEffect(() => {
+    if (prevLoadingRef.current && !isLoading) {
+      // Transcription just finished — reset file input and selected file
+      setSelectedFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+    prevLoadingRef.current = isLoading;
+  }, [isLoading]);
+
   // Batch state
   const [pendingBatchFiles, setPendingBatchFiles] = useState<File[]>([]);
   const [submittedJobIds, setSubmittedJobIds] = useState<Set<string>>(new Set());
@@ -157,10 +168,13 @@ export const FileUploader = ({
     if (file) {
       if (file.size > maxFileSizeMB * 1024 * 1024) {
         toast({ title: `הקובץ גדול מדי (${Math.round(file.size / 1024 / 1024)}MB)`, description: `הגבלה: ${maxFileSizeMB}MB`, variant: "destructive" });
+        e.target.value = '';
         return;
       }
       setSelectedFile(file);
       onFileSelect(file);
+      // Reset input value so the same file can be re-selected
+      e.target.value = '';
     }
   };
 

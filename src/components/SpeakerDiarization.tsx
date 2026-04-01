@@ -79,7 +79,7 @@ interface SpeakerDiarizationProps {
   serverUrl?: string;
 }
 
-export const SpeakerDiarization = ({ serverUrl = "http://localhost:8765" }: SpeakerDiarizationProps) => {
+export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000" }: SpeakerDiarizationProps) => {
   const [result, setResult] = useState<DiarizationResult | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [minGap, setMinGap] = useState(1.5);

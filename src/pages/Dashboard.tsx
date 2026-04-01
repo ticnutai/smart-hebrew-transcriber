@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCloudTranscripts } from "@/hooks/useCloudTranscripts";
@@ -9,8 +9,13 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   Mic, FileText, Settings, LogIn, BarChart3, Clock, Zap, 
-  FileEdit, Cloud, ArrowLeft, TrendingUp
+  FileEdit, Cloud, ArrowLeft, TrendingUp, Grid3X3, Table2, RectangleHorizontal, LayoutGrid
 } from "lucide-react";
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator
+} from "@/components/ui/dropdown-menu";
+
+type RecentViewMode = 'cards' | 'table' | 'rectangles' | 'grid';
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -29,6 +34,7 @@ const Dashboard = () => {
   }, [isLoading, transcripts.length, stats]);
 
   const recentTranscripts = transcripts.slice(0, 5);
+  const [recentViewMode, setRecentViewMode] = useState<RecentViewMode>('cards');
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -61,7 +67,7 @@ const Dashboard = () => {
               </Button>
             )}
             <Button variant="outline" size="icon" onClick={() => navigate("/settings")}>
-              <Settings className="h-4 w-4" />
+              <Settings className="h-4 w-4 text-blue-900" />
             </Button>
           </div>
         </div>
@@ -74,7 +80,7 @@ const Dashboard = () => {
           >
             <CardContent className="flex items-center gap-4 p-6">
               <div className="w-14 h-14 rounded-xl bg-primary/10 flex items-center justify-center">
-                <Mic className="w-7 h-7 text-primary" />
+                <Mic className="w-7 h-7 text-blue-900" />
               </div>
               <div className="flex-1">
                 <h3 className="font-bold text-lg">תמלול חדש</h3>
@@ -90,7 +96,7 @@ const Dashboard = () => {
           >
             <CardContent className="flex items-center gap-4 p-6">
               <div className="w-14 h-14 rounded-xl bg-accent/10 flex items-center justify-center">
-                <FileEdit className="w-7 h-7 text-accent" />
+                <FileEdit className="w-7 h-7 text-blue-900" />
               </div>
               <div className="flex-1">
                 <h3 className="font-bold text-lg">עריכת טקסט</h3>
@@ -106,7 +112,7 @@ const Dashboard = () => {
           >
             <CardContent className="flex items-center gap-4 p-6">
               <div className="w-14 h-14 rounded-xl bg-secondary flex items-center justify-center">
-                <Settings className="w-7 h-7 text-secondary-foreground" />
+                <Settings className="w-7 h-7 text-blue-900" />
               </div>
               <div className="flex-1">
                 <h3 className="font-bold text-lg">הגדרות</h3>
@@ -123,7 +129,7 @@ const Dashboard = () => {
             <Card>
               <CardContent className="p-4 text-center">
                 <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-2">
-                  <BarChart3 className="w-5 h-5 text-primary" />
+                  <BarChart3 className="w-5 h-5 text-blue-900" />
                 </div>
                 <p className="text-2xl font-bold">{stats.total}</p>
                 <p className="text-xs text-muted-foreground">סה״כ תמלולים</p>
@@ -132,7 +138,7 @@ const Dashboard = () => {
             <Card>
               <CardContent className="p-4 text-center">
                 <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center mx-auto mb-2">
-                  <FileText className="w-5 h-5 text-accent" />
+                  <FileText className="w-5 h-5 text-blue-900" />
                 </div>
                 <p className="text-2xl font-bold">{estimateWords(stats.totalChars).toLocaleString()}</p>
                 <p className="text-xs text-muted-foreground">מילים בסה״כ</p>
@@ -141,7 +147,7 @@ const Dashboard = () => {
             <Card>
               <CardContent className="p-4 text-center">
                 <div className="w-10 h-10 rounded-full bg-secondary flex items-center justify-center mx-auto mb-2">
-                  <Zap className="w-5 h-5 text-secondary-foreground" />
+                  <Zap className="w-5 h-5 text-blue-900" />
                 </div>
                 <p className="text-2xl font-bold">{stats.engines.length}</p>
                 <p className="text-xs text-muted-foreground">מנועים בשימוש</p>
@@ -150,7 +156,7 @@ const Dashboard = () => {
             <Card>
               <CardContent className="p-4 text-center">
                 <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-2">
-                  <Cloud className="w-5 h-5 text-primary" />
+                  <Cloud className="w-5 h-5 text-blue-900" />
                 </div>
                 <div className="text-2xl font-bold">
                   <Badge variant="secondary" className="text-xs">מסונכרן</Badge>
@@ -167,36 +173,97 @@ const Dashboard = () => {
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Clock className="w-5 h-5 text-primary" />
+                  <Clock className="w-5 h-5 text-blue-900" />
                   <CardTitle className="text-xl">תמלולים אחרונים</CardTitle>
                 </div>
-                <Button variant="ghost" size="sm" onClick={() => navigate("/transcribe")}>
-                  הצג הכל
-                </Button>
+                <div className="flex items-center gap-2">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="icon" className="h-8 w-8" title="תצוגה">
+                        {recentViewMode === 'cards' ? <LayoutGrid className="w-4 h-4" /> : recentViewMode === 'table' ? <Table2 className="w-4 h-4" /> : recentViewMode === 'rectangles' ? <RectangleHorizontal className="w-4 h-4" /> : <Grid3X3 className="w-4 h-4" />}
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent dir="rtl" align="start">
+                      <DropdownMenuLabel>תצוגה</DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem className={recentViewMode === 'cards' ? 'bg-accent' : ''} onClick={() => setRecentViewMode('cards')}>
+                        <LayoutGrid className="w-4 h-4 ml-2" />כרטיסיות
+                      </DropdownMenuItem>
+                      <DropdownMenuItem className={recentViewMode === 'table' ? 'bg-accent' : ''} onClick={() => setRecentViewMode('table')}>
+                        <Table2 className="w-4 h-4 ml-2" />טבלה
+                      </DropdownMenuItem>
+                      <DropdownMenuItem className={recentViewMode === 'rectangles' ? 'bg-accent' : ''} onClick={() => setRecentViewMode('rectangles')}>
+                        <RectangleHorizontal className="w-4 h-4 ml-2" />מלבנים
+                      </DropdownMenuItem>
+                      <DropdownMenuItem className={recentViewMode === 'grid' ? 'bg-accent' : ''} onClick={() => setRecentViewMode('grid')}>
+                        <Grid3X3 className="w-4 h-4 ml-2" />רשת
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <Button variant="ghost" size="sm" onClick={() => navigate("/transcribe")}>
+                    הצג הכל
+                  </Button>
+                </div>
               </div>
             </CardHeader>
-            <CardContent className="space-y-2">
-              {recentTranscripts.map((t) => (
-                <div
-                  key={t.id}
-                  className="flex items-center justify-between p-3 rounded-lg border hover:bg-accent/50 transition-colors cursor-pointer"
-                  onClick={() => navigate('/text-editor', { state: { text: t.edited_text || t.text, transcriptId: t.id, audioFilePath: t.audio_file_path } })}
-                >
-                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <FileText className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium truncate">{t.title || t.text.substring(0, 50)}</p>
-                      <p className="text-xs text-muted-foreground">{formatDate(t.created_at)}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="text-xs">{t.engine}</Badge>
-                    {t.tags && t.tags.length > 0 && (
-                      <Badge variant="secondary" className="text-xs">{t.tags.length} תגיות</Badge>
-                    )}
-                  </div>
+            <CardContent>
+              {recentViewMode === 'table' ? (
+                <div className="rounded-lg border overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/40">
+                      <tr>
+                        <th className="text-right px-3 py-2 font-medium">כותרת</th>
+                        <th className="text-right px-3 py-2 font-medium">מנוע</th>
+                        <th className="text-right px-3 py-2 font-medium">תאריך</th>
+                        <th className="text-right px-3 py-2 font-medium">תגיות</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {recentTranscripts.map((t) => (
+                        <tr
+                          key={t.id}
+                          className="border-t hover:bg-accent/30 cursor-pointer"
+                          onClick={() => navigate('/text-editor', { state: { text: t.edited_text || t.text, transcriptId: t.id, audioFilePath: t.audio_file_path } })}
+                        >
+                          <td className="px-3 py-2 text-right truncate max-w-[280px]">{t.title || t.text.substring(0, 50)}</td>
+                          <td className="px-3 py-2 text-right">{t.engine}</td>
+                          <td className="px-3 py-2 text-right">{formatDate(t.created_at)}</td>
+                          <td className="px-3 py-2 text-right">{t.tags?.length || 0}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              ))}
+              ) : (
+                <div className={recentViewMode === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 gap-2' : 'space-y-2'}>
+                  {recentTranscripts.map((t) => (
+                    <div
+                      key={t.id}
+                      className={`flex items-center justify-between rounded-lg border hover:bg-accent/50 transition-colors cursor-pointer ${
+                        recentViewMode === 'rectangles' ? 'p-2' : 'p-3'
+                      }`}
+                      onClick={() => navigate('/text-editor', { state: { text: t.edited_text || t.text, transcriptId: t.id, audioFilePath: t.audio_file_path } })}
+                    >
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <FileText className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium truncate">{t.title || t.text.substring(0, 50)}</p>
+                          <p className="text-xs text-muted-foreground">{formatDate(t.created_at)}</p>
+                          {recentViewMode !== 'rectangles' && (
+                            <p className="text-xs text-muted-foreground truncate mt-1">{(t.edited_text || t.text).substring(0, 90)}</p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="text-xs">{t.engine}</Badge>
+                        {t.tags && t.tags.length > 0 && (
+                          <Badge variant="secondary" className="text-xs">{t.tags.length} תגיות</Badge>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         )}

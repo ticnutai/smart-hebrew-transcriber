@@ -72,7 +72,7 @@ self.addEventListener('fetch', (event) => {
   // Network first, fallback to cache
   if (event.request.method !== 'GET') return;
 
-  // Skip cross-origin requests (e.g. local Python server on port 8765)
+  // Skip cross-origin requests (e.g. local Python server on port 3000)
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, lazy, Suspense, useCallback, type ChangeEvent } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { TranscriptionEngine } from "@/components/TranscriptionEngine";
 import { FileUploader } from "@/components/FileUploader";
 import { AudioRecorder } from "@/components/AudioRecorder";
@@ -49,6 +49,7 @@ type SourceLanguage = 'auto' | 'he' | 'yi' | 'en';
 
 const Index = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const folderFromUrl = searchParams.get('folder') || undefined;
   const { isAuthenticated } = useAuth();
@@ -148,6 +149,18 @@ const Index = () => {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Accept incoming file from other pages (e.g., VideoToMp3 converter)
+  useEffect(() => {
+    const incomingFile = (location.state as { file?: File } | null)?.file;
+    if (incomingFile && prefsLoaded && !isLoading) {
+      // Clear the state so it doesn't re-trigger on navigation
+      window.history.replaceState({}, document.title);
+      toast({ title: "📎 קובץ התקבל", description: incomingFile.name });
+      handleFileSelect(incomingFile);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state, prefsLoaded]);
 
   // Auto-process persistent queue when server comes up
   useEffect(() => {
@@ -1572,7 +1585,7 @@ const Index = () => {
               title={perfMonitor.enabled ? "מוניטור ביצועים פעיל — לחץ לכיבוי" : "הפעל מוניטור ביצועים"}
               className={perfMonitor.enabled ? "bg-purple-600 hover:bg-purple-700 text-white" : ""}
             >
-              <Activity className="h-4 w-4" />
+              <Activity className="h-4 w-4 text-blue-900" />
             </Button>
             <Button 
               variant="outline" 
@@ -1580,14 +1593,14 @@ const Index = () => {
               onClick={() => setShowHelp(true)}
               title="קיצורי מקלדת (?)"
             >
-              <Keyboard className="h-4 w-4" />
+              <Keyboard className="h-4 w-4 text-blue-900" />
             </Button>
             <Button 
               variant="outline" 
               size="icon"
               onClick={() => navigate("/settings")}
             >
-              <Settings className="h-4 w-4" />
+              <Settings className="h-4 w-4 text-blue-900" />
             </Button>
           </div>
         </div>
@@ -1600,7 +1613,7 @@ const Index = () => {
               value="edit"
               onClick={() => navigate('/text-editor')}
             >
-              <FileEdit className="w-4 h-4 ml-1" />
+              <FileEdit className="w-4 h-4 ml-1 text-blue-900" />
               עריכת טקסט
             </TabsTrigger>
           </TabsList>

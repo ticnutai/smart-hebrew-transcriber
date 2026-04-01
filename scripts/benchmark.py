@@ -1,7 +1,7 @@
 """Transcription benchmark - test 3 Hebrew audio files against the CUDA Whisper server."""
 import requests, time, os
 
-base = "http://localhost:8765"
+base = "http://localhost:3000"
 test_dir = os.path.join(os.environ["TEMP"], "transcribe_test")
 files = ["test_short.mp3", "test_medium.mp3", "test_long.mp3"]
 labels = ["קצר (~5s)", "בינוני (~15s)", "ארוך (~30s)"]

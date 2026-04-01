@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Check, Plus, Pencil, Trash2, Palette } from "lucide-react";
+import { Check, Plus, Pencil, Trash2, Palette, Copy } from "lucide-react";
 
 const DEFAULT_COLORS: ThemeColors = { ...BUILT_IN_THEMES[0].colors };
 
@@ -134,7 +134,13 @@ function ThemePreview({ theme, isActive, onClick }: { theme: AppTheme; isActive:
   );
 }
 
-function ThemeEditor({ initial, onSave, onCancel }: { initial?: AppTheme; onSave: (theme: AppTheme) => void; onCancel: () => void }) {
+function ThemeEditor({ initial, onSave, onDuplicate, onCancel, isBuiltIn }: {
+  initial?: AppTheme;
+  onSave: (theme: AppTheme) => void;
+  onDuplicate?: (theme: AppTheme) => void;
+  onCancel: () => void;
+  isBuiltIn?: boolean;
+}) {
   const [name, setName] = useState(initial?.nameHe || '');
   const [colors, setColors] = useState<ThemeColors>(initial?.colors || { ...DEFAULT_COLORS });
 
@@ -155,13 +161,28 @@ function ThemeEditor({ initial, onSave, onCancel }: { initial?: AppTheme; onSave
     return hslToHex(val);
   };
 
-  const handleSave = () => {
+  const handleOverwrite = () => {
     if (!name.trim()) {
       toast.error('יש להזין שם לערכת הנושא');
       return;
     }
     const id = initial?.id || `custom-${Date.now()}`;
     onSave({ id, name: name.trim(), nameHe: name.trim(), colors, isCustom: true });
+  };
+
+  const handleDuplicate = () => {
+    if (!name.trim()) {
+      toast.error('יש להזין שם לערכת הנושא');
+      return;
+    }
+    const newTheme: AppTheme = {
+      id: `custom-${Date.now()}`,
+      name: name.trim(),
+      nameHe: name.trim(),
+      colors,
+      isCustom: true,
+    };
+    (onDuplicate || onSave)(newTheme);
   };
 
   return (
@@ -210,8 +231,16 @@ function ThemeEditor({ initial, onSave, onCancel }: { initial?: AppTheme; onSave
       ))}
 
       <div className="flex gap-2 pt-2">
-        <Button onClick={handleSave} className="flex-1">שמור</Button>
-        <Button variant="outline" onClick={onCancel}>ביטול</Button>
+        {/* For custom themes: overwrite + duplicate. For built-in: duplicate only */}
+        {!isBuiltIn && (
+          <Button onClick={handleOverwrite} className="flex-1">
+            דרוס ושמור
+          </Button>
+        )}
+        <Button onClick={handleDuplicate} variant={isBuiltIn ? "default" : "outline"} className="flex-1">
+          {isBuiltIn ? 'שכפל ושמור' : 'שכפל כחדש'}
+        </Button>
+        <Button variant="ghost" onClick={onCancel}>ביטול</Button>
       </div>
     </div>
   );
@@ -222,6 +251,7 @@ export function ThemeManager() {
   const { updatePreferences } = useCloudPreferences();
   const [editingTheme, setEditingTheme] = useState<AppTheme | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [editingBuiltIn, setEditingBuiltIn] = useState<AppTheme | null>(null);
 
   const syncThemeToCloud = (themeId: string) => {
     const customJson = localStorage.getItem('app_custom_themes') || '[]';
@@ -232,10 +262,20 @@ export function ThemeManager() {
     saveCustomTheme(theme);
     setTheme(theme.id);
     setEditingTheme(null);
+    setEditingBuiltIn(null);
     setIsCreating(false);
-    // Sync to cloud after localStorage is updated by saveCustomTheme + setTheme
     setTimeout(() => syncThemeToCloud(theme.id), 0);
     toast.success(`ערכת הנושא "${theme.nameHe}" נשמרה!`);
+  };
+
+  const handleDuplicate = (theme: AppTheme) => {
+    saveCustomTheme(theme);
+    setTheme(theme.id);
+    setEditingTheme(null);
+    setEditingBuiltIn(null);
+    setIsCreating(false);
+    setTimeout(() => syncThemeToCloud(theme.id), 0);
+    toast.success(`ערכת הנושא "${theme.nameHe}" שוכפלה ונשמרה!`);
   };
 
   return (
@@ -259,7 +299,7 @@ export function ThemeManager() {
             <DialogHeader>
               <DialogTitle>יצירת ערכת נושא חדשה</DialogTitle>
             </DialogHeader>
-            <ThemeEditor onSave={handleSave} onCancel={() => setIsCreating(false)} />
+            <ThemeEditor onSave={handleSave} onDuplicate={handleDuplicate} onCancel={() => setIsCreating(false)} />
           </DialogContent>
         </Dialog>
       </div>
@@ -269,12 +309,34 @@ export function ThemeManager() {
         <h4 className="text-sm font-semibold text-muted-foreground">ערכות מובנות</h4>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           {BUILT_IN_THEMES.map(theme => (
-            <ThemePreview
-              key={theme.id}
-              theme={theme}
-              isActive={activeThemeId === theme.id}
-              onClick={() => { setTheme(theme.id); syncThemeToCloud(theme.id); }}
-            />
+            <div key={theme.id} className="relative group">
+              <ThemePreview
+                theme={theme}
+                isActive={activeThemeId === theme.id}
+                onClick={() => { setTheme(theme.id); syncThemeToCloud(theme.id); }}
+              />
+              <div className="absolute bottom-2 left-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <Dialog open={editingBuiltIn?.id === theme.id} onOpenChange={open => !open && setEditingBuiltIn(null)}>
+                  <DialogTrigger asChild>
+                    <Button size="icon" variant="ghost" className="h-6 w-6" onClick={e => { e.stopPropagation(); setEditingBuiltIn(theme); }}>
+                      <Pencil className="h-3 w-3" />
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-lg" dir="rtl">
+                    <DialogHeader>
+                      <DialogTitle>עריכת "{theme.nameHe}" — שכפול כערכה חדשה</DialogTitle>
+                    </DialogHeader>
+                    <ThemeEditor
+                      initial={{ ...theme, nameHe: `${theme.nameHe} (עותק)`, name: `${theme.name}-copy` }}
+                      onSave={handleDuplicate}
+                      onDuplicate={handleDuplicate}
+                      onCancel={() => setEditingBuiltIn(null)}
+                      isBuiltIn
+                    />
+                  </DialogContent>
+                </Dialog>
+              </div>
+            </div>
           ))}
         </div>
       </div>
@@ -302,7 +364,12 @@ export function ThemeManager() {
                       <DialogHeader>
                         <DialogTitle>עריכת ערכת נושא</DialogTitle>
                       </DialogHeader>
-                      <ThemeEditor initial={theme} onSave={handleSave} onCancel={() => setEditingTheme(null)} />
+                      <ThemeEditor
+                        initial={theme}
+                        onSave={handleSave}
+                        onDuplicate={handleDuplicate}
+                        onCancel={() => setEditingTheme(null)}
+                      />
                     </DialogContent>
                   </Dialog>
                   <Button
