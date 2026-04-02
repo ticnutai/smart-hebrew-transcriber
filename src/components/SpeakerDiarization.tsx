@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -141,9 +142,10 @@ interface SpeakerDiarizationProps {
   serverUrl?: string;
   initialAudioBlob?: Blob | null;
   initialAudioName?: string;
+  initialText?: string;
 }
 
-export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000", initialAudioBlob, initialAudioName }: SpeakerDiarizationProps) => {
+export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000", initialAudioBlob, initialAudioName, initialText }: SpeakerDiarizationProps) => {
   const [result, setResult] = useState<DiarizationResult | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [minGap, setMinGap] = useState(1.5);
@@ -177,6 +179,7 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000", initia
   const [isPlaying, setIsPlaying] = useState(false);
   const [volume, setVolume] = useState(1);
   const [showBgJobs, setShowBgJobs] = useState(false);
+  const [useTranscriptAssist, setUseTranscriptAssist] = useState(true);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounterRef = useRef(0);
@@ -235,6 +238,14 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000", initia
     setAudioUrl(url);
     setCurrentFileName(name);
   }, [initialAudioBlob, initialAudioName]);
+
+  // Auto-merge transcript after diarization completes when assist toggle is on
+  const autoMergeApplied = useRef(false);
+  useEffect(() => {
+    if (!result || !useTranscriptAssist || !initialText?.trim() || autoMergeApplied.current) return;
+    autoMergeApplied.current = true;
+    mergeWithTranscript(initialText);
+  }, [result, useTranscriptAssist, initialText]);
 
   const getSpeakerName = (originalLabel: string) => speakerNames[originalLabel] || originalLabel;
 
@@ -969,8 +980,21 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000", initia
               <span className="text-sm font-medium block">🎙️ אודיו מהתמלול נטען אוטומטית</span>
               <span className="text-xs text-muted-foreground">{currentFileName}</span>
             </div>
+            {initialText && (
+              <div className="flex items-center gap-2 mt-1" onClick={(e) => e.stopPropagation()}>
+                <Switch
+                  id="transcript-assist"
+                  checked={useTranscriptAssist}
+                  onCheckedChange={setUseTranscriptAssist}
+                />
+                <Label htmlFor="transcript-assist" className="text-xs cursor-pointer">
+                  שלב עם תמלול קיים ({initialText.length > 40 ? initialText.slice(0, 40) + '…' : initialText})
+                </Label>
+              </div>
+            )}
             <Button size="sm" className="gap-1.5 mt-1" onClick={(e) => {
               e.stopPropagation();
+              autoMergeApplied.current = false;
               if (preloadedFileRef.current) handleDiarize(preloadedFileRef.current);
             }}>
               <Users className="w-4 h-4" />

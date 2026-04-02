@@ -664,7 +664,7 @@ const TextEditor = () => {
 
           <TabsContent value="speakers" className="space-y-4">
             <LazyErrorBoundary label="זיהוי דוברים">
-              <SpeakerDiarization serverUrl="http://localhost:3000" initialAudioBlob={audioBlob} initialAudioName={audioFileName} />
+              <SpeakerDiarization serverUrl="http://localhost:3000" initialAudioBlob={audioBlob} initialAudioName={audioFileName} initialText={text} />
             </LazyErrorBoundary>
           </TabsContent>
 
