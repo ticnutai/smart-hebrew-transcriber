@@ -1,14 +1,22 @@
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, useEffect, useCallback } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
-import { Users, Upload, Loader2, Copy, Download, BarChart3, Clock, MessageSquare, Mic, Pencil, Check, X, Subtitles } from "lucide-react";
+import { Users, Upload, Loader2, Copy, Download, BarChart3, Clock, MessageSquare, Mic, Pencil, Check, X, Subtitles, Cloud, Server, Save, FolderOpen, Search, Merge, Globe, ArrowLeftRight, FileText, Play, Square, Pause, SkipBack, SkipForward, Volume2, Tag, RefreshCw, Zap } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+import { supabase } from "@/integrations/supabase/client";
+import { diarizeInBrowser, type DiarizationProgress } from "@/utils/browserDiarization";
+import { useCloudApiKeys } from "@/hooks/useCloudApiKeys";
+import { DiarizationCompare } from "@/components/DiarizationCompare";
+import { useDiarizationJobs } from "@/hooks/useDiarizationJobs";
 
 interface DiarizedSegment {
   text: string;
@@ -39,6 +47,15 @@ interface SpeakerStats {
   longestSegment: number;
 }
 
+interface SavedDiarization {
+  id: string;
+  file_name: string | null;
+  speaker_count: number;
+  duration: number;
+  engine: string | null;
+  created_at: string;
+}
+
 const SPEAKER_COLORS = [
   "bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700",
   "bg-green-100 dark:bg-green-900/30 border-green-300 dark:border-green-700",
@@ -64,16 +81,16 @@ const SPEAKER_BAR_COLORS = [
 
 const SPEAKER_ROLE_OPTIONS = [
   { value: '', label: 'ללא סיווג' },
-  { value: 'interviewer', label: 'מראיין' },
-  { value: 'interviewee', label: 'מרואיין' },
-  { value: 'host', label: 'מנחה' },
-  { value: 'guest', label: 'אורח' },
-  { value: 'moderator', label: 'מנהל דיון' },
-  { value: 'caller', label: 'מתקשר' },
-  { value: 'customer', label: 'לקוח' },
-  { value: 'agent', label: 'נציג שירות' },
-  { value: 'teacher', label: 'מרצה' },
-  { value: 'student', label: 'תלמיד' },
+  { value: 'interviewer', label: '🎤 מראיין' },
+  { value: 'interviewee', label: '🎯 מרואיין' },
+  { value: 'host', label: '🎙️ מנחה' },
+  { value: 'guest', label: '👤 אורח' },
+  { value: 'moderator', label: '⚖️ מנהל דיון' },
+  { value: 'caller', label: '📞 מתקשר' },
+  { value: 'customer', label: '🛒 לקוח' },
+  { value: 'agent', label: '💼 נציג שירות' },
+  { value: 'teacher', label: '📚 מרצה' },
+  { value: 'student', label: '🎓 תלמיד' },
 ];
 
 function formatTime(sec: number): string {
@@ -89,6 +106,36 @@ function formatDuration(sec: number): string {
   return s > 0 ? `${m} דק׳ ${s} שנ׳` : `${m} דק׳`;
 }
 
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function mergeConsecutiveSegments(segments: DiarizedSegment[]): DiarizedSegment[] {
+  if (segments.length === 0) return [];
+  const merged: DiarizedSegment[] = [{ ...segments[0] }];
+  for (let i = 1; i < segments.length; i++) {
+    const prev = merged[merged.length - 1];
+    const curr = segments[i];
+    if (curr.speaker_label === prev.speaker_label) {
+      prev.text = prev.text + " " + curr.text;
+      prev.end = curr.end;
+      if (prev.words && curr.words) prev.words = [...prev.words, ...curr.words];
+    } else {
+      merged.push({ ...curr });
+    }
+  }
+  return merged;
+}
+
+type DiarizationMode = 'local' | 'assemblyai' | 'deepgram' | 'openai' | 'browser' | 'whisperx';
+
 interface SpeakerDiarizationProps {
   serverUrl?: string;
 }
@@ -96,24 +143,78 @@ interface SpeakerDiarizationProps {
 export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000" }: SpeakerDiarizationProps) => {
   const [result, setResult] = useState<DiarizationResult | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
   const [minGap, setMinGap] = useState(1.5);
   const [hfToken, setHfToken] = useState("");
-  const [diarizationEngine, setDiarizationEngine] = useState<"auto" | "whisperx" | "pyannote" | "silence-gap">("auto");
+  const [pyannoteModel, setPyannoteModel] = useState<'3.1' | 'community-1'>('community-1');
   const [activeSpeakerFilter, setActiveSpeakerFilter] = useState<string | null>(null);
   const [speakerNames, setSpeakerNames] = useState<Record<string, string>>({});
   const [speakerRoles, setSpeakerRoles] = useState<Record<string, string>>({});
   const [editingSpeaker, setEditingSpeaker] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
+  const [mode, setMode] = useState<DiarizationMode>('browser');
+  const [cloudApiKey, setCloudApiKey] = useState("");
+  const [autoMerge, setAutoMerge] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [savedList, setSavedList] = useState<SavedDiarization[]>([]);
+  const [showSaved, setShowSaved] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [currentFileName, setCurrentFileName] = useState<string>("");
+  const [isDragging, setIsDragging] = useState(false);
+  const [browserProgress, setBrowserProgress] = useState<DiarizationProgress | null>(null);
+  const [expectedSpeakers, setExpectedSpeakers] = useState<number>(0);
+  const [compareEntries, setCompareEntries] = useState<Array<{ label: string; result: DiarizationResult }>>([]);
+  const [mergedText, setMergedText] = useState<string>("");
+  const [transcriptList, setTranscriptList] = useState<Array<{ id: string; title: string; text: string; created_at: string }>>([]);
+  const [isLoadingTranscripts, setIsLoadingTranscripts] = useState(false);
+  const [, setSelectedTranscriptId] = useState<string>("");
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [playingSegIdx, setPlayingSegIdx] = useState<number | null>(null);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [audioDuration, setAudioDuration] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [volume, setVolume] = useState(1);
+  const [showBgJobs, setShowBgJobs] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounterRef = useRef(0);
+  const timeUpdateRef = useRef<number>(0);
 
-  // Get display name for a speaker (custom name or original)
+  const { keys: cloudKeys, saveKeys: saveCloudKeys, isLoaded: keysLoaded } = useCloudApiKeys();
+  const { jobs: bgJobs, startBackgroundJob, retryJob } = useDiarizationJobs();
+
+  // Load API key from cloud when mode changes
+  useEffect(() => {
+    if (!keysLoaded) return;
+    if (mode === 'assemblyai') setCloudApiKey(cloudKeys.assemblyai_key);
+    else if (mode === 'deepgram') setCloudApiKey(cloudKeys.deepgram_key);
+    else if (mode === 'openai') setCloudApiKey(cloudKeys.openai_key);
+    else setCloudApiKey('');
+    if (cloudKeys.huggingface_key && !hfToken) setHfToken(cloudKeys.huggingface_key);
+  }, [mode, keysLoaded, cloudKeys]);
+
+  const saveApiKeyToCloud = useCallback((key: string) => {
+    if (!key.trim()) return;
+    if (mode === 'assemblyai') saveCloudKeys({ assemblyai_key: key });
+    else if (mode === 'deepgram') saveCloudKeys({ deepgram_key: key });
+    else if (mode === 'openai') saveCloudKeys({ openai_key: key });
+  }, [mode, saveCloudKeys]);
+
+  // Load saved diarizations list
+  const loadSavedList = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data } = await (supabase as any)
+      .from('diarization_results')
+      .select('id, file_name, speaker_count, duration, engine, created_at')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(20);
+    if (data) setSavedList(data as SavedDiarization[]);
+  }, []);
+
+  useEffect(() => { loadSavedList(); }, [loadSavedList]);
+
   const getSpeakerName = (originalLabel: string) => speakerNames[originalLabel] || originalLabel;
-  const getSpeakerRoleLabel = (speakerLabel: string) => {
-    const role = speakerRoles[speakerLabel] || '';
-    return SPEAKER_ROLE_OPTIONS.find(r => r.value === role)?.label || '';
-  };
 
   const startEditingSpeaker = (label: string) => {
     setEditingSpeaker(label);
@@ -123,109 +224,305 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000" }: Spea
   const saveSpeakerName = () => {
     if (!editingSpeaker) return;
     const trimmed = editingName.trim();
-    setSpeakerNames(prev => ({
-      ...prev,
-      [editingSpeaker]: trimmed || editingSpeaker,
-    }));
+    setSpeakerNames(prev => ({ ...prev, [editingSpeaker]: trimmed || editingSpeaker }));
     setEditingSpeaker(null);
     toast({ title: "שם דובר עודכן", description: `${editingSpeaker} → ${trimmed || editingSpeaker}` });
   };
 
   const setSpeakerRole = (speakerLabel: string, role: string) => {
     setSpeakerRoles(prev => ({ ...prev, [speakerLabel]: role }));
-    const roleText = SPEAKER_ROLE_OPTIONS.find(r => r.value === role)?.label || 'ללא סיווג';
-    toast({ title: "סיווג עודכן", description: `${getSpeakerName(speakerLabel)}: ${roleText}` });
+    toast({ title: "סיווג עודכן", description: `${getSpeakerName(speakerLabel)}: ${SPEAKER_ROLE_OPTIONS.find(r => r.value === role)?.label || 'ללא'}` });
   };
 
-  // Compute speaker statistics
+  // Save to DB
+  const saveToCloud = async () => {
+    if (!result) return;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { toast({ title: "יש להתחבר כדי לשמור", variant: "destructive" }); return; }
+    setIsSaving(true);
+    try {
+      const { error } = await (supabase as any).from('diarization_results').insert({
+        user_id: user.id,
+        file_name: currentFileName || null,
+        segments: result.segments,
+        speakers: result.speakers,
+        speaker_names: { ...speakerNames, __roles: speakerRoles },
+        speaker_count: result.speaker_count,
+        duration: result.duration,
+        processing_time: result.processing_time,
+        diarization_method: result.diarization_method,
+        engine: mode,
+      });
+      if (error) throw error;
+      toast({ title: "נשמר בהצלחה", description: "תוצאות זיהוי הדוברים נשמרו" });
+      loadSavedList();
+    } catch (err: unknown) {
+      toast({ title: "שגיאה בשמירה", description: err instanceof Error ? err.message : "Unknown", variant: "destructive" });
+    } finally { setIsSaving(false); }
+  };
+
+  // Load from DB
+  const loadFromCloud = async (id: string) => {
+    const { data, error } = await (supabase as any).from('diarization_results').select('*').eq('id', id).single();
+    if (error || !data) { toast({ title: "שגיאה בטעינה", variant: "destructive" }); return; }
+    const segments = (data.segments as unknown as DiarizedSegment[]) || [];
+    const speakers = (data.speakers as unknown as string[]) || [];
+    const names = (data.speaker_names as Record<string, string>) || {};
+    const roles = (names as any).__roles || {};
+    delete (names as any).__roles;
+    setResult({
+      text: segments.map(s => s.text).join(" "),
+      segments, speakers,
+      speaker_count: data.speaker_count,
+      duration: Number(data.duration),
+      processing_time: Number(data.processing_time) || 0,
+      diarization_method: data.diarization_method || "loaded",
+    });
+    setSpeakerNames(names);
+    setSpeakerRoles(roles);
+    setCurrentFileName(data.file_name || "");
+    setShowSaved(false);
+    toast({ title: "נטען בהצלחה", description: data.file_name || "תוצאות זיהוי דוברים" });
+  };
+
+  // Load result from background job
+  const loadFromJob = (job: any) => {
+    if (!job.result) return;
+    const r = job.result;
+    setResult({
+      text: r.text || r.segments?.map((s: any) => s.text).join(" ") || "",
+      segments: r.segments || [],
+      speakers: r.speakers || [],
+      speaker_count: r.speaker_count || 0,
+      duration: r.duration || 0,
+      processing_time: r.processing_time || 0,
+      diarization_method: r.diarization_method || "background",
+    });
+    setSpeakerRoles(job.speaker_roles || {});
+    setCurrentFileName(job.file_name || "");
+    setShowBgJobs(false);
+    toast({ title: "נטען מעבודת רקע", description: job.file_name || "" });
+  };
+
   const speakerStats = useMemo<SpeakerStats[]>(() => {
     if (!result) return [];
     const statsMap: Record<string, { totalTime: number; segmentCount: number; wordCount: number; longestSegment: number }> = {};
-    
     for (const seg of result.segments) {
       const key = seg.speaker_label;
-      if (!statsMap[key]) {
-        statsMap[key] = { totalTime: 0, segmentCount: 0, wordCount: 0, longestSegment: 0 };
-      }
+      if (!statsMap[key]) statsMap[key] = { totalTime: 0, segmentCount: 0, wordCount: 0, longestSegment: 0 };
       const segDuration = seg.end - seg.start;
       statsMap[key].totalTime += segDuration;
       statsMap[key].segmentCount += 1;
       statsMap[key].wordCount += seg.text.trim().split(/\s+/).filter(Boolean).length;
-      if (segDuration > statsMap[key].longestSegment) {
-        statsMap[key].longestSegment = segDuration;
-      }
+      if (segDuration > statsMap[key].longestSegment) statsMap[key].longestSegment = segDuration;
     }
-
     const totalSpeaking = Object.values(statsMap).reduce((sum, s) => sum + s.totalTime, 0);
-
     return result.speakers.map(sp => {
       const s = statsMap[sp] || { totalTime: 0, segmentCount: 0, wordCount: 0, longestSegment: 0 };
       return {
-        label: sp,
-        totalTime: s.totalTime,
+        label: sp, totalTime: s.totalTime,
         percentage: totalSpeaking > 0 ? (s.totalTime / totalSpeaking) * 100 : 0,
-        segmentCount: s.segmentCount,
-        wordCount: s.wordCount,
+        segmentCount: s.segmentCount, wordCount: s.wordCount,
         avgSegmentLength: s.segmentCount > 0 ? s.totalTime / s.segmentCount : 0,
         longestSegment: s.longestSegment,
       };
     }).sort((a, b) => b.totalTime - a.totalTime);
   }, [result]);
 
-  // Build speaker index for consistent colors
-  const speakerIndex: Record<string, number> = {};
-  if (result) {
-    result.speakers.forEach((sp, i) => {
-      speakerIndex[sp] = i;
-    });
-  }
+  const speakerIndex = useMemo<Record<string, number>>(() => {
+    const idx: Record<string, number> = {};
+    if (result) result.speakers.forEach((sp, i) => { idx[sp] = i; });
+    return idx;
+  }, [result]);
 
-  const filteredSegments = useMemo(() => {
+  const displaySegments = useMemo(() => {
     if (!result) return [];
-    if (!activeSpeakerFilter) return result.segments;
-    return result.segments.filter(s => s.speaker_label === activeSpeakerFilter);
-  }, [result, activeSpeakerFilter]);
+    let segs = result.segments;
+    if (autoMerge) segs = mergeConsecutiveSegments(segs);
+    if (activeSpeakerFilter) segs = segs.filter(s => s.speaker_label === activeSpeakerFilter);
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      segs = segs.filter(s => s.text.toLowerCase().includes(q));
+    }
+    return segs;
+  }, [result, activeSpeakerFilter, autoMerge, searchQuery]);
+
+  // ──── Advanced Audio Player ────
+  const setupAudio = useCallback((url: string) => {
+    if (audioRef.current) { audioRef.current.pause(); }
+    const audio = new Audio(url);
+    audio.volume = volume;
+    audioRef.current = audio;
+
+    audio.addEventListener('loadedmetadata', () => setAudioDuration(audio.duration));
+    audio.addEventListener('ended', () => { setIsPlaying(false); setPlayingSegIdx(null); });
+
+    const updateTime = () => {
+      timeUpdateRef.current = requestAnimationFrame(() => {
+        setCurrentTime(audio.currentTime);
+        if (!audio.paused) updateTime();
+      });
+    };
+    audio.addEventListener('play', () => { setIsPlaying(true); updateTime(); });
+    audio.addEventListener('pause', () => { setIsPlaying(false); cancelAnimationFrame(timeUpdateRef.current); });
+
+    return audio;
+  }, [volume]);
+
+  const togglePlayPause = useCallback(() => {
+    if (!audioRef.current) return;
+    if (audioRef.current.paused) audioRef.current.play();
+    else audioRef.current.pause();
+  }, []);
+
+  const seekTo = useCallback((time: number) => {
+    if (!audioRef.current) return;
+    audioRef.current.currentTime = time;
+    setCurrentTime(time);
+  }, []);
+
+  const skipBy = useCallback((sec: number) => {
+    if (!audioRef.current) return;
+    const t = Math.max(0, Math.min(audioRef.current.duration, audioRef.current.currentTime + sec));
+    audioRef.current.currentTime = t;
+    setCurrentTime(t);
+  }, []);
+
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.volume = volume;
+  }, [volume]);
+
+  // Cleanup audio on unmount
+  useEffect(() => () => {
+    if (audioRef.current) audioRef.current.pause();
+    cancelAnimationFrame(timeUpdateRef.current);
+  }, []);
+
+  // Find active segment based on current time
+  const activeSegIdx = useMemo(() => {
+    if (!result || !isPlaying) return -1;
+    return displaySegments.findIndex(s => currentTime >= s.start && currentTime <= s.end);
+  }, [result, currentTime, isPlaying, displaySegments]);
 
   const handleDiarize = async (file: File) => {
     setIsProcessing(true);
     setResult(null);
     setActiveSpeakerFilter(null);
+    setCurrentFileName(file.name);
+    setBrowserProgress(null);
+    setPlayingSegIdx(null);
+    setSpeakerRoles({});
+
+    const url = URL.createObjectURL(file);
+    setAudioUrl(url);
+    setupAudio(url);
 
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("min_gap", minGap.toString());
-      formData.append("diarization_engine", diarizationEngine);
-      if (hfToken.trim()) {
-        formData.append("hf_token", hfToken.trim());
+      if (mode === 'browser') {
+        const data = await diarizeInBrowser(file, (p) => setBrowserProgress(p), expectedSpeakers || undefined);
+        setResult({ text: data.segments.map(s => s.text).join(" "), ...data });
+        setBrowserProgress(null);
+        toast({ title: "זיהוי דוברים הושלם", description: `${data.speaker_count} דוברים זוהו (בדפדפן) — ${data.processing_time} שניות` });
+      } else if (mode === 'local' || mode === 'whisperx') {
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("min_gap", minGap.toString());
+        if (hfToken.trim()) formData.append("hf_token", hfToken.trim());
+        if (mode === 'local') {
+          formData.append("model", pyannoteModel === 'community-1' ? 'pyannote/speaker-diarization-community-1' : 'pyannote/speaker-diarization-3.1');
+        }
+        if (mode === 'whisperx') {
+          formData.append("use_whisperx", "1");
+          if (hfToken.trim()) {
+            formData.append("pyannote_model", pyannoteModel === 'community-1' ? 'pyannote/speaker-diarization-community-1' : 'pyannote/speaker-diarization-3.1');
+          }
+        }
+        let resp: Response;
+        try {
+          resp = await fetch(`${serverUrl}/diarize`, { method: "POST", body: formData });
+        } catch (fetchErr) {
+          throw new Error(`לא ניתן להתחבר לשרת המקומי (${serverUrl}). וודא שהשרת רץ או בחר מנוע ענן (AssemblyAI / Deepgram / OpenAI).`);
+        }
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({ error: "Server error" }));
+          throw new Error(err.error || `HTTP ${resp.status}`);
+        }
+        const data: DiarizationResult = await resp.json();
+        setResult(data);
+        toast({ title: "זיהוי דוברים הושלם", description: `${data.speaker_count} דוברים זוהו (${mode === 'whisperx' ? 'WhisperX' : 'מקומי'})` });
+      } else if (mode === 'openai') {
+        if (!cloudApiKey.trim()) throw new Error("נדרש מפתח API של OpenAI");
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("model", "whisper-1");
+        formData.append("language", "he");
+        formData.append("response_format", "verbose_json");
+        formData.append("timestamp_granularities[]", "segment");
+        formData.append("timestamp_granularities[]", "word");
+        const startTime = Date.now();
+        const resp = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${cloudApiKey.trim()}` },
+          body: formData,
+        });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({ error: "OpenAI error" }));
+          throw new Error(err.error?.message || `HTTP ${resp.status}`);
+        }
+        const data = await resp.json();
+        const processingTime = (Date.now() - startTime) / 1000;
+        const segments: DiarizedSegment[] = (data.segments || []).map((seg: any, i: number) => ({
+          text: seg.text?.trim() || "", start: seg.start || 0, end: seg.end || 0,
+          speaker: `Speaker ${i % 2 + 1}`, speaker_label: `דובר ${i % 2 + 1}`,
+          words: seg.words?.map((w: any) => ({ word: w.word, start: w.start, end: w.end, probability: 1 })),
+        }));
+        let currentSpeaker = 1;
+        for (let i = 1; i < segments.length; i++) {
+          const gap = segments[i].start - segments[i - 1].end;
+          if (gap > 1.5) currentSpeaker = currentSpeaker === 1 ? 2 : 1;
+          segments[i].speaker = `Speaker ${currentSpeaker}`;
+          segments[i].speaker_label = `דובר ${currentSpeaker}`;
+        }
+        const speakers = [...new Set(segments.map(s => s.speaker_label))];
+        setResult({
+          text: data.text || "", segments, speakers,
+          speaker_count: speakers.length,
+          duration: segments.length > 0 ? segments[segments.length - 1].end : data.duration || 0,
+          processing_time: Math.round(processingTime * 10) / 10,
+          diarization_method: "OpenAI Whisper + gap-detection",
+        });
+        toast({ title: "זיהוי דוברים הושלם", description: `${speakers.length} דוברים זוהו (OpenAI Whisper)` });
+      } else {
+        if (!cloudApiKey.trim()) throw new Error(`נדרש מפתח API של ${mode === 'assemblyai' ? 'AssemblyAI' : 'Deepgram'}`);
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("engine", mode);
+        formData.append("apiKey", cloudApiKey.trim());
+        formData.append("language", "he");
+        const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
+        const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+        const fnUrl = `https://${projectId}.supabase.co/functions/v1/diarize-cloud`;
+        const resp = await fetch(fnUrl, { method: "POST", headers: { apikey: anonKey }, body: formData });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({ error: "Cloud error" }));
+          throw new Error(err.error || `HTTP ${resp.status}`);
+        }
+        const data: DiarizationResult = await resp.json();
+        setResult(data);
+        toast({ title: "זיהוי דוברים הושלם", description: `${data.speaker_count} דוברים זוהו ב-${data.processing_time} שניות` });
       }
-
-      const resp = await fetch(`${serverUrl}/diarize`, {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({ error: "Server error" }));
-        throw new Error(err.error || `HTTP ${resp.status}`);
-      }
-
-      const data: DiarizationResult = await resp.json();
-      setResult(data);
-      toast({
-        title: "זיהוי דוברים הושלם",
-        description: `${data.speaker_count} דוברים זוהו ב-${data.processing_time} שניות (${data.diarization_method})`,
-      });
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      toast({
-        title: "שגיאה בזיהוי דוברים",
-        description: message,
-        variant: "destructive",
-      });
-    } finally {
-      setIsProcessing(false);
+      toast({ title: "שגיאה בזיהוי דוברים", description: err instanceof Error ? err.message : "Unknown error", variant: "destructive" });
+    } finally { setIsProcessing(false); }
+  };
+
+  const handleBackgroundDiarize = async (file: File) => {
+    if (mode !== 'assemblyai' && mode !== 'deepgram') {
+      toast({ title: "עיבוד ברקע נתמך רק ב-AssemblyAI ו-Deepgram", variant: "destructive" });
+      return;
     }
+    await startBackgroundJob(file, mode);
+    setShowBgJobs(true);
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -234,340 +531,534 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000" }: Spea
     e.target.value = "";
   };
 
-  const handleDragEnter = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dragCounterRef.current += 1;
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dragCounterRef.current -= 1;
-    if (dragCounterRef.current <= 0) {
-      dragCounterRef.current = 0;
-      setIsDragging(false);
-    }
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-  };
-
+  const handleDragEnter = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); dragCounterRef.current++; setIsDragging(true); };
+  const handleDragLeave = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); dragCounterRef.current--; if (dragCounterRef.current === 0) setIsDragging(false); };
+  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); };
   const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-    dragCounterRef.current = 0;
-
+    e.preventDefault(); e.stopPropagation(); setIsDragging(false); dragCounterRef.current = 0;
     const file = e.dataTransfer.files?.[0];
-    if (!file) return;
-
-    if (!(file.type.startsWith('audio/') || file.type.startsWith('video/'))) {
-      toast({
-        title: "סוג קובץ לא נתמך",
-        description: "יש להעלות קובץ אודיו או וידאו",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    handleDiarize(file);
+    if (file && (file.type.startsWith('audio/') || file.type.startsWith('video/'))) handleDiarize(file);
+    else if (file) toast({ title: "סוג קובץ לא נתמך", description: "יש להעלות קובץ אודיו או וידאו", variant: "destructive" });
   };
 
   const copyAsText = () => {
     if (!result) return;
-    const text = result.segments
-      .map(s => {
-        const roleLabel = getSpeakerRoleLabel(s.speaker_label);
-        const roleSuffix = roleLabel ? ` (${roleLabel})` : '';
-        return `[${getSpeakerName(s.speaker_label)}${roleSuffix}] (${formatTime(s.start)}) ${s.text}`;
-      })
-      .join("\n");
+    const segs = autoMerge ? mergeConsecutiveSegments(result.segments) : result.segments;
+    const text = segs.map(s => {
+      const role = speakerRoles[s.speaker_label];
+      const roleStr = role ? ` (${SPEAKER_ROLE_OPTIONS.find(r => r.value === role)?.label || role})` : '';
+      return `[${getSpeakerName(s.speaker_label)}${roleStr}] (${formatTime(s.start)}) ${s.text}`;
+    }).join("\n");
     navigator.clipboard.writeText(text);
     toast({ title: "הועתק", description: "התמלול עם דוברים הועתק ללוח" });
   };
 
   const downloadAsText = () => {
     if (!result) return;
+    const segs = autoMerge ? mergeConsecutiveSegments(result.segments) : result.segments;
     const header = `זיהוי דוברים — ${result.speaker_count} דוברים | ${formatTime(result.duration)} | ${result.diarization_method}\n`;
-    const statsSection = speakerStats.map(s =>
-      `${getSpeakerName(s.label)}${getSpeakerRoleLabel(s.label) ? ` [${getSpeakerRoleLabel(s.label)}]` : ''}: ${formatDuration(s.totalTime)} (${Math.round(s.percentage)}%) | ${s.wordCount} מילים | ${s.segmentCount} קטעים`
-    ).join("\n");
+    const statsSection = speakerStats.map(s => {
+      const role = speakerRoles[s.label];
+      const roleStr = role ? ` [${SPEAKER_ROLE_OPTIONS.find(r => r.value === role)?.label || role}]` : '';
+      return `${getSpeakerName(s.label)}${roleStr}: ${formatDuration(s.totalTime)} (${Math.round(s.percentage)}%) | ${s.wordCount} מילים | ${s.segmentCount} קטעים`;
+    }).join("\n");
     const separator = "\n" + "─".repeat(50) + "\n\n";
-    const segments = result.segments
-      .map(s => `[${getSpeakerName(s.speaker_label)}] (${formatTime(s.start)}-${formatTime(s.end)}) ${s.text}`)
-      .join("\n");
-    
-    const fullText = header + "\n" + statsSection + separator + segments;
-    const blob = new Blob([fullText], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `diarization-${Date.now()}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    const segments = segs.map(s => `[${getSpeakerName(s.speaker_label)}] (${formatTime(s.start)}-${formatTime(s.end)}) ${s.text}`).join("\n");
+    downloadBlob(new Blob([header + "\n" + statsSection + separator + segments], { type: "text/plain;charset=utf-8" }), `diarization-${Date.now()}.txt`);
   };
 
   const downloadAsSrt = () => {
     if (!result) return;
+    const segs = autoMerge ? mergeConsecutiveSegments(result.segments) : result.segments;
     const pad = (n: number) => n.toString().padStart(2, "0");
     const formatSrt = (sec: number) => {
-      const h = Math.floor(sec / 3600);
-      const m = Math.floor((sec % 3600) / 60);
-      const s = Math.floor(sec % 60);
-      const ms = Math.round((sec % 1) * 1000);
+      const h = Math.floor(sec / 3600); const m = Math.floor((sec % 3600) / 60);
+      const s = Math.floor(sec % 60); const ms = Math.round((sec % 1) * 1000);
       return `${pad(h)}:${pad(m)}:${pad(s)},${ms.toString().padStart(3, "0")}`;
     };
-    const srt = result.segments.map((seg, i) => {
-      const roleLabel = getSpeakerRoleLabel(seg.speaker_label);
-      const roleSuffix = roleLabel ? ` (${roleLabel})` : '';
-      return `${i + 1}\n${formatSrt(seg.start)} --> ${formatSrt(seg.end)}\n[${getSpeakerName(seg.speaker_label)}${roleSuffix}] ${seg.text}`;
-    }).join("\n\n");
-    const blob = new Blob(["\uFEFF" + srt], { type: "text/srt;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `diarization-${Date.now()}.srt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    const srt = segs.map((seg, i) => `${i + 1}\n${formatSrt(seg.start)} --> ${formatSrt(seg.end)}\n[${getSpeakerName(seg.speaker_label)}] ${seg.text}`).join("\n\n");
+    downloadBlob(new Blob(["\uFEFF" + srt], { type: "text/srt;charset=utf-8" }), `diarization-${Date.now()}.srt`);
   };
 
+  const loadTranscriptsForMerge = useCallback(async () => {
+    setIsLoadingTranscripts(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase.from('transcripts').select('id, title, text, created_at').eq('user_id', user.id).order('created_at', { ascending: false }).limit(50);
+      if (data) setTranscriptList(data.map(t => ({ id: t.id, title: t.title || '', text: t.text, created_at: t.created_at })));
+    } finally { setIsLoadingTranscripts(false); }
+  }, []);
+
+  const mergeWithTranscript = (transcriptText: string) => {
+    if (!result || !result.segments.length) return;
+    const segs = autoMerge ? mergeConsecutiveSegments(result.segments) : result.segments;
+    const sentences = transcriptText.split(/(?<=[.!?،؟\n])\s*/).filter(s => s.trim());
+    if (sentences.length === 0) {
+      setMergedText(segs.map(s => `[${getSpeakerName(s.speaker_label)}]\n${s.text}`).join("\n\n"));
+      return;
+    }
+    const totalDuration = segs.reduce((sum, s) => sum + (s.end - s.start), 0);
+    const merged: string[] = [];
+    let sentenceIdx = 0;
+    for (const seg of segs) {
+      const segDuration = seg.end - seg.start;
+      const segProportion = totalDuration > 0 ? segDuration / totalDuration : 1 / segs.length;
+      const sentencesForSeg = Math.max(1, Math.round(sentences.length * segProportion));
+      const segSentences: string[] = [];
+      for (let j = 0; j < sentencesForSeg && sentenceIdx < sentences.length; j++) {
+        segSentences.push(sentences[sentenceIdx]); sentenceIdx++;
+      }
+      if (seg === segs[segs.length - 1]) {
+        while (sentenceIdx < sentences.length) { segSentences.push(sentences[sentenceIdx]); sentenceIdx++; }
+      }
+      const text = segSentences.length > 0 ? segSentences.join(" ") : seg.text;
+      merged.push(`[${getSpeakerName(seg.speaker_label)}] (${formatTime(seg.start)}-${formatTime(seg.end)})\n${text}`);
+    }
+    setMergedText(merged.join("\n\n"));
+    toast({ title: "שולב בהצלחה", description: "הטקסט חולק לפי דוברים" });
+  };
+
+  const highlightText = (text: string) => {
+    if (!searchQuery.trim()) return text;
+    const q = searchQuery.trim();
+    const regex = new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    const parts = text.split(regex);
+    return parts.map((part, i) => regex.test(part) ? <mark key={i} className="bg-yellow-300 dark:bg-yellow-700 rounded px-0.5">{part}</mark> : part);
+  };
+
+  const playSegment = useCallback((segIdx: number, start: number, end: number) => {
+    if (!audioUrl) return;
+    if (playingSegIdx === segIdx && audioRef.current && !audioRef.current.paused) {
+      audioRef.current.pause();
+      setPlayingSegIdx(null);
+      return;
+    }
+    if (!audioRef.current || audioRef.current.src !== audioUrl) {
+      setupAudio(audioUrl);
+    }
+    const audio = audioRef.current!;
+    audio.currentTime = start;
+    setPlayingSegIdx(segIdx);
+    const onTimeUpdate = () => {
+      if (audio.currentTime >= end) {
+        audio.pause(); setPlayingSegIdx(null);
+        audio.removeEventListener('timeupdate', onTimeUpdate);
+      }
+    };
+    audio.onended = () => setPlayingSegIdx(null);
+    audio.addEventListener('timeupdate', onTimeUpdate);
+    audio.play().catch(() => setPlayingSegIdx(null));
+  }, [audioUrl, playingSegIdx, setupAudio]);
+
+  const pendingBgJobs = bgJobs.filter(j => j.status === 'pending' || j.status === 'processing');
+
   return (
-    <Card className="p-6" dir="rtl">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-semibold flex items-center gap-2">
-          <Users className="w-5 h-5" />
-          זיהוי דוברים
-        </h2>
-        {result && (
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={copyAsText}>
-              <Copy className="w-4 h-4 ml-1" />
-              העתק
-            </Button>
-            <Button variant="outline" size="sm" onClick={downloadAsText}>
-              <Download className="w-4 h-4 ml-1" />
-              TXT
-            </Button>
-            <Button variant="outline" size="sm" onClick={downloadAsSrt}>
-              <Subtitles className="w-4 h-4 ml-1" />
-              SRT
-            </Button>
+    <Card className="p-4 sm:p-6 shadow-lg border-0 bg-card/95 backdrop-blur-sm" dir="rtl">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-5 gap-3">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+            <Users className="w-5 h-5 text-primary" />
+          </div>
+          <div>
+            <h2 className="text-lg sm:text-xl font-bold">זיהוי דוברים</h2>
+            <p className="text-xs text-muted-foreground">ניתוח וזיהוי דוברים בקבצי אודיו</p>
+          </div>
+        </div>
+        <div className="flex gap-1.5 flex-wrap">
+          {result && (
+            <>
+              <TooltipProvider>
+                <Tooltip><TooltipTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-8 text-xs px-2" onClick={saveToCloud} disabled={isSaving}>
+                    <Save className="w-3.5 h-3.5" />{isSaving ? "..." : "שמור"}
+                  </Button>
+                </TooltipTrigger><TooltipContent>שמור תוצאות לענן</TooltipContent></Tooltip>
+                <Tooltip><TooltipTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-8 text-xs px-2" onClick={copyAsText}>
+                    <Copy className="w-3.5 h-3.5" />
+                  </Button>
+                </TooltipTrigger><TooltipContent>העתק ללוח</TooltipContent></Tooltip>
+                <Tooltip><TooltipTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-8 text-xs px-2" onClick={downloadAsText}>
+                    <Download className="w-3.5 h-3.5" />
+                  </Button>
+                </TooltipTrigger><TooltipContent>הורד כטקסט</TooltipContent></Tooltip>
+                <Tooltip><TooltipTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-8 text-xs px-2" onClick={downloadAsSrt}>
+                    <Subtitles className="w-3.5 h-3.5" />
+                  </Button>
+                </TooltipTrigger><TooltipContent>הורד כ-SRT</TooltipContent></Tooltip>
+              </TooltipProvider>
+              <Button variant="outline" size="sm" className="h-8 text-xs px-2"
+                onClick={() => {
+                  if (!result) return;
+                  const modeLabels: Record<string, string> = { browser: 'דפדפן', whisperx: 'WhisperX', assemblyai: 'AssemblyAI', deepgram: 'Deepgram', openai: 'OpenAI', local: 'מקומי' };
+                  const label = modeLabels[mode] || mode;
+                  if (compareEntries.some(e => e.label === label)) setCompareEntries(prev => prev.map(e => e.label === label ? { ...e, result } : e));
+                  else setCompareEntries(prev => [...prev, { label, result }]);
+                  toast({ title: "נוסף להשוואה", description: `${label} — ${result.speaker_count} דוברים` });
+                }}>
+                <ArrowLeftRight className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">השוואה</span> ({compareEntries.length})
+              </Button>
+            </>
+          )}
+          <Button variant="outline" size="sm" className="h-8 text-xs px-2" onClick={() => { setShowSaved(!showSaved); if (!showSaved) loadSavedList(); }}>
+            <FolderOpen className="w-3.5 h-3.5" />{showSaved ? "הסתר" : "שמורים"}
+          </Button>
+          {/* Background jobs badge */}
+          <Button
+            variant={showBgJobs ? "default" : "outline"}
+            size="sm"
+            className="h-8 text-xs px-2 relative"
+            onClick={() => setShowBgJobs(!showBgJobs)}
+          >
+            <Zap className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">רקע</span>
+            {pendingBgJobs.length > 0 && (
+              <span className="absolute -top-1 -left-1 w-4 h-4 rounded-full bg-primary text-primary-foreground text-[10px] flex items-center justify-center animate-pulse">
+                {pendingBgJobs.length}
+              </span>
+            )}
+          </Button>
+        </div>
+      </div>
+
+      {/* Background Jobs Panel */}
+      {showBgJobs && (
+        <div className="mb-4 border rounded-xl p-3 space-y-2 bg-muted/20 max-h-[250px] overflow-y-auto">
+          <div className="flex items-center justify-between">
+            <Label className="text-sm font-semibold flex items-center gap-1.5">
+              <Zap className="w-4 h-4 text-primary" />
+              עבודות רקע
+            </Label>
+            {pendingBgJobs.length > 0 && (
+              <Badge variant="secondary" className="text-[10px]">
+                {pendingBgJobs.length} בעיבוד
+              </Badge>
+            )}
+          </div>
+          {bgJobs.length === 0 ? (
+            <p className="text-xs text-muted-foreground py-2 text-center">אין עבודות רקע עדיין</p>
+          ) : bgJobs.slice(0, 10).map(job => (
+            <div key={job.id} className="p-2.5 rounded-lg border bg-card text-sm">
+              <div className="flex items-center justify-between mb-1">
+                <span className="font-medium text-xs truncate max-w-[60%]">{job.file_name || "ללא שם"}</span>
+                <div className="flex items-center gap-1.5">
+                  {job.status === 'completed' && (
+                    <Button variant="ghost" size="sm" className="h-6 text-[10px] px-1.5" onClick={() => loadFromJob(job)}>
+                      טען תוצאות
+                    </Button>
+                  )}
+                  {job.status === 'error' && (
+                    <Button variant="ghost" size="sm" className="h-6 text-[10px] px-1.5" onClick={() => retryJob(job.id)}>
+                      <RefreshCw className="w-3 h-3" />נסה שוב
+                    </Button>
+                  )}
+                  <Badge variant={job.status === 'completed' ? 'default' : job.status === 'error' ? 'destructive' : 'secondary'} className="text-[10px]">
+                    {job.status === 'pending' ? '⏳ ממתין' : job.status === 'processing' ? '🔄 מעבד' : job.status === 'completed' ? '✅ הושלם' : '❌ שגיאה'}
+                  </Badge>
+                </div>
+              </div>
+              {(job.status === 'pending' || job.status === 'processing') && (
+                <Progress value={job.progress} className="h-1.5" />
+              )}
+              {job.status === 'error' && job.error_message && (
+                <p className="text-[10px] text-destructive mt-1 truncate">{job.error_message}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Saved results list */}
+      {showSaved && (
+        <div className="mb-4 border rounded-xl p-3 space-y-2 bg-muted/20 max-h-[200px] overflow-y-auto">
+          <Label className="text-sm font-semibold">תוצאות שמורות</Label>
+          {savedList.length === 0 ? (
+            <p className="text-xs text-muted-foreground">אין תוצאות שמורות</p>
+          ) : savedList.map(item => (
+            <button key={item.id} className="w-full text-right p-2.5 rounded-lg border hover:bg-muted/50 transition-colors text-sm flex justify-between items-center" onClick={() => loadFromCloud(item.id)}>
+              <div>
+                <span className="font-medium">{item.file_name || "ללא שם"}</span>
+                <span className="text-xs text-muted-foreground mr-2">{item.speaker_count} דוברים · {formatDuration(item.duration)}</span>
+              </div>
+              <span className="text-xs text-muted-foreground">{new Date(item.created_at).toLocaleDateString("he-IL")}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Settings */}
+      <div className="space-y-3 mb-4">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
+          <Label className="text-sm whitespace-nowrap font-medium">מקור זיהוי</Label>
+          <div className="flex gap-1 flex-wrap w-full sm:flex-1">
+            {([
+              { value: 'browser' as DiarizationMode, label: 'דפדפן', icon: Globe },
+              { value: 'whisperx' as DiarizationMode, label: 'WhisperX', icon: Mic },
+              { value: 'assemblyai' as DiarizationMode, label: 'AssemblyAI', icon: Cloud },
+              { value: 'deepgram' as DiarizationMode, label: 'Deepgram', icon: Cloud },
+              { value: 'openai' as DiarizationMode, label: 'OpenAI', icon: Cloud },
+              { value: 'local' as DiarizationMode, label: 'מקומי', icon: Server },
+            ]).map(opt => (
+              <Button key={opt.value} variant={mode === opt.value ? "default" : "outline"} size="sm"
+                className="text-xs gap-1 flex-1 min-w-0 px-2" onClick={() => setMode(opt.value)}>
+                <opt.icon className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">{opt.label}</span>
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        {mode === 'browser' && (
+          <div className="text-xs text-muted-foreground bg-muted/30 rounded-lg p-2.5 flex items-start gap-2">
+            <Globe className="w-4 h-4 mt-0.5 shrink-0 text-primary" />
+            <span>זיהוי דוברים בדפדפן — חינמי לחלוטין, עובד אופליין ובמובייל. מבוסס ניתוח MFCC של חתימות קוליות.</span>
+          </div>
+        )}
+
+        {mode === 'whisperx' && (
+          <div className="text-xs text-muted-foreground bg-muted/30 rounded-lg p-2.5 flex items-start gap-2">
+            <Mic className="w-4 h-4 mt-0.5 shrink-0 text-primary" />
+            <span>WhisperX — תמלול + יישור מילים מדויק + זיהוי דוברים באיכות גבוהה. דורש שרת מקומי עם <code className="bg-muted px-1 rounded">pip install whisperx</code>.</span>
+          </div>
+        )}
+
+        {mode !== 'local' && mode !== 'browser' && mode !== 'whisperx' && (
+          <div className="flex items-center gap-4">
+            <Label className="text-sm whitespace-nowrap min-w-[100px]">
+              מפתח {mode === 'assemblyai' ? 'AssemblyAI' : mode === 'deepgram' ? 'Deepgram' : 'OpenAI'}
+            </Label>
+            <Input value={cloudApiKey} onChange={e => setCloudApiKey(e.target.value)} onBlur={() => saveApiKeyToCloud(cloudApiKey)}
+              type="password" placeholder="הזן מפתח API (נשמר אוטומטית בענן)" className="flex-1 text-sm" />
+          </div>
+        )}
+
+        {(mode === 'browser' || mode === 'assemblyai' || mode === 'deepgram') && (
+          <div className="flex items-center gap-2">
+            <Label className="text-sm whitespace-nowrap min-w-[100px]">מספר דוברים</Label>
+            <div className="flex gap-1 flex-wrap">
+              {[0, 2, 3, 4, 5, 6].map(n => (
+                <Button key={n} variant={expectedSpeakers === n ? "default" : "outline"} size="sm" className="text-xs min-w-[40px]" onClick={() => setExpectedSpeakers(n)}>
+                  {n === 0 ? "אוטומטי" : n}
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {(mode === 'local' || mode === 'whisperx') && (
+          <>
+            <div className="flex items-center gap-4">
+              <Label className="text-sm whitespace-nowrap min-w-[100px]">שקט מינימלי</Label>
+              <Slider value={[minGap]} onValueChange={([v]) => setMinGap(v)} min={0.5} max={5} step={0.5} className="flex-1" />
+              <span className="text-sm text-muted-foreground w-8">{minGap}</span>
+            </div>
+            <div className="flex items-center gap-4">
+              <Label className="text-sm whitespace-nowrap min-w-[100px]">מודל pyannote</Label>
+              <div className="flex gap-1 flex-1">
+                <Button variant={pyannoteModel === 'community-1' ? 'default' : 'outline'} size="sm" className="text-xs flex-1" onClick={() => setPyannoteModel('community-1')}>Community-1 🆕</Button>
+                <Button variant={pyannoteModel === '3.1' ? 'default' : 'outline'} size="sm" className="text-xs flex-1" onClick={() => setPyannoteModel('3.1')}>v3.1 (קלאסי)</Button>
+              </div>
+            </div>
+            <div className="flex items-center gap-4">
+              <Label className="text-sm whitespace-nowrap min-w-[100px]">HuggingFace Token</Label>
+              <Input value={hfToken} onChange={e => setHfToken(e.target.value)} onBlur={() => { if (hfToken.trim()) saveCloudKeys({ huggingface_key: hfToken.trim() }); }}
+                type="password" placeholder="hf_... (נשמר אוטומטית בענן)" className="flex-1 text-sm" />
+            </div>
+          </>
+        )}
+
+        <div className="flex items-center gap-2">
+          <Label className="text-sm whitespace-nowrap min-w-[100px]">מיזוג אוטומטי</Label>
+          <Button variant={autoMerge ? "default" : "outline"} size="sm" className="text-xs gap-1" onClick={() => setAutoMerge(!autoMerge)}>
+            <Merge className="w-3.5 h-3.5" />{autoMerge ? "פעיל — קטעים רצופים ממוזגים" : "כבוי"}
+          </Button>
+        </div>
+      </div>
+
+      {/* Drop zone */}
+      <input ref={fileInputRef} type="file" accept="audio/*,video/*" onChange={handleFileSelect} className="hidden" />
+      <div
+        onDragEnter={handleDragEnter} onDragLeave={handleDragLeave} onDragOver={handleDragOver} onDrop={handleDrop}
+        className={`w-full mb-4 border-2 border-dashed rounded-xl p-6 text-center transition-all duration-200 ${
+          isDragging ? "border-primary bg-primary/10 scale-[1.02]" : "border-border hover:border-primary/50 hover:bg-muted/30"
+        } ${isProcessing ? "opacity-60 pointer-events-none" : "cursor-pointer"}`}
+        onClick={() => !isProcessing && fileInputRef.current?.click()}
+      >
+        {isProcessing ? (
+          <div className="flex flex-col items-center gap-2 w-full max-w-xs mx-auto">
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            <span className="text-sm font-medium">{browserProgress ? browserProgress.stage : "מזהה דוברים..."}</span>
+            {browserProgress && <Progress value={browserProgress.percent} className="w-full h-2" />}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center">
+              <Upload className={`w-7 h-7 transition-colors ${isDragging ? "text-primary" : "text-muted-foreground"}`} />
+            </div>
+            <div>
+              <span className="text-sm font-medium block">{isDragging ? "שחרר כאן את הקובץ" : "גרור קובץ אודיו לכאן או לחץ לבחירה"}</span>
+              <span className="text-xs text-muted-foreground">MP3, WAV, M4A, MP4 ועוד</span>
+            </div>
+            {/* Background processing button for cloud engines */}
+            {(mode === 'assemblyai' || mode === 'deepgram') && (
+              <Button variant="outline" size="sm" className="text-xs gap-1 mt-1" onClick={e => {
+                e.stopPropagation();
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = 'audio/*,video/*';
+                input.onchange = (ev: any) => { const f = ev.target.files?.[0]; if (f) handleBackgroundDiarize(f); };
+                input.click();
+              }}>
+                <Zap className="w-3.5 h-3.5" />
+                שלח לעיבוד ברקע
+              </Button>
+            )}
           </div>
         )}
       </div>
 
-      {/* Settings */}
-      <div className="space-y-3 mb-4">
-        <div className="flex items-center gap-4">
-          <Label className="text-sm whitespace-nowrap min-w-[120px]">שקט מינימלי (שניות)</Label>
-          <Slider
-            value={[minGap]}
-            onValueChange={([v]) => setMinGap(v)}
-            min={0.5}
-            max={5}
-            step={0.5}
-            className="flex-1"
-          />
-          <span className="text-sm text-muted-foreground w-8">{minGap}</span>
-        </div>
-        <div className="flex items-center gap-4">
-          <Label className="text-sm whitespace-nowrap min-w-[120px]">HuggingFace Token</Label>
-          <Input
-            value={hfToken}
-            onChange={e => setHfToken(e.target.value)}
-            type="password"
-            placeholder="אופציונלי — לזיהוי מתקדם עם pyannote"
-            className="flex-1 text-sm"
-          />
-        </div>
-        <div className="flex items-center gap-4">
-          <Label className="text-sm whitespace-nowrap min-w-[120px]">מנוע דיאריזציה</Label>
-          <select
-            value={diarizationEngine}
-            onChange={(e) => setDiarizationEngine(e.target.value as "auto" | "whisperx" | "pyannote" | "silence-gap")}
-            className="h-9 rounded-md border border-input bg-background px-3 text-sm flex-1"
-          >
-            <option value="auto">אוטומטי (מומלץ)</option>
-            <option value="whisperx">WhisperX (יישור מילים מדויק)</option>
-            <option value="pyannote">pyannote</option>
-            <option value="silence-gap">Silence Gap</option>
-          </select>
-        </div>
-      </div>
+      {/* ──── Advanced Audio Player ──── */}
+      {audioUrl && result && (
+        <div className="mb-4 p-3 rounded-xl border bg-gradient-to-l from-primary/5 to-transparent">
+          <div className="flex items-center gap-3">
+            {/* Controls */}
+            <div className="flex items-center gap-1">
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => skipBy(-10)}>
+                <SkipBack className="w-3.5 h-3.5" />
+              </Button>
+              <Button variant="default" size="icon" className="h-9 w-9 rounded-full" onClick={togglePlayPause}>
+                {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 mr-[-1px]" />}
+              </Button>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => skipBy(10)}>
+                <SkipForward className="w-3.5 h-3.5" />
+              </Button>
+            </div>
 
-      {/* Upload button */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="audio/*,video/*"
-        onChange={handleFileSelect}
-        className="hidden"
-      />
-      <div
-        onDragEnter={handleDragEnter}
-        onDragLeave={handleDragLeave}
-        onDragOver={handleDragOver}
-        onDrop={handleDrop}
-        className={`mb-4 rounded-xl border-2 border-dashed p-3 transition-all ${
-          isDragging ? "border-primary bg-primary/10" : "border-border"
-        }`}
-      >
-        <Button
-          onClick={() => fileInputRef.current?.click()}
-          disabled={isProcessing}
-          className="w-full"
-        >
-          {isProcessing ? (
-            <>
-              <Loader2 className="w-4 h-4 ml-2 animate-spin" />
-              מזהה דוברים...
-            </>
-          ) : (
-            <>
-              <Upload className="w-4 h-4 ml-2" />
-              העלה קובץ לזיהוי דוברים
-            </>
+            {/* Timeline */}
+            <div className="flex-1 space-y-1">
+              <div className="relative h-2 rounded-full bg-muted overflow-hidden cursor-pointer group"
+                onClick={e => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const pct = (e.clientX - rect.left) / rect.width;
+                  seekTo(pct * audioDuration);
+                }}>
+                {/* Speaker color segments behind the progress */}
+                {result.segments.map((seg, i) => {
+                  const colorIdx = speakerIndex[seg.speaker_label] ?? 0;
+                  const left = (seg.start / audioDuration) * 100;
+                  const width = Math.max(((seg.end - seg.start) / audioDuration) * 100, 0.3);
+                  return (
+                    <div key={i} className="absolute h-full opacity-30"
+                      style={{ left: `${left}%`, width: `${width}%`, backgroundColor: SPEAKER_BAR_COLORS[colorIdx % SPEAKER_BAR_COLORS.length] }}
+                    />
+                  );
+                })}
+                {/* Played progress */}
+                <div className="absolute h-full bg-primary rounded-full transition-none" style={{ width: `${audioDuration > 0 ? (currentTime / audioDuration) * 100 : 0}%` }} />
+              </div>
+              <div className="flex justify-between text-[10px] text-muted-foreground" dir="ltr">
+                <span>{formatTime(currentTime)}</span>
+                <span>{formatTime(audioDuration)}</span>
+              </div>
+            </div>
+
+            {/* Volume */}
+            <div className="hidden sm:flex items-center gap-1.5 w-24">
+              <Volume2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+              <Slider value={[volume]} onValueChange={([v]) => setVolume(v)} min={0} max={1} step={0.05} className="flex-1" />
+            </div>
+          </div>
+
+          {/* Active speaker indicator */}
+          {activeSegIdx >= 0 && (
+            <div className="mt-2 flex items-center gap-2 text-xs">
+              <span className={`w-2.5 h-2.5 rounded-full ${SPEAKER_BADGE_COLORS[speakerIndex[displaySegments[activeSegIdx]?.speaker_label] ?? 0]}`} />
+              <span className="font-medium">{getSpeakerName(displaySegments[activeSegIdx]?.speaker_label)}</span>
+              <span className="text-muted-foreground truncate">{displaySegments[activeSegIdx]?.text.slice(0, 80)}...</span>
+            </div>
           )}
-        </Button>
-        {!isProcessing && (
-          <p className="text-xs text-muted-foreground mt-2 text-center">
-            {isDragging ? "שחרר כאן את הקובץ" : "אפשר גם לגרור קובץ אודיו/וידאו לכאן"}
-          </p>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Results */}
       {result && (
         <Tabs defaultValue="stats" className="mt-2">
-          <TabsList className="w-full grid grid-cols-4 mb-3">
-            <TabsTrigger value="stats" className="text-xs gap-1">
-              <BarChart3 className="w-3.5 h-3.5" />
-              סטטיסטיקות
-            </TabsTrigger>
-            <TabsTrigger value="classify" className="text-xs gap-1">
-              <Users className="w-3.5 h-3.5" />
-              סיווג
-            </TabsTrigger>
-            <TabsTrigger value="timeline" className="text-xs gap-1">
-              <Clock className="w-3.5 h-3.5" />
-              ציר זמן
-            </TabsTrigger>
-            <TabsTrigger value="transcript" className="text-xs gap-1">
-              <MessageSquare className="w-3.5 h-3.5" />
-              תמלול
-            </TabsTrigger>
-          </TabsList>
+          <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 mb-3">
+            <TabsList className="inline-flex w-auto min-w-full sm:grid sm:w-full sm:grid-cols-6 gap-0.5">
+              <TabsTrigger value="stats" className="text-xs gap-1 whitespace-nowrap"><BarChart3 className="w-3.5 h-3.5" />סטטיסטיקות</TabsTrigger>
+              <TabsTrigger value="classify" className="text-xs gap-1 whitespace-nowrap"><Tag className="w-3.5 h-3.5" />סיווג</TabsTrigger>
+              <TabsTrigger value="timeline" className="text-xs gap-1 whitespace-nowrap"><Clock className="w-3.5 h-3.5" />ציר זמן</TabsTrigger>
+              <TabsTrigger value="transcript" className="text-xs gap-1 whitespace-nowrap"><MessageSquare className="w-3.5 h-3.5" />תמלול</TabsTrigger>
+              <TabsTrigger value="merge" className="text-xs gap-1 whitespace-nowrap" onClick={() => { if (transcriptList.length === 0) loadTranscriptsForMerge(); }}><FileText className="w-3.5 h-3.5" />שילוב</TabsTrigger>
+              <TabsTrigger value="compare" className="text-xs gap-1 whitespace-nowrap"><ArrowLeftRight className="w-3.5 h-3.5" />השוואה {compareEntries.length > 0 && `(${compareEntries.length})`}</TabsTrigger>
+            </TabsList>
+          </div>
 
           {/* === Stats Tab === */}
           <TabsContent value="stats" className="space-y-4">
-            {/* Summary bar */}
             <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
               <span className="font-medium text-foreground">{result.speaker_count} דוברים</span>
-              <span>·</span>
-              <span>{result.segments.length} קטעים</span>
-              <span>·</span>
-              <span>{formatTime(result.duration)}</span>
-              <span>·</span>
-              <span>{result.diarization_method}</span>
+              <span>·</span><span>{result.segments.length} קטעים</span>
+              {autoMerge && <span className="text-xs">(→ {mergeConsecutiveSegments(result.segments).length} אחרי מיזוג)</span>}
+              <span>·</span><span>{formatTime(result.duration)}</span>
+              <span>·</span><span>{result.diarization_method}</span>
             </div>
 
-            {/* Speaker cards */}
             <div className="space-y-3">
               {speakerStats.map((stat) => {
                 const colorIdx = speakerIndex[stat.label] ?? 0;
                 const barColor = SPEAKER_BAR_COLORS[colorIdx % SPEAKER_BAR_COLORS.length];
+                const role = speakerRoles[stat.label];
+                const roleLabel = role ? SPEAKER_ROLE_OPTIONS.find(r => r.value === role)?.label : null;
                 return (
-                  <div
-                    key={stat.label}
-                    className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                  <div key={stat.label}
+                    className={`p-3 rounded-xl border cursor-pointer transition-all ${
                       activeSpeakerFilter === stat.label
                         ? SPEAKER_COLORS[colorIdx % SPEAKER_COLORS.length] + " ring-2 ring-primary/30"
                         : "bg-muted/30 border-border hover:bg-muted/50"
                     }`}
-                    onClick={() => setActiveSpeakerFilter(
-                      activeSpeakerFilter === stat.label ? null : stat.label
-                    )}
-                  >
+                    onClick={() => setActiveSpeakerFilter(activeSpeakerFilter === stat.label ? null : stat.label)}>
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
                         <span className={`w-3 h-3 rounded-full ${SPEAKER_BADGE_COLORS[colorIdx % SPEAKER_BADGE_COLORS.length]}`} />
                         {editingSpeaker === stat.label ? (
                           <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
-                            <Input
-                              value={editingName}
-                              onChange={e => setEditingName(e.target.value)}
-                              className="h-6 text-sm w-28 px-1"
-                              autoFocus
-                              onKeyDown={e => {
-                                if (e.key === "Enter") saveSpeakerName();
-                                if (e.key === "Escape") setEditingSpeaker(null);
-                              }}
-                            />
-                            <button onClick={saveSpeakerName} className="text-green-600 hover:text-green-700">
-                              <Check className="w-3.5 h-3.5" />
-                            </button>
-                            <button onClick={() => setEditingSpeaker(null)} className="text-red-500 hover:text-red-600">
-                              <X className="w-3.5 h-3.5" />
-                            </button>
+                            <Input value={editingName} onChange={e => setEditingName(e.target.value)} className="h-6 text-sm w-28 px-1" autoFocus
+                              onKeyDown={e => { if (e.key === "Enter") saveSpeakerName(); if (e.key === "Escape") setEditingSpeaker(null); }} />
+                            <button onClick={saveSpeakerName} className="text-green-600"><Check className="w-3.5 h-3.5" /></button>
+                            <button onClick={() => setEditingSpeaker(null)} className="text-red-500"><X className="w-3.5 h-3.5" /></button>
                           </div>
                         ) : (
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-1.5">
                             <span className="font-semibold text-sm">{getSpeakerName(stat.label)}</span>
-                            <button
-                              onClick={e => { e.stopPropagation(); startEditingSpeaker(stat.label); }}
-                              className="text-muted-foreground hover:text-foreground transition-colors"
-                            >
+                            {roleLabel && <Badge variant="secondary" className="text-[10px] py-0">{roleLabel}</Badge>}
+                            <button onClick={e => { e.stopPropagation(); startEditingSpeaker(stat.label); }} className="text-muted-foreground hover:text-foreground">
                               <Pencil className="w-3 h-3" />
                             </button>
                           </div>
                         )}
                       </div>
-                      <span className="text-lg font-bold" style={{ color: barColor }}>
-                        {Math.round(stat.percentage)}%
-                      </span>
+                      <span className="text-lg font-bold" style={{ color: barColor }}>{Math.round(stat.percentage)}%</span>
                     </div>
-
-                    {/* Progress bar */}
-                    <div className="w-full h-2 rounded-full bg-muted mb-2 overflow-hidden">
-                      <div
-                        className="h-full rounded-full transition-all duration-500"
-                        style={{ width: `${stat.percentage}%`, backgroundColor: barColor }}
-                      />
+                    <div className="w-full h-2.5 rounded-full bg-muted mb-2 overflow-hidden">
+                      <div className="h-full rounded-full transition-all duration-500" style={{ width: `${stat.percentage}%`, backgroundColor: barColor }} />
                     </div>
-
-                    {/* Detail stats */}
                     <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                      <div className="flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
-                        <span>זמן דיבור: {formatDuration(stat.totalTime)}</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <MessageSquare className="w-3 h-3" />
-                        <span>{stat.wordCount} מילים</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Mic className="w-3 h-3" />
-                        <span>{stat.segmentCount} קטעי דיבור</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <BarChart3 className="w-3 h-3" />
-                        <span>ממוצע: {formatDuration(stat.avgSegmentLength)}</span>
-                      </div>
+                      <div className="flex items-center gap-1"><Clock className="w-3 h-3" /><span>זמן: {formatDuration(stat.totalTime)}</span></div>
+                      <div className="flex items-center gap-1"><MessageSquare className="w-3 h-3" /><span>{stat.wordCount} מילים</span></div>
+                      <div className="flex items-center gap-1"><Mic className="w-3 h-3" /><span>{stat.segmentCount} קטעים</span></div>
+                      <div className="flex items-center gap-1"><BarChart3 className="w-3 h-3" /><span>ממוצע: {formatDuration(stat.avgSegmentLength)}</span></div>
                     </div>
                   </div>
                 );
               })}
             </div>
 
-            {/* Combined bar chart */}
             <div className="mt-2">
               <Label className="text-xs text-muted-foreground mb-1 block">חלוקת זמן דיבור</Label>
               <div className="flex h-6 rounded-full overflow-hidden border">
@@ -575,21 +1066,10 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000" }: Spea
                   {speakerStats.map((stat) => {
                     const colorIdx = speakerIndex[stat.label] ?? 0;
                     return (
-                      <Tooltip key={stat.label}>
-                        <TooltipTrigger asChild>
-                          <div
-                            className="h-full transition-all duration-500 cursor-pointer hover:opacity-80"
-                            style={{
-                              width: `${stat.percentage}%`,
-                              backgroundColor: SPEAKER_BAR_COLORS[colorIdx % SPEAKER_BAR_COLORS.length],
-                              minWidth: stat.percentage > 0 ? "4px" : "0",
-                            }}
-                          />
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>{getSpeakerName(stat.label)}: {Math.round(stat.percentage)}% ({formatDuration(stat.totalTime)})</p>
-                        </TooltipContent>
-                      </Tooltip>
+                      <Tooltip key={stat.label}><TooltipTrigger asChild>
+                        <div className="h-full transition-all duration-500 cursor-pointer hover:opacity-80"
+                          style={{ width: `${stat.percentage}%`, backgroundColor: SPEAKER_BAR_COLORS[colorIdx % SPEAKER_BAR_COLORS.length], minWidth: stat.percentage > 0 ? "4px" : "0" }} />
+                      </TooltipTrigger><TooltipContent><p>{getSpeakerName(stat.label)}: {Math.round(stat.percentage)}% ({formatDuration(stat.totalTime)})</p></TooltipContent></Tooltip>
                     );
                   })}
                 </TooltipProvider>
@@ -599,48 +1079,47 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000" }: Spea
 
           {/* === Classification Tab === */}
           <TabsContent value="classify" className="space-y-4">
-            <div className="text-sm text-muted-foreground">
-              סווג כל דובר עם תפקיד. הסיווג ישולב בהעתקה ובקבצי הייצוא.
+            <div className="text-sm text-muted-foreground mb-2">
+              סווג כל דובר עם תפקיד — הסיווג יישמר ויופיע בייצוא ובהעתקה.
             </div>
             <div className="space-y-3">
-              {result.speakers.map((sp) => {
-                const colorIdx = speakerIndex[sp] ?? 0;
+              {result.speakers.map((sp, i) => {
+                const colorIdx = speakerIndex[sp] ?? i;
                 const currentRole = speakerRoles[sp] || '';
                 return (
-                  <div
-                    key={sp}
-                    className={`p-3 rounded-lg border ${SPEAKER_COLORS[colorIdx % SPEAKER_COLORS.length]}`}
-                  >
+                  <div key={sp} className={`p-3 rounded-xl border ${SPEAKER_COLORS[colorIdx % SPEAKER_COLORS.length]}`}>
                     <div className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-2 flex-1 min-w-0">
-                        <span className={`w-3 h-3 rounded-full ${SPEAKER_BADGE_COLORS[colorIdx % SPEAKER_BADGE_COLORS.length]}`} />
-                        <span className="font-semibold text-sm truncate">{getSpeakerName(sp)}</span>
+                      <div className="flex items-center gap-2 flex-1">
+                        <span className={`w-3 h-3 rounded-full shrink-0 ${SPEAKER_BADGE_COLORS[colorIdx % SPEAKER_BADGE_COLORS.length]}`} />
+                        <span className="font-semibold text-sm">{getSpeakerName(sp)}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {formatDuration(speakerStats.find(s => s.label === sp)?.totalTime || 0)}
+                        </span>
                       </div>
-                      <select
-                        value={currentRole || '__none__'}
-                        onChange={(e) => setSpeakerRole(sp, e.target.value === '__none__' ? '' : e.target.value)}
-                        className="h-8 rounded-md border border-input bg-background px-2 text-xs min-w-[160px]"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {SPEAKER_ROLE_OPTIONS.map((opt) => (
-                          <option key={opt.value || '__none__'} value={opt.value || '__none__'}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
+                      <Select value={currentRole || '_none'} onValueChange={v => setSpeakerRole(sp, v === '_none' ? '' : v)}>
+                        <SelectTrigger className="w-[160px] h-8 text-xs">
+                          <SelectValue placeholder="בחר תפקיד..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {SPEAKER_ROLE_OPTIONS.map(opt => (
+                            <SelectItem key={opt.value || '_none'} value={opt.value || '_none'} className="text-xs">
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
+                    {/* Quick rename */}
                     <div className="mt-2 flex items-center gap-2">
                       <Label className="text-[11px] text-muted-foreground whitespace-nowrap">שם מותאם:</Label>
                       <Input
                         defaultValue={getSpeakerName(sp)}
                         className="h-7 text-xs flex-1"
-                        onBlur={(e) => {
+                        onBlur={e => {
                           const val = e.target.value.trim();
                           if (val && val !== sp) setSpeakerNames(prev => ({ ...prev, [sp]: val }));
                         }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-                        }}
+                        onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
                       />
                     </div>
                   </div>
@@ -651,143 +1130,170 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000" }: Spea
 
           {/* === Timeline Tab === */}
           <TabsContent value="timeline" className="space-y-2">
-            <div className="text-xs text-muted-foreground mb-2">
-              ציר זמן — כל קטע מייצג דובר לאורך ההקלטה ({formatTime(result.duration)})
-            </div>
+            <div className="text-xs text-muted-foreground mb-2">ציר זמן — כל קטע מייצג דובר לאורך ההקלטה ({formatTime(result.duration)})</div>
             <div className="space-y-0.5">
               {result.segments.map((seg, i) => {
                 const colorIdx = speakerIndex[seg.speaker_label] ?? 0;
                 const leftPct = (seg.start / result.duration) * 100;
                 const widthPct = Math.max(((seg.end - seg.start) / result.duration) * 100, 0.5);
                 return (
-                  <TooltipProvider key={i}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div className="relative h-5 w-full">
-                          <div
-                            className="absolute h-full rounded-sm cursor-pointer hover:opacity-80 transition-opacity"
-                            style={{
-                              right: `${leftPct}%`,
-                              width: `${widthPct}%`,
-                              backgroundColor: SPEAKER_BAR_COLORS[colorIdx % SPEAKER_BAR_COLORS.length],
-                              opacity: activeSpeakerFilter && activeSpeakerFilter !== seg.speaker_label ? 0.15 : 0.85,
-                            }}
-                          />
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent side="top" className="max-w-[250px]">
-                        <p className="font-semibold text-xs">{getSpeakerName(seg.speaker_label)}</p>
-                        <p className="text-xs">{formatTime(seg.start)} – {formatTime(seg.end)}</p>
-                        <p className="text-xs mt-1 line-clamp-2">{seg.text}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
+                  <TooltipProvider key={i}><Tooltip><TooltipTrigger asChild>
+                    <div className="relative h-5 w-full cursor-pointer" onClick={() => seekTo(seg.start)}>
+                      <div className="absolute h-full rounded-sm hover:opacity-100 transition-opacity"
+                        style={{ right: `${leftPct}%`, width: `${widthPct}%`, backgroundColor: SPEAKER_BAR_COLORS[colorIdx % SPEAKER_BAR_COLORS.length],
+                          opacity: activeSpeakerFilter && activeSpeakerFilter !== seg.speaker_label ? 0.15 : 0.85 }} />
+                    </div>
+                  </TooltipTrigger><TooltipContent side="top" className="max-w-[250px]">
+                    <p className="font-semibold text-xs">{getSpeakerName(seg.speaker_label)}</p>
+                    <p className="text-xs">{formatTime(seg.start)} – {formatTime(seg.end)}</p>
+                    <p className="text-xs mt-1 line-clamp-2">{seg.text}</p>
+                  </TooltipContent></Tooltip></TooltipProvider>
                 );
               })}
             </div>
-            {/* Time markers */}
             <div className="flex justify-between text-[10px] text-muted-foreground mt-1 px-0.5" dir="ltr">
-              <span>{formatTime(0)}</span>
-              <span>{formatTime(result.duration * 0.25)}</span>
-              <span>{formatTime(result.duration * 0.5)}</span>
-              <span>{formatTime(result.duration * 0.75)}</span>
+              <span>{formatTime(0)}</span><span>{formatTime(result.duration * 0.25)}</span>
+              <span>{formatTime(result.duration * 0.5)}</span><span>{formatTime(result.duration * 0.75)}</span>
               <span>{formatTime(result.duration)}</span>
             </div>
-
-            {/* Speaker legend */}
             <div className="flex flex-wrap gap-2 mt-3">
               {result.speakers.map((sp, i) => (
-                <button
-                  key={sp}
-                  className={`flex items-center gap-1 text-xs px-2 py-1 rounded-full border transition-all ${
-                    activeSpeakerFilter === sp
-                      ? "ring-2 ring-primary/40 font-semibold"
-                      : "hover:bg-muted/50"
-                  }`}
-                  onClick={() => setActiveSpeakerFilter(activeSpeakerFilter === sp ? null : sp)}
-                >
-                  <span
-                    className="w-2.5 h-2.5 rounded-full"
-                    style={{ backgroundColor: SPEAKER_BAR_COLORS[i % SPEAKER_BAR_COLORS.length] }}
-                  />
+                <button key={sp}
+                  className={`flex items-center gap-1 text-xs px-2 py-1 rounded-full border transition-all ${activeSpeakerFilter === sp ? "ring-2 ring-primary/40 font-semibold" : "hover:bg-muted/50"}`}
+                  onClick={() => setActiveSpeakerFilter(activeSpeakerFilter === sp ? null : sp)}>
+                  <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: SPEAKER_BAR_COLORS[i % SPEAKER_BAR_COLORS.length] }} />
                   {getSpeakerName(sp)}
                 </button>
               ))}
-              {activeSpeakerFilter && (
-                <button
-                  className="text-xs text-muted-foreground underline"
-                  onClick={() => setActiveSpeakerFilter(null)}
-                >
-                  הצג הכל
-                </button>
-              )}
+              {activeSpeakerFilter && <button className="text-xs text-muted-foreground underline" onClick={() => setActiveSpeakerFilter(null)}>הצג הכל</button>}
             </div>
           </TabsContent>
 
           {/* === Transcript Tab === */}
           <TabsContent value="transcript" className="space-y-1">
-            {/* Filter chips */}
+            <div className="relative mb-2">
+              <Search className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="חיפוש בתמלול..." className="pr-8 text-sm" />
+              {searchQuery && <button className="absolute left-2 top-1/2 -translate-y-1/2" onClick={() => setSearchQuery("")}><X className="w-4 h-4 text-muted-foreground" /></button>}
+            </div>
+
             <div className="flex flex-wrap gap-1.5 mb-2">
-              <button
-                className={`text-xs px-2 py-0.5 rounded-full border transition-all ${
-                  !activeSpeakerFilter ? "bg-primary text-primary-foreground" : "hover:bg-muted/50"
-                }`}
-                onClick={() => setActiveSpeakerFilter(null)}
-              >
+              <button className={`text-xs px-2 py-0.5 rounded-full border transition-all ${!activeSpeakerFilter ? "bg-primary text-primary-foreground" : "hover:bg-muted/50"}`} onClick={() => setActiveSpeakerFilter(null)}>
                 הכל ({result.segments.length})
               </button>
               {result.speakers.map((sp, i) => {
                 const count = result.segments.filter(s => s.speaker_label === sp).length;
                 return (
-                  <button
-                    key={sp}
-                    className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border transition-all ${
-                      activeSpeakerFilter === sp ? "bg-primary text-primary-foreground" : "hover:bg-muted/50"
-                    }`}
-                    onClick={() => setActiveSpeakerFilter(activeSpeakerFilter === sp ? null : sp)}
-                  >
-                    <span
-                      className="w-2 h-2 rounded-full"
-                      style={{ backgroundColor: SPEAKER_BAR_COLORS[i % SPEAKER_BAR_COLORS.length] }}
-                    />
+                  <button key={sp} className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border transition-all ${activeSpeakerFilter === sp ? "bg-primary text-primary-foreground" : "hover:bg-muted/50"}`}
+                    onClick={() => setActiveSpeakerFilter(activeSpeakerFilter === sp ? null : sp)}>
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: SPEAKER_BAR_COLORS[i % SPEAKER_BAR_COLORS.length] }} />
                     {getSpeakerName(sp)} ({count})
                   </button>
                 );
               })}
             </div>
 
-            <div className="space-y-1 max-h-[500px] overflow-y-auto">
-              {filteredSegments.map((seg, i) => {
+            {searchQuery && <div className="text-xs text-muted-foreground mb-1">{displaySegments.length} תוצאות עבור "{searchQuery}"</div>}
+
+            <div className="space-y-1.5 max-h-[500px] overflow-y-auto">
+              {displaySegments.map((seg, i) => {
                 const colorIdx = speakerIndex[seg.speaker_label] ?? 0;
+                const isActive = activeSegIdx === i;
+                const role = speakerRoles[seg.speaker_label];
+                const roleLabel = role ? SPEAKER_ROLE_OPTIONS.find(r => r.value === role)?.label : null;
                 return (
-                  <div
-                    key={i}
-                    className={`p-2 rounded border text-sm ${SPEAKER_COLORS[colorIdx % SPEAKER_COLORS.length]}`}
-                  >
+                  <div key={i} className={`p-2.5 rounded-xl border text-sm transition-all ${
+                    isActive ? SPEAKER_COLORS[colorIdx % SPEAKER_COLORS.length] + " ring-2 ring-primary/40 shadow-sm" : SPEAKER_COLORS[colorIdx % SPEAKER_COLORS.length]
+                  }`}>
                     <div className="flex items-center gap-2 mb-1">
-                      <span className={`w-2 h-2 rounded-full ${SPEAKER_BADGE_COLORS[colorIdx % SPEAKER_BADGE_COLORS.length]}`} />
-                      <span className="font-semibold text-xs">
-                        {getSpeakerName(seg.speaker_label)}
-                        {getSpeakerRoleLabel(seg.speaker_label) ? ` (${getSpeakerRoleLabel(seg.speaker_label)})` : ''}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {formatTime(seg.start)} – {formatTime(seg.end)}
-                      </span>
-                      <span className="text-[10px] text-muted-foreground mr-auto">
-                        {formatDuration(seg.end - seg.start)}
-                      </span>
+                      {audioUrl && (
+                        <button onClick={e => { e.stopPropagation(); playSegment(i, seg.start, seg.end); }}
+                          className={`w-7 h-7 flex items-center justify-center rounded-full transition-all ${
+                            playingSegIdx === i ? "bg-primary text-primary-foreground shadow-md" : "bg-muted hover:bg-primary/20 text-muted-foreground hover:text-foreground"
+                          }`}>
+                          {playingSegIdx === i ? <Square className="w-3 h-3" /> : <Play className="w-3 h-3" />}
+                        </button>
+                      )}
+                      <span className={`w-2.5 h-2.5 rounded-full ${SPEAKER_BADGE_COLORS[colorIdx % SPEAKER_BADGE_COLORS.length]}`} />
+                      <span className="font-semibold text-xs">{getSpeakerName(seg.speaker_label)}</span>
+                      {roleLabel && <Badge variant="outline" className="text-[9px] py-0 h-4">{roleLabel}</Badge>}
+                      <span className="text-xs text-muted-foreground">{formatTime(seg.start)} – {formatTime(seg.end)}</span>
+                      <span className="text-[10px] text-muted-foreground mr-auto">{formatDuration(seg.end - seg.start)}</span>
                     </div>
-                    <p className="text-right leading-relaxed">{seg.text}</p>
+                    <p className="text-right leading-relaxed">{highlightText(seg.text)}</p>
                   </div>
                 );
               })}
             </div>
           </TabsContent>
+
+          {/* === Merge Tab === */}
+          <TabsContent value="merge" className="space-y-4">
+            <div className="text-sm text-muted-foreground">שלב את תוצאות זיהוי הדוברים עם תמלול קיים.</div>
+            <div className="space-y-2">
+              <Label className="text-sm font-semibold">בחר תמלול מהענן</Label>
+              {isLoadingTranscripts ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" />טוען...</div>
+              ) : transcriptList.length === 0 ? (
+                <div className="text-xs text-muted-foreground">
+                  <p>אין תמלולים שמורים.</p>
+                  <Button variant="outline" size="sm" className="mt-1 text-xs" onClick={loadTranscriptsForMerge}>רענן</Button>
+                </div>
+              ) : (
+                <div className="border rounded-lg max-h-[180px] overflow-y-auto divide-y">
+                  {transcriptList.map(t => (
+                    <button key={t.id} className="w-full text-right p-2 hover:bg-muted/50 transition-colors text-sm flex justify-between items-center gap-2"
+                      onClick={() => { setSelectedTranscriptId(t.id); mergeWithTranscript(t.text); }}>
+                      <div className="flex-1 truncate">
+                        <span className="font-medium">{t.title || "ללא כותרת"}</span>
+                        <span className="text-xs text-muted-foreground mr-2 truncate">{t.text.slice(0, 60)}...</span>
+                      </div>
+                      <span className="text-xs text-muted-foreground whitespace-nowrap">{new Date(t.created_at).toLocaleDateString("he-IL")}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm font-semibold">או הדבק טקסט ידנית</Label>
+              <textarea className="w-full min-h-[100px] p-3 rounded-lg border bg-background text-sm resize-y" placeholder="הדבק כאן טקסט תמלול..." dir="rtl"
+                onBlur={(e) => { if (e.target.value.trim()) mergeWithTranscript(e.target.value.trim()); }} />
+            </div>
+            {mergedText && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm font-semibold">תוצאה משולבת</Label>
+                  <div className="flex gap-1">
+                    <Button variant="outline" size="sm" className="text-xs" onClick={() => { navigator.clipboard.writeText(mergedText); toast({ title: "הועתק" }); }}>
+                      <Copy className="w-3.5 h-3.5" />העתק
+                    </Button>
+                    <Button variant="outline" size="sm" className="text-xs" onClick={() => downloadBlob(new Blob(["\uFEFF" + mergedText], { type: "text/plain;charset=utf-8" }), `merged-${Date.now()}.txt`)}>
+                      <Download className="w-3.5 h-3.5" />הורד
+                    </Button>
+                  </div>
+                </div>
+                <div className="border rounded-lg p-3 bg-muted/20 max-h-[400px] overflow-y-auto text-sm leading-relaxed whitespace-pre-wrap" dir="rtl">{mergedText}</div>
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="compare">
+            <DiarizationCompare entries={compareEntries} />
+            {compareEntries.length > 0 && (
+              <Button variant="ghost" size="sm" className="mt-2 text-xs text-destructive" onClick={() => setCompareEntries([])}>
+                <X className="w-3 h-3 ml-1" />נקה השוואה
+              </Button>
+            )}
+          </TabsContent>
         </Tabs>
       )}
 
       <p className="text-xs text-muted-foreground mt-3">
-        זיהוי דוברים מבוסס על הפסקות שקט בין קטעי דיבור. לזיהוי מדויק יותר, הזן HuggingFace Token להפעלת pyannote.
+        {mode === 'local' ? 'זיהוי דוברים מקומי. לזיהוי מדויק יותר, הזן HuggingFace Token.'
+          : mode === 'openai' ? 'זיהוי דוברים דרך OpenAI Whisper עם חותמות זמן מדויקות.'
+          : mode === 'whisperx' ? 'WhisperX — תמלול + זיהוי דוברים משולב באיכות גבוהה.'
+          : `זיהוי דוברים דרך ${mode === 'assemblyai' ? 'AssemblyAI' : mode === 'deepgram' ? 'Deepgram' : mode} בענן.`
+        }
       </p>
     </Card>
   );
