@@ -1750,6 +1750,99 @@ def unload_models_endpoint():
     return jsonify({"status": "ok", "unloaded": count})
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# Shared diarization helpers
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_cached_pyannote_pipe = None           # cached pyannote pipeline
+_cached_pyannote_model_id = None       # which model is cached
+
+
+def _get_pyannote_pipeline(pyannote_model_id: str, hf_token: str):
+    """Load (and cache) a pyannote speaker-diarization pipeline."""
+    global _cached_pyannote_pipe, _cached_pyannote_model_id
+    if _cached_pyannote_pipe is not None and _cached_pyannote_model_id == pyannote_model_id:
+        return _cached_pyannote_pipe
+    from pyannote.audio import Pipeline as PyannotePipeline
+    pipe = PyannotePipeline.from_pretrained(pyannote_model_id, use_auth_token=hf_token)
+    if _has_torch and torch.cuda.is_available():
+        pipe.to(torch.device("cuda"))
+    _cached_pyannote_pipe = pipe
+    _cached_pyannote_model_id = pyannote_model_id
+    _log.info(f"Loaded & cached pyannote pipeline: {pyannote_model_id}")
+    return pipe
+
+
+def _run_pyannote(tmp_path: str, pyannote_model_id: str, hf_token: str,
+                  num_speakers: int | None = None, min_speakers: int | None = None,
+                  max_speakers: int | None = None):
+    """Run pyannote diarization and return list of speaker segments."""
+    pipe = _get_pyannote_pipeline(pyannote_model_id, hf_token)
+    kwargs = {}
+    if num_speakers is not None:
+        kwargs["num_speakers"] = num_speakers
+    elif min_speakers is not None or max_speakers is not None:
+        if min_speakers is not None:
+            kwargs["min_speakers"] = min_speakers
+        if max_speakers is not None:
+            kwargs["max_speakers"] = max_speakers
+    diarization = pipe(tmp_path, **kwargs)
+    speaker_segments = []
+    for turn, _, speaker in diarization.itertracks(yield_label=True):
+        speaker_segments.append({"speaker": speaker, "start": round(turn.start, 3), "end": round(turn.end, 3)})
+    return speaker_segments
+
+
+def _assign_speakers_pyannote(raw_segments: list, speaker_segments: list, min_overlap: float = 0.1):
+    """Assign pyannote speakers to whisper segments using max-overlap matching.
+
+    Requires at least `min_overlap` seconds of overlap for assignment.
+    Segments with insufficient overlap get SPEAKER_UNKNOWN.
+    """
+    for seg in raw_segments:
+        best_speaker, best_overlap = None, 0.0
+        for sp in speaker_segments:
+            overlap = min(seg["end"], sp["end"]) - max(seg["start"], sp["start"])
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_speaker = sp["speaker"]
+        if best_speaker and best_overlap >= min_overlap:
+            seg["speaker"] = best_speaker
+        else:
+            seg["speaker"] = "SPEAKER_UNKNOWN"
+
+
+def _assign_speakers_silence_gap(raw_segments: list, min_gap: float = 1.5):
+    """Assign speaker labels based on silence gaps between segments.
+
+    Uses unbounded speaker counter (no mod-10 wrap) so each unique gap-separated
+    block gets its own speaker label without conflating distant speakers.
+    """
+    current_speaker = 0
+    for i, seg in enumerate(raw_segments):
+        if i > 0:
+            gap = seg["start"] - raw_segments[i - 1]["end"]
+            if gap >= min_gap:
+                current_speaker += 1
+        seg["speaker"] = f"SPEAKER_{current_speaker:02d}"
+
+
+def _normalize_speaker_labels(raw_segments: list) -> tuple[dict, int]:
+    """Normalize speaker labels to sequential Hebrew labels (דובר 1, דובר 2, ...).
+    Returns (seen_speakers_map, speaker_count).
+    """
+    seen_speakers: dict[str, str] = {}
+    counter = 0
+    for seg in raw_segments:
+        sp = str(seg.get("speaker") or "SPEAKER_UNKNOWN")
+        if sp not in seen_speakers:
+            counter += 1
+            seen_speakers[sp] = f"דובר {counter}"
+        seg["speaker"] = sp
+        seg["speaker_label"] = seen_speakers[sp]
+    return seen_speakers, counter
+
+
 @app.route("/diarize-stream", methods=["POST"])
 def diarize_stream():
     """Transcribe audio with speaker diarization — SSE streaming progress & partial segments.
@@ -1766,6 +1859,13 @@ def diarize_stream():
     hf_token = request.form.get("hf_token", "")
     diarization_engine = request.form.get("diarization_engine", "auto").strip().lower()
     pyannote_model_id = request.form.get("pyannote_model", "pyannote/speaker-diarization-3.1").strip() or "pyannote/speaker-diarization-3.1"
+    # Speaker count hints
+    num_speakers = request.form.get("num_speakers")
+    min_speakers = request.form.get("min_speakers")
+    max_speakers = request.form.get("max_speakers")
+    num_speakers = int(num_speakers) if num_speakers else None
+    min_speakers = int(min_speakers) if min_speakers else None
+    max_speakers = int(max_speakers) if max_speakers else None
 
     resolved = MODEL_REGISTRY.get(model_id, model_id)
     suffix = _safe_suffix(audio_file.filename)
@@ -1775,8 +1875,16 @@ def diarize_stream():
         tmp_path = tmp.name
 
     def generate():
+        acquired = False
         try:
             start = time.time()
+            yield f"data: {json.dumps({'type': 'progress', 'stage': 'ממתין לתור GPU...', 'percent': 2})}\n\n"
+
+            acquired = _transcribe_lock.acquire(timeout=600)
+            if not acquired:
+                yield f"data: {json.dumps({'type': 'error', 'error': 'GPU busy — timeout waiting for lock'})}\n\n"
+                return
+
             yield f"data: {json.dumps({'type': 'progress', 'stage': 'טוען מודל...', 'percent': 5})}\n\n"
 
             model = load_model(resolved)
@@ -1820,55 +1928,29 @@ def diarize_stream():
             yield f"data: {json.dumps({'type': 'progress', 'stage': f'מעבד {len(raw_segments)} קטעים...', 'percent': 55})}\n\n"
 
             # Speaker diarization
-            speaker_segments = None
             diarization_method = "silence-gap"
 
             if hf_token and diarization_engine in {"auto", "pyannote"}:
                 yield f"data: {json.dumps({'type': 'progress', 'stage': 'מריץ זיהוי דוברים (pyannote)...', 'percent': 65})}\n\n"
                 try:
-                    from pyannote.audio import Pipeline as PyannotePipeline
-                    pipe = PyannotePipeline.from_pretrained(pyannote_model_id, use_auth_token=hf_token)
-                    if _has_torch and torch.cuda.is_available():
-                        pipe.to(torch.device("cuda"))
-                    diarization = pipe(tmp_path)
-                    speaker_segments = []
-                    for turn, _, speaker in diarization.itertracks(yield_label=True):
-                        speaker_segments.append({"speaker": speaker, "start": round(turn.start, 3), "end": round(turn.end, 3)})
+                    speaker_segments = _run_pyannote(
+                        tmp_path, pyannote_model_id, hf_token,
+                        num_speakers=num_speakers, min_speakers=min_speakers, max_speakers=max_speakers,
+                    )
+                    _assign_speakers_pyannote(raw_segments, speaker_segments)
                     diarization_method = "pyannote"
                 except ImportError:
                     _log.warning("pyannote.audio not installed — falling back to silence-gap")
+                    _assign_speakers_silence_gap(raw_segments, min_gap)
                 except Exception as e:
                     _log.warning(f"pyannote failed: {e} — falling back to silence-gap")
+                    _assign_speakers_silence_gap(raw_segments, min_gap)
+            else:
+                _assign_speakers_silence_gap(raw_segments, min_gap)
 
             yield f"data: {json.dumps({'type': 'progress', 'stage': 'מקצה דוברים לקטעים...', 'percent': 85})}\n\n"
 
-            # Assign speakers
-            if speaker_segments and diarization_method == "pyannote":
-                for seg in raw_segments:
-                    best_speaker, best_overlap = "SPEAKER_00", 0
-                    for sp in speaker_segments:
-                        overlap = min(seg["end"], sp["end"]) - max(seg["start"], sp["start"])
-                        if overlap > best_overlap:
-                            best_overlap = overlap
-                            best_speaker = sp["speaker"]
-                    seg["speaker"] = best_speaker
-            else:
-                current_speaker = 0
-                for i, seg in enumerate(raw_segments):
-                    if i > 0:
-                        gap = seg["start"] - raw_segments[i - 1]["end"]
-                        if gap >= min_gap:
-                            current_speaker = (current_speaker + 1) % 10
-                    seg["speaker"] = f"SPEAKER_{current_speaker:02d}"
-
-            # Normalize labels
-            seen_speakers, speaker_counter = {}, 0
-            for seg in raw_segments:
-                sp = seg["speaker"]
-                if sp not in seen_speakers:
-                    seen_speakers[sp] = f"דובר {speaker_counter + 1}"
-                    speaker_counter += 1
-                seg["speaker_label"] = seen_speakers[sp]
+            seen_speakers, speaker_counter = _normalize_speaker_labels(raw_segments)
 
             # Stream each segment
             for idx, seg in enumerate(raw_segments):
@@ -1884,6 +1966,8 @@ def diarize_stream():
             _log.error(f"Diarize-stream error: {e}\n{_tb_module.format_exc()}")
             yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
         finally:
+            if acquired:
+                _transcribe_lock.release()
             try:
                 os.unlink(tmp_path)
             except OSError:
@@ -1909,6 +1993,9 @@ def diarize():
         hf_token: HuggingFace token for pyannote (optional)
         diarization_engine: auto | whisperx | pyannote | silence-gap (optional, default auto)
         whisperx_model: WhisperX model id (optional, default large-v3)
+        num_speakers: exact speaker count hint (optional)
+        min_speakers: minimum speaker count hint (optional)
+        max_speakers: maximum speaker count hint (optional)
     """
     if "file" not in request.files:
         return jsonify({"error": "No file provided"}), 400
@@ -1921,6 +2008,13 @@ def diarize():
     diarization_engine = request.form.get("diarization_engine", "auto").strip().lower()
     whisperx_model = request.form.get("whisperx_model", "large-v3").strip() or "large-v3"
     pyannote_model_id = request.form.get("pyannote_model", "pyannote/speaker-diarization-3.1").strip() or "pyannote/speaker-diarization-3.1"
+    # Speaker count hints
+    num_speakers = request.form.get("num_speakers")
+    min_speakers = request.form.get("min_speakers")
+    max_speakers = request.form.get("max_speakers")
+    num_speakers = int(num_speakers) if num_speakers else None
+    min_speakers = int(min_speakers) if min_speakers else None
+    max_speakers = int(max_speakers) if max_speakers else None
 
     allowed_engines = {"auto", "whisperx", "pyannote", "silence-gap"}
     if diarization_engine not in allowed_engines:
@@ -1932,6 +2026,14 @@ def diarize():
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         audio_file.save(tmp)
         tmp_path = tmp.name
+
+    acquired = _transcribe_lock.acquire(timeout=600)
+    if not acquired:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        return jsonify({"error": "GPU busy — timeout waiting for lock"}), 503
 
     try:
         _log.info(
@@ -2022,26 +2124,16 @@ def diarize():
                     })
 
                 # If speaker was not assigned by WhisperX diarization, use silence-gap heuristic.
-                current_speaker = 0
-                for i, seg in enumerate(raw_segments):
-                    has_speaker = bool(seg.get("speaker"))
-                    if not has_speaker:
-                        if i > 0:
-                            gap = seg["start"] - raw_segments[i - 1]["end"]
-                            if gap >= min_gap:
-                                current_speaker = (current_speaker + 1) % 10
-                        seg["speaker"] = f"SPEAKER_{current_speaker:02d}"
+                for seg in raw_segments:
+                    if not seg.get("speaker"):
+                        seg["_needs_fallback"] = True
+                # Collect segments needing fallback and apply silence-gap
+                fallback_segs = [s for s in raw_segments if s.pop("_needs_fallback", False)]
+                if fallback_segs:
+                    _assign_speakers_silence_gap(fallback_segs, min_gap)
 
                 # Normalize speaker labels to sequential Hebrew labels
-                seen_speakers = {}
-                speaker_counter = 0
-                for seg in raw_segments:
-                    sp = str(seg.get("speaker") or "SPEAKER_00")
-                    if sp not in seen_speakers:
-                        seen_speakers[sp] = f"דובר {speaker_counter + 1}"
-                        speaker_counter += 1
-                    seg["speaker"] = sp
-                    seg["speaker_label"] = seen_speakers[sp]
+                seen_speakers, speaker_counter = _normalize_speaker_labels(raw_segments)
 
                 elapsed = time.time() - start
                 full_text = " ".join(s["text"] for s in raw_segments)
@@ -2113,64 +2205,28 @@ def diarize():
             })
 
         # Try pyannote diarization if available and token provided
-        speaker_segments = None
         diarization_method = "silence-gap"
 
         if hf_token and diarization_engine in {"auto", "pyannote"}:
             try:
-                from pyannote.audio import Pipeline as PyannotePipeline
                 _log.info(f"Using pyannote.audio for speaker diarization (model={pyannote_model_id})")
-                pipe = PyannotePipeline.from_pretrained(
-                    pyannote_model_id,
-                    use_auth_token=hf_token,
+                speaker_segments = _run_pyannote(
+                    tmp_path, pyannote_model_id, hf_token,
+                    num_speakers=num_speakers, min_speakers=min_speakers, max_speakers=max_speakers,
                 )
-                if _has_torch and torch.cuda.is_available():
-                    pipe.to(torch.device("cuda"))
-                diarization = pipe(tmp_path)
-                speaker_segments = []
-                for turn, _, speaker in diarization.itertracks(yield_label=True):
-                    speaker_segments.append({
-                        "speaker": speaker,
-                        "start": round(turn.start, 3),
-                        "end": round(turn.end, 3),
-                    })
+                _assign_speakers_pyannote(raw_segments, speaker_segments)
                 diarization_method = "pyannote"
             except ImportError:
                 _log.warning("pyannote.audio not installed — falling back to silence-gap heuristic")
+                _assign_speakers_silence_gap(raw_segments, min_gap)
             except Exception as e:
                 _log.warning(f"pyannote diarization failed: {e} — falling back to silence-gap heuristic")
-
-        # Assign speakers to segments
-        if speaker_segments and diarization_method == "pyannote":
-            # Map each whisper segment to the pyannote speaker with largest overlap
-            for seg in raw_segments:
-                best_speaker = "SPEAKER_00"
-                best_overlap = 0
-                for sp in speaker_segments:
-                    overlap = min(seg["end"], sp["end"]) - max(seg["start"], sp["start"])
-                    if overlap > best_overlap:
-                        best_overlap = overlap
-                        best_speaker = sp["speaker"]
-                seg["speaker"] = best_speaker
+                _assign_speakers_silence_gap(raw_segments, min_gap)
         else:
-            # Silence-gap heuristic: detect speaker changes based on gaps between segments
-            current_speaker = 0
-            for i, seg in enumerate(raw_segments):
-                if i > 0:
-                    gap = seg["start"] - raw_segments[i - 1]["end"]
-                    if gap >= min_gap:
-                        current_speaker = (current_speaker + 1) % 10
-                seg["speaker"] = f"SPEAKER_{current_speaker:02d}"
+            _assign_speakers_silence_gap(raw_segments, min_gap)
 
         # Normalize speaker labels to sequential numbers
-        seen_speakers = {}
-        speaker_counter = 0
-        for seg in raw_segments:
-            sp = seg["speaker"]
-            if sp not in seen_speakers:
-                seen_speakers[sp] = f"דובר {speaker_counter + 1}"
-                speaker_counter += 1
-            seg["speaker_label"] = seen_speakers[sp]
+        seen_speakers, speaker_counter = _normalize_speaker_labels(raw_segments)
 
         elapsed = time.time() - start
         full_text = " ".join(s["text"] for s in raw_segments)
@@ -2193,6 +2249,7 @@ def diarize():
         _log.error(f"Diarization error: {e}\n{_tb_module.format_exc()}")
         return jsonify({"error": str(e)}), 500
     finally:
+        _transcribe_lock.release()
         try:
             os.unlink(tmp_path)
         except OSError:
