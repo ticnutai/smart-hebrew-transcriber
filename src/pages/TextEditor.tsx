@@ -65,6 +65,8 @@ const TextEditor = () => {
   const [versions, setVersions] = useState<TextVersion[]>([]);
   const [selectedVersionId, setSelectedVersionId] = useState<string>();
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [audioFileName, setAudioFileName] = useState<string>("");
   const [wordTimings, setWordTimings] = useState<WordTiming[]>([]);
   const [playerTime, setPlayerTime] = useState(0);
   const transcriptIdRef = useRef<string | null>(null);
@@ -105,6 +107,8 @@ const TextEditor = () => {
       if (entry?.blob) {
         const url = URL.createObjectURL(entry.blob);
         setAudioUrl(url);
+        setAudioBlob(entry.blob);
+        setAudioFileName(entry.name || '');
         debugLog.info('TextEditor', `Audio recovered from Dexie: ${entry.name}`);
       }
     } catch { /* Dexie not available */ }
@@ -113,6 +117,19 @@ const TextEditor = () => {
   useEffect(() => {
     debugLog.info('TextEditor', '📝 TextEditor mounted');
     return () => debugLog.info('TextEditor', '📝 TextEditor unmounted');
+  }, []);
+
+  // Always try to load audio blob from Dexie for SpeakerDiarization passthrough
+  useEffect(() => {
+    (async () => {
+      try {
+        const entry = await db.audioBlobs.get('last_audio');
+        if (entry?.blob) {
+          setAudioBlob(entry.blob);
+          setAudioFileName(entry.name || '');
+        }
+      } catch { /* Dexie not available */ }
+    })();
   }, []);
 
   useEffect(() => {
@@ -647,7 +664,7 @@ const TextEditor = () => {
 
           <TabsContent value="speakers" className="space-y-4">
             <LazyErrorBoundary label="זיהוי דוברים">
-              <SpeakerDiarization serverUrl="http://localhost:3000" />
+              <SpeakerDiarization serverUrl="http://localhost:3000" initialAudioBlob={audioBlob} initialAudioName={audioFileName} />
             </LazyErrorBoundary>
           </TabsContent>
 

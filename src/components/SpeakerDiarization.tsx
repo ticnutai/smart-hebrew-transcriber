@@ -2,7 +2,7 @@ import { useState, useRef, useMemo, useEffect, useCallback } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
-import { Users, Upload, Loader2, Copy, Download, BarChart3, Clock, MessageSquare, Mic, Pencil, Check, X, Subtitles, Cloud, Server, Save, FolderOpen, Search, Merge, Globe, ArrowLeftRight, FileText, Play, Square, Pause, SkipBack, SkipForward, Volume2, Tag, RefreshCw, Zap } from "lucide-react";
+import { Users, Upload, Loader2, Copy, Download, BarChart3, Clock, MessageSquare, Mic, Pencil, Check, X, Subtitles, Cloud, Server, Save, FolderOpen, Search, Merge, Globe, ArrowLeftRight, FileText, Play, Square, Pause, SkipBack, SkipForward, Volume2, Tag, RefreshCw, Zap, Music } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -139,9 +139,11 @@ type DiarizationMode = 'local' | 'assemblyai' | 'deepgram' | 'openai' | 'browser
 
 interface SpeakerDiarizationProps {
   serverUrl?: string;
+  initialAudioBlob?: Blob | null;
+  initialAudioName?: string;
 }
 
-export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000" }: SpeakerDiarizationProps) => {
+export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000", initialAudioBlob, initialAudioName }: SpeakerDiarizationProps) => {
   const [result, setResult] = useState<DiarizationResult | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [minGap, setMinGap] = useState(1.5);
@@ -219,6 +221,20 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000" }: Spea
   }, []);
 
   useEffect(() => { loadSavedList(); }, [loadSavedList]);
+
+  // Auto-populate audio from parent (e.g. after transcription)
+  const initialAudioApplied = useRef(false);
+  const preloadedFileRef = useRef<File | null>(null);
+  useEffect(() => {
+    if (!initialAudioBlob || initialAudioApplied.current || audioUrl) return;
+    initialAudioApplied.current = true;
+    const name = initialAudioName || 'transcribed-audio.webm';
+    const file = new File([initialAudioBlob], name, { type: initialAudioBlob.type || 'audio/webm' });
+    preloadedFileRef.current = file;
+    const url = URL.createObjectURL(initialAudioBlob);
+    setAudioUrl(url);
+    setCurrentFileName(name);
+  }, [initialAudioBlob, initialAudioName]);
 
   const getSpeakerName = (originalLabel: string) => speakerNames[originalLabel] || originalLabel;
 
@@ -934,15 +950,41 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000" }: Spea
       <div
         onDragEnter={handleDragEnter} onDragLeave={handleDragLeave} onDragOver={handleDragOver} onDrop={handleDrop}
         className={`w-full mb-4 border-2 border-dashed rounded-xl p-6 text-center transition-all duration-200 ${
-          isDragging ? "border-primary bg-primary/10 scale-[1.02]" : "border-border hover:border-primary/50 hover:bg-muted/30"
-        } ${isProcessing ? "opacity-60 pointer-events-none" : "cursor-pointer"}`}
-        onClick={() => !isProcessing && fileInputRef.current?.click()}
+          isDragging ? "border-primary bg-primary/10 scale-[1.02]" : preloadedFileRef.current && !result && !isProcessing ? "border-green-500 bg-green-500/10" : "border-border hover:border-primary/50 hover:bg-muted/30"
+        } ${isProcessing ? "opacity-60 pointer-events-none" : preloadedFileRef.current && !result ? "" : "cursor-pointer"}`}
+        onClick={() => !isProcessing && !preloadedFileRef.current && fileInputRef.current?.click()}
       >
         {isProcessing ? (
           <div className="flex flex-col items-center gap-2 w-full max-w-xs mx-auto">
             <Loader2 className="w-8 h-8 animate-spin text-primary" />
             <span className="text-sm font-medium">{browserProgress ? browserProgress.stage : "מזהה דוברים..."}</span>
             {browserProgress && <Progress value={browserProgress.percent} className="w-full h-2" />}
+          </div>
+        ) : preloadedFileRef.current && !result ? (
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-14 h-14 rounded-2xl bg-green-500/10 flex items-center justify-center">
+              <Music className="w-7 h-7 text-green-600" />
+            </div>
+            <div>
+              <span className="text-sm font-medium block">🎙️ אודיו מהתמלול נטען אוטומטית</span>
+              <span className="text-xs text-muted-foreground">{currentFileName}</span>
+            </div>
+            <Button size="sm" className="gap-1.5 mt-1" onClick={(e) => {
+              e.stopPropagation();
+              if (preloadedFileRef.current) handleDiarize(preloadedFileRef.current);
+            }}>
+              <Users className="w-4 h-4" />
+              זהה דוברים
+            </Button>
+            <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={(e) => {
+              e.stopPropagation();
+              preloadedFileRef.current = null;
+              setAudioUrl(null);
+              setCurrentFileName("");
+              fileInputRef.current?.click();
+            }}>
+              או בחר קובץ אחר
+            </Button>
           </div>
         ) : (
           <div className="flex flex-col items-center gap-3">
