@@ -123,6 +123,7 @@ const Settings = () => {
         const savedClaude = getApiKey("claude_api_key");
         const savedAssemblyAI = getApiKey("assemblyai_api_key");
         const savedDeepgram = getApiKey("deepgram_api_key");
+        const savedHuggingface = getApiKey("huggingface_api_key");
         
         if (savedOpenAI) setOpenaiKey(savedOpenAI);
         if (savedGoogle) setGoogleKey(savedGoogle);
@@ -130,6 +131,7 @@ const Settings = () => {
         if (savedClaude) setClaudeKey(savedClaude);
         if (savedAssemblyAI) setAssemblyaiKey(savedAssemblyAI);
         if (savedDeepgram) setDeepgramKey(savedDeepgram);
+        if (savedHuggingface) setHuggingfaceKey(savedHuggingface);
 
         loadPoolOrFallback("openai_api_keys_pool", savedOpenAI, setOpenaiKeysPoolText);
         loadPoolOrFallback("google_api_keys_pool", savedGoogle, setGoogleKeysPoolText);
