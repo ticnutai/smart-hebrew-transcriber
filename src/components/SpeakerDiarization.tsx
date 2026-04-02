@@ -910,8 +910,13 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000" }: Spea
             </div>
             <div className="flex items-center gap-4">
               <Label className="text-sm whitespace-nowrap min-w-[100px]">HuggingFace Token</Label>
-              <Input value={hfToken} onChange={e => setHfToken(e.target.value)} onBlur={() => { if (hfToken.trim()) saveCloudKeys({ huggingface_key: hfToken.trim() }); }}
-                type="password" placeholder="hf_... (נשמר אוטומטית בענן)" className="flex-1 text-sm" />
+              <div className="flex-1 flex items-center gap-2">
+                <Input value={hfToken} onChange={e => setHfToken(e.target.value)} onBlur={() => { if (hfToken.trim()) saveCloudKeys({ huggingface_key: hfToken.trim() }); }}
+                  type="password" placeholder="hf_... (נשמר אוטומטית בענן)" className="flex-1 text-sm" />
+                {keysLoaded && cloudKeys.huggingface_key && hfToken === cloudKeys.huggingface_key && (
+                  <span className="text-xs text-green-600 whitespace-nowrap flex items-center gap-1">☁️ מסונכרן</span>
+                )}
+              </div>
             </div>
           </>
         )}
