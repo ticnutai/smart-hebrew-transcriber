@@ -14,6 +14,8 @@ import { SmartConsole } from "./components/SmartConsole";
 import { TranscriptionAnalytics } from "./components/TranscriptionAnalytics";
 import { PWAInstallButton } from "./components/PWAInstallButton";
 import { BackgroundSync } from "./components/BackgroundSync";
+import { DiarizationQueueProvider } from "./contexts/DiarizationQueueContext";
+import { DiarizationFloatingStatus } from "./components/DiarizationFloatingStatus";
 import { useTheme } from "./hooks/useTheme";
 import { debugLog } from "./lib/debugLogger";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -114,6 +116,7 @@ const App = () => {
         <Toaster />
         <Sonner />
         <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <DiarizationQueueProvider>
           <RouteLogger />
           <CloudKeySync />
           <BackgroundSync />
@@ -121,6 +124,7 @@ const App = () => {
           <SmartConsole />
           <TranscriptionAnalytics />
           <PWAInstallButton />
+          <DiarizationFloatingStatus />
           <AppSidebar />
           <AppLayout>
             <Suspense fallback={<PageLoader label="suspense" />}>
@@ -140,6 +144,7 @@ const App = () => {
               </Routes>
             </Suspense>
           </AppLayout>
+          </DiarizationQueueProvider>
         </BrowserRouter>
       </TooltipProvider>
     </AuthProvider>

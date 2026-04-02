@@ -489,6 +489,7 @@ export const FolderManager = ({ transcripts, onUpdate, onDelete, onGetAudioUrl }
                   onRemoveTag={(tag) => removeTag(t.id, t.tags || [], tag)}
                   onCancelAddTag={() => setAddingTagId(null)}
                   onNavigateEdit={() => navigate('/text-editor', { state: { text: t.edited_text || t.text, transcriptId: t.id, audioFilePath: t.audio_file_path } })}
+                  onNavigateDiarization={() => navigate('/diarization', { state: { text: t.edited_text || t.text, transcriptId: t.id, audioFilePath: t.audio_file_path } })}
                   onDelete={() => onDelete(t.id)}
                   movingId={movingId}
                   setMovingId={setMovingId}
@@ -542,6 +543,7 @@ interface TranscriptItemProps {
   onRemoveTag: (tag: string) => void;
   onCancelAddTag: () => void;
   onNavigateEdit: () => void;
+  onNavigateDiarization: () => void;
   onDelete: () => void;
   movingId: string | null;
   setMovingId: (id: string | null) => void;
@@ -558,7 +560,7 @@ const TranscriptItem = ({
   editingTitleId, editingTitle, onStartEditTitle, onEditTitleChange, onSaveTitle, onCancelEditTitle,
   editingNotesId, editingNotes, onStartEditNotes, onEditNotesChange, onSaveNotes, onCancelEditNotes,
   addingTagId, newTagInput, allTags, onStartAddTag, onNewTagChange, onAddTag, onRemoveTag, onCancelAddTag,
-  onNavigateEdit, onDelete, movingId, setMovingId, folders, onMoveToFolder, onGetAudioUrl,
+  onNavigateEdit, onNavigateDiarization, onDelete, movingId, setMovingId, folders, onMoveToFolder, onGetAudioUrl,
   formatDate, getCategoryLabel, viewMode
 }: TranscriptItemProps) => {
   const [playingAudio, setPlayingAudio] = useState<HTMLAudioElement | null>(null);
@@ -689,6 +691,9 @@ const TranscriptItem = ({
         )}
         <Button size="sm" variant="outline" className="text-xs h-7" onClick={onNavigateEdit}>
           <Edit className="w-3 h-3 ml-1" />ערוך
+        </Button>
+        <Button size="sm" variant="outline" className="text-xs h-7" onClick={onNavigateDiarization} title="זיהוי דוברים">
+          <Users className="w-3 h-3 ml-1" />דוברים
         </Button>
         {viewMode !== 'rectangles' && (
           <Button size="sm" variant="ghost" className="text-xs h-7" onClick={onStartEditNotes}>

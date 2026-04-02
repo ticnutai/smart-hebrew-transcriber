@@ -10,7 +10,7 @@ export default defineConfig({
   timeout: 90_000,
 
   use: {
-    baseURL: 'http://localhost:8091',
+    baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8091',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: process.env.RECORD_VIDEO ? 'on' : 'off',

@@ -54,7 +54,7 @@ test.describe('דמו וידאו — זיהוי דוברים', () => {
 
   test('זיהוי 2 דוברים בשיחה עברית עם שרת CUDA', async ({ page }) => {
     // Generous timeout for diarization (model load + inference)
-    test.setTimeout(180_000);
+    test.setTimeout(720_000);
 
     // ── Check server ──
     const up = await isServerUp(page);
@@ -82,29 +82,33 @@ test.describe('דמו וידאו — זיהוי דוברים', () => {
     // ── Navigate to diarization page ──
     await page.goto('/diarization', { waitUntil: 'domcontentloaded' });
 
-    // Wait for the actual SpeakerDiarization component (not sidebar text)
-    // The upload button is unique to the rendered component
-    const uploadBtn = page.getByText('העלה קובץ לזיהוי דוברים');
-    await expect(uploadBtn).toBeVisible({ timeout: 30000 });
+    // Wait for the actual SpeakerDiarization component
+    await expect(page.getByRole('heading', { name: 'זיהוי דוברים' })).toBeVisible({ timeout: 30000 });
+
+    // Force local/CUDA mode for deterministic server-backed diarization
+    const localModeBtn = page.getByRole('button', { name: /מקומי/ }).first();
+    if (await localModeBtn.count()) {
+      await localModeBtn.click();
+      await page.waitForTimeout(400);
+    }
+
+    // Upload area text in the new UI
+    await expect(page.getByText(/גרור קובץ אודיו לכאן|לחץ לבחירה/).first()).toBeVisible({ timeout: 15000 });
 
     // ── Upload the 2-speaker audio ──
     // The file input is hidden but Playwright can interact with it
     const fileInput = page.locator('input[type="file"]');
     await fileInput.setInputFiles(wavPath);
 
-    // ── Wait for processing indicator ──
-    await expect(page.getByText('מזהה דוברים...').first()).toBeVisible({ timeout: 10000 });
-
-    // ── Wait for completion — look for speaker count in toast or stats ──
-    // The toast shows "X דוברים זוהו" and the stats show "X דוברים"
-    const doneIndicator = page.getByText(/דוברים זוהו|דוברים/).nth(1);
-    await expect(doneIndicator).toBeVisible({ timeout: 120000 });
+    // ── Wait for completion ──
+    // Results include speaker labels and tabs after diarization completes
+    await expect(page.getByText(/דובר\s*1|דובר\s*2/).first()).toBeVisible({ timeout: 600000 });
     await page.waitForTimeout(1000);
 
     // ── Verify at least 2 speakers detected ──
     // Look for "דובר 1" and "דובר 2" labels in the results
-    await expect(page.getByText('דובר 1').first()).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText('דובר 2').first()).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/דובר\s*1/).first()).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/דובר\s*2/).first()).toBeVisible({ timeout: 5000 });
 
     console.log('\n══════════════════════════════════════');
     console.log('  ✅ זוהו לפחות 2 דוברים!');

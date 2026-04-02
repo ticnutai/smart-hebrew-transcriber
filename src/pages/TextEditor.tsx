@@ -24,6 +24,7 @@ const VocabularyPanel = lazy(() => import("@/components/VocabularyPanel").then(m
 const AutoSummaryCard = lazy(() => import("@/components/AutoSummaryCard").then(m => ({ default: m.AutoSummaryCard })));
 const EngineCompare = lazy(() => import("@/components/EngineCompare").then(m => ({ default: m.EngineCompare })));
 const AnalyticsDashboard = lazy(() => import("@/components/AnalyticsDashboard").then(m => ({ default: m.AnalyticsDashboard })));
+const SpeakerDiarization = lazy(() => import("@/components/SpeakerDiarization").then(m => ({ default: m.SpeakerDiarization })));
 import { ArrowRight, Home, Wand2, SplitSquareVertical, SpellCheck, Loader2, Columns2, Columns3, AlignJustify, LayoutGrid, Rows3, Save, Copy } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { editTranscriptCloud } from "@/utils/editTranscriptApi";
@@ -581,9 +582,10 @@ const TextEditor = () => {
 
         {/* Main Content */}
         <Tabs defaultValue="edit" className="w-full" dir="rtl">
-          <TabsList className="grid w-full grid-cols-4 md:grid-cols-7 lg:grid-cols-14 mb-6">
+          <TabsList className="grid w-full grid-cols-4 md:grid-cols-7 lg:grid-cols-15 mb-6">
             <TabsTrigger value="player">🎧 נגן</TabsTrigger>
             <TabsTrigger value="edit">עריכת טקסט</TabsTrigger>
+            <TabsTrigger value="speakers">👥 זיהוי דוברים</TabsTrigger>
             <TabsTrigger value="templates">תבניות</TabsTrigger>
             <TabsTrigger value="ai">עריכה עם AI</TabsTrigger>
             <TabsTrigger value="pipeline">צינור עיבוד</TabsTrigger>
@@ -641,6 +643,12 @@ const TextEditor = () => {
                 }}
               />
             </div>
+          </TabsContent>
+
+          <TabsContent value="speakers" className="space-y-4">
+            <LazyErrorBoundary label="זיהוי דוברים">
+              <SpeakerDiarization serverUrl="http://localhost:3000" />
+            </LazyErrorBoundary>
           </TabsContent>
 
           <TabsContent value="templates" className="space-y-4">

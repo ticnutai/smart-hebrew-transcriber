@@ -17,6 +17,7 @@ import { diarizeInBrowser, type DiarizationProgress } from "@/utils/browserDiari
 import { useCloudApiKeys } from "@/hooks/useCloudApiKeys";
 import { DiarizationCompare } from "@/components/DiarizationCompare";
 import { useDiarizationJobs } from "@/hooks/useDiarizationJobs";
+import { useDiarizationQueue, type QueueJob } from "@/contexts/DiarizationQueueContext";
 
 interface DiarizedSegment {
   text: string;
@@ -181,6 +182,11 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000" }: Spea
 
   const { keys: cloudKeys, saveKeys: saveCloudKeys, isLoaded: keysLoaded } = useCloudApiKeys();
   const { jobs: bgJobs, startBackgroundJob, retryJob } = useDiarizationJobs();
+
+  // Queue integration for parallel processing
+  let queue: ReturnType<typeof useDiarizationQueue> | null = null;
+  try { queue = useDiarizationQueue(); } catch { /* context not available */ }
+  const multiFileInputRef = useRef<HTMLInputElement>(null);
 
   // Load API key from cloud when mode changes
   useEffect(() => {
@@ -525,6 +531,38 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000" }: Spea
     setShowBgJobs(true);
   };
 
+  // ──── Queue: Send to Background Queue (parallel, survives navigation) ────
+  const handleQueueFile = (file: File) => {
+    if (!queue) {
+      toast({ title: 'מערכת התור לא זמינה', variant: 'destructive' });
+      return;
+    }
+    queue.enqueue(file, mode, { serverUrl, minGap, hfToken, pyannoteModel, expectedSpeakers, cloudApiKey, autoSaveToCloud: true });
+  };
+
+  const handleQueueMultipleFiles = (files: File[]) => {
+    if (!queue) {
+      toast({ title: 'מערכת התור לא זמינה', variant: 'destructive' });
+      return;
+    }
+    queue.enqueueMultiple(files, mode, { serverUrl, minGap, hfToken, pyannoteModel, expectedSpeakers, cloudApiKey, autoSaveToCloud: true });
+  };
+
+  const handleMultiFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []).filter(f => f.type.startsWith('audio/') || f.type.startsWith('video/'));
+    if (files.length > 0) handleQueueMultipleFiles(files);
+    e.target.value = "";
+  };
+
+  // ──── Load result from completed queue job ────
+  const loadFromQueueJob = (job: QueueJob) => {
+    if (!job.result) return;
+    setResult(job.result);
+    setCurrentFileName(job.fileName);
+    if (job.audioUrl) { setAudioUrl(job.audioUrl); setupAudio(job.audioUrl); }
+    toast({ title: "נטען מהתור", description: `${job.fileName} — ${job.result.speaker_count} דוברים` });
+  };
+
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) handleDiarize(file);
@@ -536,9 +574,15 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000" }: Spea
   const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); };
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault(); e.stopPropagation(); setIsDragging(false); dragCounterRef.current = 0;
-    const file = e.dataTransfer.files?.[0];
-    if (file && (file.type.startsWith('audio/') || file.type.startsWith('video/'))) handleDiarize(file);
-    else if (file) toast({ title: "סוג קובץ לא נתמך", description: "יש להעלות קובץ אודיו או וידאו", variant: "destructive" });
+    const files = Array.from(e.dataTransfer.files || []);
+    const validFiles = files.filter(f => f.type.startsWith('audio/') || f.type.startsWith('video/'));
+    if (validFiles.length > 1 && queue) {
+      handleQueueMultipleFiles(validFiles);
+    } else if (validFiles.length === 1) {
+      handleDiarize(validFiles[0]);
+    } else if (files.length > 0) {
+      toast({ title: "סוג קובץ לא נתמך", description: "יש להעלות קובץ אודיו או וידאו", variant: "destructive" });
+    }
   };
 
   const copyAsText = () => {
@@ -918,9 +962,104 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000" }: Spea
                 שלח לעיבוד ברקע
               </Button>
             )}
+            {/* Multi-file queue button */}
+            {queue && (
+              <div className="flex gap-1.5 mt-1">
+                <input ref={multiFileInputRef} type="file" accept="audio/*,video/*" multiple onChange={handleMultiFileSelect} className="hidden" />
+                <Button variant="outline" size="sm" className="text-xs gap-1" onClick={e => {
+                  e.stopPropagation();
+                  multiFileInputRef.current?.click();
+                }}>
+                  <Users className="w-3.5 h-3.5" />
+                  העלה מספר קבצים (במקביל)
+                </Button>
+                <Button variant="outline" size="sm" className="text-xs gap-1" onClick={e => {
+                  e.stopPropagation();
+                  const input = document.createElement('input');
+                  input.type = 'file';
+                  input.accept = 'audio/*,video/*';
+                  input.onchange = (ev: any) => { const f = ev.target.files?.[0]; if (f) handleQueueFile(f); };
+                  input.click();
+                }}>
+                  <Zap className="w-3.5 h-3.5" />
+                  שלח לתור רקע
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </div>
+
+      {/* ──── Queue Status Panel ──── */}
+      {queue && queue.jobs.length > 0 && (
+        <div className="mb-4 border rounded-xl p-3 space-y-2 bg-gradient-to-l from-blue-500/5 to-transparent">
+          <div className="flex items-center justify-between">
+            <Label className="text-sm font-semibold flex items-center gap-1.5">
+              <Users className="w-4 h-4 text-primary" />
+              תור עיבוד ({queue.activeCount} פעיל · {queue.jobs.filter(j => j.status === 'queued').length} בתור)
+            </Label>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] text-muted-foreground">במקביל:</span>
+              {[1, 2, 3, 4].map(n => (
+                <button key={n} className={`w-5 h-5 rounded text-[10px] font-bold transition-colors ${queue.maxConcurrent === n ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80 text-muted-foreground'}`}
+                  onClick={() => queue.setMaxConcurrent(n)}>{n}</button>
+              ))}
+              {queue.completedCount > 0 && (
+                <Button variant="ghost" size="sm" className="h-6 text-[10px] px-1.5" onClick={queue.clearCompleted}>נקה הושלמו</Button>
+              )}
+            </div>
+          </div>
+          <div className="space-y-1.5 max-h-[250px] overflow-y-auto">
+            {queue.jobs.slice(0, 20).map(job => (
+              <div key={job.id} className={`p-2 rounded-lg border text-xs transition-all ${
+                job.status === 'completed' ? 'border-green-500/30 bg-green-500/5' :
+                job.status === 'error' ? 'border-red-500/30 bg-red-500/5' :
+                job.status === 'processing' ? 'border-primary/30 bg-primary/5 shadow-sm' :
+                'border-border bg-muted/20'
+              }`}>
+                <div className="flex items-center justify-between gap-1.5 mb-1">
+                  <span className="font-medium truncate max-w-[45%]">{job.fileName}</span>
+                  <div className="flex items-center gap-1.5">
+                    <Badge variant="outline" className="text-[9px] py-0 h-4">
+                      {job.mode === 'browser' ? 'דפדפן' : job.mode === 'whisperx' ? 'WhisperX' : job.mode === 'local' ? 'מקומי' : job.mode}
+                    </Badge>
+                    {job.status === 'completed' && job.result && (
+                      <Button variant="ghost" size="sm" className="h-5 text-[10px] px-1.5"
+                        onClick={() => loadFromQueueJob(job)}>טען ←</Button>
+                    )}
+                    {job.status === 'error' && (
+                      <Button variant="ghost" size="sm" className="h-5 text-[10px] px-1.5"
+                        onClick={() => queue.retryJob(job.id)}>
+                        <RefreshCw className="w-3 h-3" />
+                      </Button>
+                    )}
+                    {(job.status === 'processing' || job.status === 'queued') && (
+                      <Button variant="ghost" size="sm" className="h-5 text-[10px] px-1.5 text-destructive"
+                        onClick={() => queue.cancelJob(job.id)}>✕</Button>
+                    )}
+                    {(job.status === 'completed' || job.status === 'error') && (
+                      <Button variant="ghost" size="sm" className="h-5 text-[10px] px-1.5"
+                        onClick={() => queue.removeJob(job.id)}>✕</Button>
+                    )}
+                  </div>
+                </div>
+                {(job.status === 'processing' || job.status === 'queued') && (
+                  <>
+                    <Progress value={job.progress} className="h-1 mb-0.5" />
+                    <span className="text-[10px] text-muted-foreground">{job.progressStage} {job.progress > 0 ? `(${Math.round(job.progress)}%)` : ''}</span>
+                  </>
+                )}
+                {job.status === 'completed' && job.result && (
+                  <span className="text-[10px] text-green-600">✅ {job.result.speaker_count} דוברים · {job.result.diarization_method}{job.cloudSaveId ? ' · ☁ נשמר' : ''}</span>
+                )}
+                {job.status === 'error' && (
+                  <span className="text-[10px] text-destructive">❌ {job.error}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ──── Advanced Audio Player ──── */}
       {audioUrl && result && (
