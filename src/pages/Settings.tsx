@@ -524,6 +524,60 @@ const Settings = () => {
             </div>
 
             <div className="space-y-2">
+              <Label htmlFor="huggingface">HuggingFace Token</Label>
+              <div className="relative flex gap-1">
+                <Input
+                  id="huggingface"
+                  type={showHuggingface ? "text" : "password"}
+                  placeholder="hf_..."
+                  value={huggingfaceKey}
+                  onChange={(e) => setHuggingfaceKey(e.target.value)}
+                  dir="ltr"
+                  className="pr-10"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="absolute left-0 top-0 h-full px-3 hover:bg-transparent"
+                  onClick={() => setShowHuggingface(!showHuggingface)}
+                  title="הצג/הסתר"
+                >
+                  {showHuggingface ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="shrink-0"
+                  onClick={() => {
+                    setHuggingfaceKey("");
+                    setShowHuggingface(true);
+                  }}
+                  title="ערוך"
+                >
+                  <Pencil className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="shrink-0 text-destructive hover:text-destructive"
+                  onClick={() => {
+                    setHuggingfaceKey("");
+                    toast.success("הטוקן נמחק — לחץ שמור לעדכון בענן");
+                  }}
+                  title="מחק"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground text-right">
+                טוקן עבור HuggingFace — נדרש לזיהוי דוברים עם מודל pyannote (נשמר בענן)
+              </p>
+            </div>
+
+            <div className="space-y-2">
               <Label htmlFor="claude">Anthropic Claude API Key</Label>
               <div className="relative">
                 <Input
