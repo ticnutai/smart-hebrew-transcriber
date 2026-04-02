@@ -1932,6 +1932,9 @@ def diarize():
                     return jsonify({"error": f"WhisperX diarization failed: {wx_err}"}), 500
                 _log.warning(f"WhisperX failed in auto mode: {wx_err} — falling back")
 
+        # Load faster-whisper model for non-WhisperX path
+        model = load_model(resolved)
+
         def _run_diarize(m):
             return m.transcribe(
                 tmp_path,

@@ -23,6 +23,7 @@ import {
   Server,
   BarChart3,
   Music,
+  Menu,
   Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -30,9 +31,11 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/hooks/use-toast";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 const SIDEBAR_WIDTH = 260;
 const TRIGGER_ZONE = 16;
+const SWIPE_THRESHOLD = 50;
 
 interface NavItem {
   label: string;
@@ -74,6 +77,8 @@ const AppSidebar = () => {
   const sidebarRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLDivElement>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const isMobile = useIsMobile();
 
   const [isOpen, setIsOpen] = useState(false);
   const [foldersOpen, setFoldersOpen] = useState(true);
@@ -121,6 +126,42 @@ const AppSidebar = () => {
     window.dispatchEvent(new CustomEvent("sidebar-open-change", { detail: isOpen }));
   }, [isOpen]);
 
+  useEffect(() => {
+    if (!isMobile) return;
+
+    const onTouchStart = (e: TouchEvent) => {
+      const touch = e.touches[0];
+      if (touch.clientX >= window.innerWidth - 30) {
+        touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (!touchStartRef.current) return;
+      const touch = e.touches[0];
+      const dx = touchStartRef.current.x - touch.clientX;
+      const dy = Math.abs(touch.clientY - touchStartRef.current.y);
+      if (dx > SWIPE_THRESHOLD && dy < dx) {
+        setIsOpen(true);
+        touchStartRef.current = null;
+      }
+    };
+
+    const onTouchEnd = () => {
+      touchStartRef.current = null;
+    };
+
+    window.addEventListener("touchstart", onTouchStart, { passive: true });
+    window.addEventListener("touchmove", onTouchMove, { passive: true });
+    window.addEventListener("touchend", onTouchEnd, { passive: true });
+
+    return () => {
+      window.removeEventListener("touchstart", onTouchStart);
+      window.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("touchend", onTouchEnd);
+    };
+  }, [isMobile]);
+
   const handleMouseEnterTrigger = useCallback(() => {
     clearTimeout(closeTimerRef.current);
     setIsOpen(true);
@@ -150,8 +191,18 @@ const AppSidebar = () => {
 
   return (
     <>
-      {/* Trigger zone - invisible strip on the right edge */}
-      {!isPinned && (
+      {isMobile && !isOpen && (
+        <button
+          onClick={() => setIsOpen(true)}
+          className="fixed top-3 right-3 z-[61] p-2 rounded-lg bg-card border border-border shadow-lg text-foreground hover:bg-muted transition-colors"
+          aria-label="פתח תפריט"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
+      )}
+
+      {/* Trigger zone - invisible strip on the right edge (desktop only) */}
+      {!isPinned && !isMobile && (
         <div
           ref={triggerRef}
           className="fixed top-0 right-0 h-full z-[60]"
@@ -164,7 +215,10 @@ const AppSidebar = () => {
       {/* Overlay when open and not pinned — transparent click-catcher, no visual blocking */}
       {isOpen && !isPinned && (
         <div
-          className="fixed inset-0 z-[59] transition-opacity duration-300"
+          className={cn(
+            "fixed inset-0 z-[59] transition-opacity duration-300",
+            isMobile && "bg-black/40"
+          )}
           onClick={() => setIsOpen(false)}
         />
       )}
