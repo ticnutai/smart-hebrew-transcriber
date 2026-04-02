@@ -90,6 +90,7 @@ const Settings = () => {
         if (data.claude_key) setClaudeKey(data.claude_key);
         if (data.assemblyai_key) setAssemblyaiKey(data.assemblyai_key);
         if (data.deepgram_key) setDeepgramKey(data.deepgram_key);
+        if (data.huggingface_key) setHuggingfaceKey(data.huggingface_key);
 
         // Multi-key pools: load from cloud first, fall back to localStorage
         const loadPool = (cloudPool: any, poolStorageKey: string, fallback?: string, setter?: (v: string) => void) => {
