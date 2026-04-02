@@ -89,12 +89,29 @@ const Settings = () => {
         if (data.assemblyai_key) setAssemblyaiKey(data.assemblyai_key);
         if (data.deepgram_key) setDeepgramKey(data.deepgram_key);
 
-        // Multi-key pools are local-only; cloud still stores one primary key per provider.
-        loadPoolOrFallback("openai_api_keys_pool", data.openai_key ?? undefined, setOpenaiKeysPoolText);
-        loadPoolOrFallback("google_api_keys_pool", data.google_key ?? undefined, setGoogleKeysPoolText);
-        loadPoolOrFallback("groq_api_keys_pool", data.groq_key ?? undefined, setGroqKeysPoolText);
-        loadPoolOrFallback("assemblyai_api_keys_pool", data.assemblyai_key ?? undefined, setAssemblyaiKeysPoolText);
-        loadPoolOrFallback("deepgram_api_keys_pool", data.deepgram_key ?? undefined, setDeepgramKeysPoolText);
+        // Multi-key pools: load from cloud first, fall back to localStorage
+        const loadPool = (cloudPool: any, poolStorageKey: string, fallback?: string, setter?: (v: string) => void) => {
+          if (Array.isArray(cloudPool) && cloudPool.length > 0) {
+            setter?.(cloudPool.join("\n"));
+            return;
+          }
+          const rawPool = localStorage.getItem(poolStorageKey);
+          if (rawPool) {
+            try {
+              const parsed = JSON.parse(rawPool) as string[];
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                setter?.(parsed.join("\n"));
+                return;
+              }
+            } catch { /* ignore */ }
+          }
+          if (fallback) setter?.(fallback);
+        };
+        loadPool(data.openai_keys_pool, "openai_api_keys_pool", data.openai_key ?? undefined, setOpenaiKeysPoolText);
+        loadPool(data.google_keys_pool, "google_api_keys_pool", data.google_key ?? undefined, setGoogleKeysPoolText);
+        loadPool(data.groq_keys_pool, "groq_api_keys_pool", data.groq_key ?? undefined, setGroqKeysPoolText);
+        loadPool(data.assemblyai_keys_pool, "assemblyai_api_keys_pool", data.assemblyai_key ?? undefined, setAssemblyaiKeysPoolText);
+        loadPool(data.deepgram_keys_pool, "deepgram_api_keys_pool", data.deepgram_key ?? undefined, setDeepgramKeysPoolText);
       } else {
         // Fallback to localStorage
         const savedOpenAI = getApiKey("openai_api_key");
@@ -156,6 +173,11 @@ const Settings = () => {
           claude_key: claudeKey || null,
           assemblyai_key: primaryAssembly || null,
           deepgram_key: primaryDeepgram || null,
+          openai_keys_pool: openaiPool.length ? openaiPool : null,
+          google_keys_pool: googlePool.length ? googlePool : null,
+          groq_keys_pool: groqPool.length ? groqPool : null,
+          assemblyai_keys_pool: assemblyPool.length ? assemblyPool : null,
+          deepgram_keys_pool: deepgramPool.length ? deepgramPool : null,
         }, {
           onConflict: 'user_identifier'
         });

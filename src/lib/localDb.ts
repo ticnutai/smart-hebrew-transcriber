@@ -63,6 +63,15 @@ export interface LocalApiKeys {
   claude_key: string;
   assemblyai_key: string;
   deepgram_key: string;
+  huggingface_key?: string;
+  whisper_server_url?: string;
+  whisper_api_key?: string;
+  ollama_base_url?: string;
+  openai_keys_pool?: string[];
+  google_keys_pool?: string[];
+  groq_keys_pool?: string[];
+  assemblyai_keys_pool?: string[];
+  deepgram_keys_pool?: string[];
   updated_at: string;
   _dirty?: boolean;
 }

@@ -29,6 +29,20 @@ const CloudKeySync = () => {
           if (data.claude_key) await setEncryptedKey('claude_api_key', data.claude_key);
           if (data.assemblyai_key) await setEncryptedKey('assemblyai_api_key', data.assemblyai_key);
           if (data.deepgram_key) await setEncryptedKey('deepgram_api_key', data.deepgram_key);
+
+          // Additional keys
+          if (data.huggingface_key) await setEncryptedKey('huggingface_api_key', data.huggingface_key);
+          if (data.whisper_server_url) await setEncryptedKey('whisper_server_url', data.whisper_server_url);
+          if (data.whisper_api_key) await setEncryptedKey('whisper_api_key', data.whisper_api_key);
+          if (data.ollama_base_url) await setEncryptedKey('ollama_base_url', data.ollama_base_url);
+
+          // Pool keys
+          if (data.openai_keys_pool?.length) localStorage.setItem('openai_api_keys_pool', JSON.stringify(data.openai_keys_pool));
+          if (data.google_keys_pool?.length) localStorage.setItem('google_api_keys_pool', JSON.stringify(data.google_keys_pool));
+          if (data.groq_keys_pool?.length) localStorage.setItem('groq_api_keys_pool', JSON.stringify(data.groq_keys_pool));
+          if (data.assemblyai_keys_pool?.length) localStorage.setItem('assemblyai_api_keys_pool', JSON.stringify(data.assemblyai_keys_pool));
+          if (data.deepgram_keys_pool?.length) localStorage.setItem('deepgram_api_keys_pool', JSON.stringify(data.deepgram_keys_pool));
+
           console.log('[CloudKeySync] API keys synced from cloud (encrypted) ✓');
         }
       } catch (err) {
