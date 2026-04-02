@@ -14,6 +14,119 @@ export type Database = {
   }
   public: {
     Tables: {
+      diarization_jobs: {
+        Row: {
+          created_at: string
+          engine: string
+          error_message: string | null
+          external_job_id: string | null
+          file_name: string | null
+          file_path: string | null
+          id: string
+          language: string | null
+          progress: number | null
+          result: Json | null
+          resume_data: Json | null
+          speaker_roles: Json | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          engine?: string
+          error_message?: string | null
+          external_job_id?: string | null
+          file_name?: string | null
+          file_path?: string | null
+          id?: string
+          language?: string | null
+          progress?: number | null
+          result?: Json | null
+          resume_data?: Json | null
+          speaker_roles?: Json | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          engine?: string
+          error_message?: string | null
+          external_job_id?: string | null
+          file_name?: string | null
+          file_path?: string | null
+          id?: string
+          language?: string | null
+          progress?: number | null
+          result?: Json | null
+          resume_data?: Json | null
+          speaker_roles?: Json | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      diarization_results: {
+        Row: {
+          created_at: string
+          diarization_method: string | null
+          duration: number
+          engine: string | null
+          file_name: string | null
+          id: string
+          processing_time: number | null
+          segments: Json
+          speaker_count: number
+          speaker_names: Json
+          speakers: Json
+          transcript_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          diarization_method?: string | null
+          duration?: number
+          engine?: string | null
+          file_name?: string | null
+          id?: string
+          processing_time?: number | null
+          segments?: Json
+          speaker_count?: number
+          speaker_names?: Json
+          speakers?: Json
+          transcript_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          diarization_method?: string | null
+          duration?: number
+          engine?: string | null
+          file_name?: string | null
+          id?: string
+          processing_time?: number | null
+          segments?: Json
+          speaker_count?: number
+          speaker_names?: Json
+          speakers?: Json
+          transcript_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "diarization_results_transcript_id_fkey"
+            columns: ["transcript_id"]
+            isOneToOne: false
+            referencedRelation: "transcripts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       migration_logs: {
         Row: {
           created_at: string
@@ -294,20 +407,20 @@ export type Database = {
       user_api_keys: {
         Row: {
           assemblyai_key: string | null
-          assemblyai_keys_pool: string[] | null
+          assemblyai_keys_pool: Json | null
           claude_key: string | null
           created_at: string
           deepgram_key: string | null
-          deepgram_keys_pool: string[] | null
+          deepgram_keys_pool: Json | null
           google_key: string | null
-          google_keys_pool: string[] | null
+          google_keys_pool: Json | null
           groq_key: string | null
-          groq_keys_pool: string[] | null
+          groq_keys_pool: Json | null
           huggingface_key: string | null
           id: string
           ollama_base_url: string | null
           openai_key: string | null
-          openai_keys_pool: string[] | null
+          openai_keys_pool: Json | null
           updated_at: string
           user_identifier: string
           whisper_api_key: string | null
@@ -315,20 +428,20 @@ export type Database = {
         }
         Insert: {
           assemblyai_key?: string | null
-          assemblyai_keys_pool?: string[] | null
+          assemblyai_keys_pool?: Json | null
           claude_key?: string | null
           created_at?: string
           deepgram_key?: string | null
-          deepgram_keys_pool?: string[] | null
+          deepgram_keys_pool?: Json | null
           google_key?: string | null
-          google_keys_pool?: string[] | null
+          google_keys_pool?: Json | null
           groq_key?: string | null
-          groq_keys_pool?: string[] | null
+          groq_keys_pool?: Json | null
           huggingface_key?: string | null
           id?: string
           ollama_base_url?: string | null
           openai_key?: string | null
-          openai_keys_pool?: string[] | null
+          openai_keys_pool?: Json | null
           updated_at?: string
           user_identifier: string
           whisper_api_key?: string | null
@@ -336,20 +449,20 @@ export type Database = {
         }
         Update: {
           assemblyai_key?: string | null
-          assemblyai_keys_pool?: string[] | null
+          assemblyai_keys_pool?: Json | null
           claude_key?: string | null
           created_at?: string
           deepgram_key?: string | null
-          deepgram_keys_pool?: string[] | null
+          deepgram_keys_pool?: Json | null
           google_key?: string | null
-          google_keys_pool?: string[] | null
+          google_keys_pool?: Json | null
           groq_key?: string | null
-          groq_keys_pool?: string[] | null
+          groq_keys_pool?: Json | null
           huggingface_key?: string | null
           id?: string
           ollama_base_url?: string | null
           openai_key?: string | null
-          openai_keys_pool?: string[] | null
+          openai_keys_pool?: Json | null
           updated_at?: string
           user_identifier?: string
           whisper_api_key?: string | null
@@ -360,6 +473,16 @@ export type Database = {
       user_preferences: {
         Row: {
           created_at: string
+          cuda_beam_size: number | null
+          cuda_cloud_save: string | null
+          cuda_compute_type: string | null
+          cuda_fast_mode: boolean | null
+          cuda_hotwords: string | null
+          cuda_no_condition_prev: boolean | null
+          cuda_paragraph_threshold: number | null
+          cuda_preload_mode: string | null
+          cuda_preset: string | null
+          cuda_vad_aggressive: boolean | null
           custom_themes: Json | null
           draft_text: string | null
           editor_columns: number | null
@@ -377,6 +500,16 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          cuda_beam_size?: number | null
+          cuda_cloud_save?: string | null
+          cuda_compute_type?: string | null
+          cuda_fast_mode?: boolean | null
+          cuda_hotwords?: string | null
+          cuda_no_condition_prev?: boolean | null
+          cuda_paragraph_threshold?: number | null
+          cuda_preload_mode?: string | null
+          cuda_preset?: string | null
+          cuda_vad_aggressive?: boolean | null
           custom_themes?: Json | null
           draft_text?: string | null
           editor_columns?: number | null
@@ -394,6 +527,16 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          cuda_beam_size?: number | null
+          cuda_cloud_save?: string | null
+          cuda_compute_type?: string | null
+          cuda_fast_mode?: boolean | null
+          cuda_hotwords?: string | null
+          cuda_no_condition_prev?: boolean | null
+          cuda_paragraph_threshold?: number | null
+          cuda_preload_mode?: string | null
+          cuda_preset?: string | null
+          cuda_vad_aggressive?: boolean | null
           custom_themes?: Json | null
           draft_text?: string | null
           editor_columns?: number | null
