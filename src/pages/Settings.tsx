@@ -19,6 +19,7 @@ const Settings = () => {
   const { isAuthenticated, logout, isLoading, isAdmin, user } = useAuth();
   const [showDevTools, setShowDevTools] = useState(false);
   const navigate = useNavigate();
+  const { invalidateCache: invalidateApiKeysCache } = useCloudApiKeys();
   const [openaiKey, setOpenaiKey] = useState("");
   const [googleKey, setGoogleKey] = useState("");
   const [groqKey, setGroqKey] = useState("");
