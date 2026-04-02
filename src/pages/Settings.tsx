@@ -208,6 +208,7 @@ const Settings = () => {
         localStorage.setItem("groq_api_keys_pool", JSON.stringify(groqPool));
       }
       if (claudeKey) localStorage.setItem("claude_api_key", claudeKey);
+      if (huggingfaceKey.trim()) localStorage.setItem("huggingface_api_key", huggingfaceKey.trim());
       if (primaryAssembly) {
         localStorage.setItem("assemblyai_api_key", primaryAssembly);
         localStorage.setItem("assemblyai_api_keys_pool", JSON.stringify(assemblyPool));
