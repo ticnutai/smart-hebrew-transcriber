@@ -1248,10 +1248,10 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000", initia
             }
           }}
         >
-          {/* Row 1: Main controls + timeline */}
-          <div className="flex items-center gap-3">
+          {/* Row 1: Transport controls + clean seek bar */}
+          <div className="flex items-center gap-2">
             {/* Transport controls */}
-            <div className="flex items-center gap-0.5">
+            <div className="flex items-center gap-0.5 shrink-0">
               <TooltipProvider delayDuration={200}>
                 <Tooltip><TooltipTrigger asChild>
                   <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => skipBy(-5)}>
@@ -1273,37 +1273,46 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000", initia
               </TooltipProvider>
             </div>
 
-            {/* Timeline with speaker colors */}
-            <div className="flex-1 space-y-1">
-              <div className="relative h-3 rounded-full bg-muted overflow-hidden cursor-pointer group"
-                onClick={e => {
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-                  seekTo(pct * audioDuration);
-                }}>
-                {/* Speaker color segments */}
-                {result.segments.map((seg, i) => {
-                  const colorIdx = speakerIndex[seg.speaker_label] ?? 0;
-                  const left = (seg.start / audioDuration) * 100;
-                  const width = Math.max(((seg.end - seg.start) / audioDuration) * 100, 0.3);
-                  return (
-                    <div key={i} className="absolute h-full opacity-30"
-                      style={{ left: `${left}%`, width: `${width}%`, backgroundColor: SPEAKER_BAR_COLORS[colorIdx % SPEAKER_BAR_COLORS.length] }}
-                    />
-                  );
-                })}
-                {/* Played progress */}
-                <div className="absolute h-full bg-primary rounded-full transition-none" style={{ width: `${audioDuration > 0 ? (currentTime / audioDuration) * 100 : 0}%` }} />
-                {/* Thumb indicator */}
-                <div className="absolute top-0 h-full w-1 bg-primary rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                  style={{ left: `calc(${audioDuration > 0 ? (currentTime / audioDuration) * 100 : 0}% - 2px)` }} />
-              </div>
-              <div className="flex justify-between text-[10px] text-muted-foreground tabular-nums" dir="ltr">
-                <span>{formatTime(currentTime)}</span>
-                <span>-{formatTime(Math.max(0, audioDuration - currentTime))}</span>
-                <span>{formatTime(audioDuration)}</span>
-              </div>
+            {/* Clean seek bar (no speaker colors) */}
+            <div className="flex-1 relative h-3 rounded-full bg-muted overflow-hidden cursor-pointer group"
+              onClick={e => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                seekTo(pct * audioDuration);
+              }}>
+              {/* Played progress */}
+              <div className="absolute h-full bg-primary rounded-full transition-none" style={{ width: `${audioDuration > 0 ? (currentTime / audioDuration) * 100 : 0}%` }} />
+              {/* Thumb indicator */}
+              <div className="absolute top-0 h-full w-1 bg-primary rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                style={{ left: `calc(${audioDuration > 0 ? (currentTime / audioDuration) * 100 : 0}% - 2px)` }} />
             </div>
+
+            {/* Time display inline */}
+            <span className="text-[10px] text-muted-foreground tabular-nums shrink-0 whitespace-nowrap" dir="ltr">
+              {formatTime(currentTime)} / {formatTime(audioDuration)}
+            </span>
+          </div>
+
+          {/* Row 2: Speaker color timeline (separate bar) */}
+          <div className="relative h-4 rounded-full bg-muted/50 overflow-hidden cursor-pointer"
+            onClick={e => {
+              const rect = e.currentTarget.getBoundingClientRect();
+              const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+              seekTo(pct * audioDuration);
+            }}>
+            {result.segments.map((seg, i) => {
+              const colorIdx = speakerIndex[seg.speaker_label] ?? 0;
+              const left = (seg.start / audioDuration) * 100;
+              const width = Math.max(((seg.end - seg.start) / audioDuration) * 100, 0.3);
+              return (
+                <div key={i} className="absolute h-full"
+                  style={{ left: `${left}%`, width: `${width}%`, backgroundColor: SPEAKER_BAR_COLORS[colorIdx % SPEAKER_BAR_COLORS.length], opacity: 0.7 }}
+                />
+              );
+            })}
+            {/* Playback position marker */}
+            <div className="absolute top-0 h-full w-0.5 bg-foreground/80 z-10"
+              style={{ left: `${audioDuration > 0 ? (currentTime / audioDuration) * 100 : 0}%` }} />
           </div>
 
           {/* Row 2: Speed, volume, keyboard hint */}
