@@ -1777,6 +1777,7 @@ def diarize():
     hf_token = request.form.get("hf_token", "")
     diarization_engine = request.form.get("diarization_engine", "auto").strip().lower()
     whisperx_model = request.form.get("whisperx_model", "large-v3").strip() or "large-v3"
+    pyannote_model_id = request.form.get("pyannote_model", "pyannote/speaker-diarization-3.1").strip() or "pyannote/speaker-diarization-3.1"
 
     allowed_engines = {"auto", "whisperx", "pyannote", "silence-gap"}
     if diarization_engine not in allowed_engines:
@@ -1975,9 +1976,9 @@ def diarize():
         if hf_token and diarization_engine in {"auto", "pyannote"}:
             try:
                 from pyannote.audio import Pipeline as PyannotePipeline
-                _log.info("Using pyannote.audio for speaker diarization")
+                _log.info(f"Using pyannote.audio for speaker diarization (model={pyannote_model_id})")
                 pipe = PyannotePipeline.from_pretrained(
-                    "pyannote/speaker-diarization-3.1",
+                    pyannote_model_id,
                     use_auth_token=hf_token,
                 )
                 if _has_torch and torch.cuda.is_available():

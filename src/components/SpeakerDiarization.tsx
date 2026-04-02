@@ -178,6 +178,7 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000", initia
   const [audioDuration, setAudioDuration] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [volume, setVolume] = useState(1);
+  const [playbackRate, setPlaybackRate] = useState(1);
   const [showBgJobs, setShowBgJobs] = useState(false);
   const [useTranscriptAssist, setUseTranscriptAssist] = useState(true);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -385,6 +386,7 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000", initia
     if (audioRef.current) { audioRef.current.pause(); }
     const audio = new Audio(url);
     audio.volume = volume;
+    audio.playbackRate = playbackRate;
     audioRef.current = audio;
 
     audio.addEventListener('loadedmetadata', () => setAudioDuration(audio.duration));
@@ -400,7 +402,7 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000", initia
     audio.addEventListener('pause', () => { setIsPlaying(false); cancelAnimationFrame(timeUpdateRef.current); });
 
     return audio;
-  }, [volume]);
+  }, [volume, playbackRate]);
 
   const togglePlayPause = useCallback(() => {
     if (!audioRef.current) return;
@@ -422,8 +424,11 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000", initia
   }, []);
 
   useEffect(() => {
-    if (audioRef.current) audioRef.current.volume = volume;
-  }, [volume]);
+    if (audioRef.current) {
+      audioRef.current.volume = volume;
+      audioRef.current.playbackRate = playbackRate;
+    }
+  }, [volume, playbackRate]);
 
   // Cleanup audio on unmount
   useEffect(() => () => {
@@ -462,10 +467,14 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000", initia
         formData.append("min_gap", minGap.toString());
         if (hfToken.trim()) formData.append("hf_token", hfToken.trim());
         if (mode === 'local') {
-          formData.append("model", pyannoteModel === 'community-1' ? 'pyannote/speaker-diarization-community-1' : 'pyannote/speaker-diarization-3.1');
+          formData.append("diarization_engine", hfToken.trim() ? "pyannote" : "silence-gap");
+          if (hfToken.trim()) {
+            formData.append("pyannote_model", pyannoteModel === 'community-1' ? 'pyannote/speaker-diarization-community-1' : 'pyannote/speaker-diarization-3.1');
+          }
         }
         if (mode === 'whisperx') {
           formData.append("use_whisperx", "1");
+          formData.append("diarization_engine", "whisperx");
           if (hfToken.trim()) {
             formData.append("pyannote_model", pyannoteModel === 'community-1' ? 'pyannote/speaker-diarization-community-1' : 'pyannote/speaker-diarization-3.1');
           }
@@ -1134,30 +1143,55 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000", initia
 
       {/* ──── Advanced Audio Player ──── */}
       {audioUrl && result && (
-        <div className="mb-4 p-3 rounded-xl border bg-gradient-to-l from-primary/5 to-transparent">
+        <div className="mb-4 p-3 rounded-xl border bg-gradient-to-l from-primary/5 to-transparent space-y-2"
+          tabIndex={0}
+          onKeyDown={e => {
+            if (e.target instanceof HTMLInputElement) return;
+            switch (e.key) {
+              case ' ': e.preventDefault(); togglePlayPause(); break;
+              case 'ArrowLeft': e.preventDefault(); skipBy(-5); break;
+              case 'ArrowRight': e.preventDefault(); skipBy(5); break;
+              case 'ArrowUp': e.preventDefault(); setVolume(v => Math.min(1, v + 0.1)); break;
+              case 'ArrowDown': e.preventDefault(); setVolume(v => Math.max(0, v - 0.1)); break;
+              case '[': e.preventDefault(); setPlaybackRate(r => Math.max(0.25, +(r - 0.25).toFixed(2))); break;
+              case ']': e.preventDefault(); setPlaybackRate(r => Math.min(3, +(r + 0.25).toFixed(2))); break;
+            }
+          }}
+        >
+          {/* Row 1: Main controls + timeline */}
           <div className="flex items-center gap-3">
-            {/* Controls */}
-            <div className="flex items-center gap-1">
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => skipBy(-10)}>
-                <SkipBack className="w-3.5 h-3.5" />
-              </Button>
+            {/* Transport controls */}
+            <div className="flex items-center gap-0.5">
+              <TooltipProvider delayDuration={200}>
+                <Tooltip><TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => skipBy(-5)}>
+                    <SkipBack className="w-3.5 h-3.5" />
+                  </Button>
+                </TooltipTrigger><TooltipContent side="bottom" className="text-xs">-5 שניות (←)</TooltipContent></Tooltip>
+              </TooltipProvider>
+
               <Button variant="default" size="icon" className="h-9 w-9 rounded-full" onClick={togglePlayPause}>
                 {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 mr-[-1px]" />}
               </Button>
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => skipBy(10)}>
-                <SkipForward className="w-3.5 h-3.5" />
-              </Button>
+
+              <TooltipProvider delayDuration={200}>
+                <Tooltip><TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => skipBy(5)}>
+                    <SkipForward className="w-3.5 h-3.5" />
+                  </Button>
+                </TooltipTrigger><TooltipContent side="bottom" className="text-xs">+5 שניות (→)</TooltipContent></Tooltip>
+              </TooltipProvider>
             </div>
 
-            {/* Timeline */}
+            {/* Timeline with speaker colors */}
             <div className="flex-1 space-y-1">
-              <div className="relative h-2 rounded-full bg-muted overflow-hidden cursor-pointer group"
+              <div className="relative h-3 rounded-full bg-muted overflow-hidden cursor-pointer group"
                 onClick={e => {
                   const rect = e.currentTarget.getBoundingClientRect();
-                  const pct = (e.clientX - rect.left) / rect.width;
+                  const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
                   seekTo(pct * audioDuration);
                 }}>
-                {/* Speaker color segments behind the progress */}
+                {/* Speaker color segments */}
                 {result.segments.map((seg, i) => {
                   const colorIdx = speakerIndex[seg.speaker_label] ?? 0;
                   const left = (seg.start / audioDuration) * 100;
@@ -1170,23 +1204,51 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000", initia
                 })}
                 {/* Played progress */}
                 <div className="absolute h-full bg-primary rounded-full transition-none" style={{ width: `${audioDuration > 0 ? (currentTime / audioDuration) * 100 : 0}%` }} />
+                {/* Thumb indicator */}
+                <div className="absolute top-0 h-full w-1 bg-primary rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                  style={{ left: `calc(${audioDuration > 0 ? (currentTime / audioDuration) * 100 : 0}% - 2px)` }} />
               </div>
-              <div className="flex justify-between text-[10px] text-muted-foreground" dir="ltr">
+              <div className="flex justify-between text-[10px] text-muted-foreground tabular-nums" dir="ltr">
                 <span>{formatTime(currentTime)}</span>
+                <span>-{formatTime(Math.max(0, audioDuration - currentTime))}</span>
                 <span>{formatTime(audioDuration)}</span>
               </div>
             </div>
+          </div>
+
+          {/* Row 2: Speed, volume, keyboard hint */}
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* Playback speed */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] text-muted-foreground">מהירות:</span>
+              {[0.5, 0.75, 1, 1.25, 1.5, 2].map(rate => (
+                <Button
+                  key={rate}
+                  variant={playbackRate === rate ? "default" : "outline"}
+                  size="sm"
+                  className={`h-6 px-1.5 text-[10px] min-w-[32px] ${playbackRate === rate ? "" : "text-muted-foreground"}`}
+                  onClick={() => setPlaybackRate(rate)}
+                >
+                  {rate}x
+                </Button>
+              ))}
+            </div>
 
             {/* Volume */}
-            <div className="hidden sm:flex items-center gap-1.5 w-24">
+            <div className="hidden sm:flex items-center gap-1.5 w-24 mr-auto">
               <Volume2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
               <Slider value={[volume]} onValueChange={([v]) => setVolume(v)} min={0} max={1} step={0.05} className="flex-1" />
             </div>
+
+            {/* Keyboard shortcuts hint */}
+            <span className="hidden md:block text-[9px] text-muted-foreground">
+              Space=ניגון · ←→=±5שנ · ↑↓=ווליום · []=מהירות
+            </span>
           </div>
 
           {/* Active speaker indicator */}
           {activeSegIdx >= 0 && (
-            <div className="mt-2 flex items-center gap-2 text-xs">
+            <div className="flex items-center gap-2 text-xs">
               <span className={`w-2.5 h-2.5 rounded-full ${SPEAKER_BADGE_COLORS[speakerIndex[displaySegments[activeSegIdx]?.speaker_label] ?? 0]}`} />
               <span className="font-medium">{getSpeakerName(displaySegments[activeSegIdx]?.speaker_label)}</span>
               <span className="text-muted-foreground truncate">{displaySegments[activeSegIdx]?.text.slice(0, 80)}...</span>
