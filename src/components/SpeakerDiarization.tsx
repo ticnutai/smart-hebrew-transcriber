@@ -1231,8 +1231,15 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000", initia
         </div>
       )}
 
-      {/* ──── Advanced Audio Player ──── */}
-      {audioUrl && result && (
+      {/* ──── Audio Player ──── */}
+      {audioUrl && result && (() => {
+        const pct = audioDuration > 0 ? (currentTime / audioDuration) * 100 : 0;
+        const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+          seekTo(ratio * audioDuration);
+        };
+        return (
         <div className="mb-4 p-3 rounded-xl border bg-gradient-to-l from-primary/5 to-transparent space-y-2"
           tabIndex={0}
           onKeyDown={e => {
@@ -1248,113 +1255,101 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000", initia
             }
           }}
         >
-          {/* Row 1: Transport controls + clean seek bar */}
-          <div className="flex items-center gap-2">
-            {/* Transport controls */}
+          {/* Row 1: Controls + Seek bar + Time — all one line, forced LTR for consistent click */}
+          <div className="flex items-center gap-2" dir="ltr">
+            {/* Transport: skip-back, play/pause, skip-forward */}
             <div className="flex items-center gap-0.5 shrink-0">
               <TooltipProvider delayDuration={200}>
                 <Tooltip><TooltipTrigger asChild>
                   <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => skipBy(-5)}>
                     <SkipBack className="w-3.5 h-3.5" />
                   </Button>
-                </TooltipTrigger><TooltipContent side="bottom" className="text-xs">-5 שניות (←)</TooltipContent></Tooltip>
+                </TooltipTrigger><TooltipContent side="bottom" className="text-xs">-5s</TooltipContent></Tooltip>
               </TooltipProvider>
-
               <Button variant="default" size="icon" className="h-9 w-9 rounded-full" onClick={togglePlayPause}>
-                {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 mr-[-1px]" />}
+                {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
               </Button>
-
               <TooltipProvider delayDuration={200}>
                 <Tooltip><TooltipTrigger asChild>
                   <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => skipBy(5)}>
                     <SkipForward className="w-3.5 h-3.5" />
                   </Button>
-                </TooltipTrigger><TooltipContent side="bottom" className="text-xs">+5 שניות (→)</TooltipContent></Tooltip>
+                </TooltipTrigger><TooltipContent side="bottom" className="text-xs">+5s</TooltipContent></Tooltip>
               </TooltipProvider>
             </div>
 
-            {/* Clean seek bar (no speaker colors) */}
-            <div className="flex-1 relative h-3 rounded-full bg-muted overflow-hidden cursor-pointer group"
-              onClick={e => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-                seekTo(pct * audioDuration);
-              }}>
-              {/* Played progress */}
-              <div className="absolute h-full bg-primary rounded-full transition-none" style={{ width: `${audioDuration > 0 ? (currentTime / audioDuration) * 100 : 0}%` }} />
-              {/* Thumb indicator */}
-              <div className="absolute top-0 h-full w-1 bg-primary rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                style={{ left: `calc(${audioDuration > 0 ? (currentTime / audioDuration) * 100 : 0}% - 2px)` }} />
+            {/* Time — left side */}
+            <span className="text-[11px] text-muted-foreground tabular-nums shrink-0 w-[46px] text-right">
+              {formatTime(currentTime)}
+            </span>
+
+            {/* Seek bar — clean, always LTR */}
+            <div className="flex-1 relative h-2.5 rounded-full bg-muted cursor-pointer group"
+              onClick={handleSeek}>
+              {/* Filled portion */}
+              <div className="absolute inset-y-0 left-0 rounded-full bg-primary/80 transition-none"
+                style={{ width: `${pct}%` }} />
+              {/* Thumb circle — always visible */}
+              <div className="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-primary shadow-md border-2 border-background transition-none pointer-events-none"
+                style={{ left: `calc(${pct}% - 7px)` }} />
             </div>
 
-            {/* Time display inline */}
-            <span className="text-[10px] text-muted-foreground tabular-nums shrink-0 whitespace-nowrap" dir="ltr">
-              {formatTime(currentTime)} / {formatTime(audioDuration)}
+            {/* Time — right side */}
+            <span className="text-[11px] text-muted-foreground tabular-nums shrink-0 w-[46px]">
+              {formatTime(audioDuration)}
             </span>
           </div>
 
-          {/* Row 2: Speaker color timeline (separate bar) */}
-          <div className="relative h-4 rounded-full bg-muted/50 overflow-hidden cursor-pointer"
-            onClick={e => {
-              const rect = e.currentTarget.getBoundingClientRect();
-              const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-              seekTo(pct * audioDuration);
-            }}>
+          {/* Row 2: Speaker color timeline — forced LTR */}
+          <div className="relative h-5 rounded bg-muted/40 overflow-hidden cursor-pointer" dir="ltr"
+            onClick={handleSeek}>
             {result.segments.map((seg, i) => {
               const colorIdx = speakerIndex[seg.speaker_label] ?? 0;
-              const left = (seg.start / audioDuration) * 100;
-              const width = Math.max(((seg.end - seg.start) / audioDuration) * 100, 0.3);
+              const segLeft = (seg.start / audioDuration) * 100;
+              const segWidth = Math.max(((seg.end - seg.start) / audioDuration) * 100, 0.3);
               return (
                 <div key={i} className="absolute h-full"
-                  style={{ left: `${left}%`, width: `${width}%`, backgroundColor: SPEAKER_BAR_COLORS[colorIdx % SPEAKER_BAR_COLORS.length], opacity: 0.7 }}
+                  style={{ left: `${segLeft}%`, width: `${segWidth}%`, backgroundColor: SPEAKER_BAR_COLORS[colorIdx % SPEAKER_BAR_COLORS.length], opacity: 0.75 }}
                 />
               );
             })}
-            {/* Playback position marker */}
-            <div className="absolute top-0 h-full w-0.5 bg-foreground/80 z-10"
-              style={{ left: `${audioDuration > 0 ? (currentTime / audioDuration) * 100 : 0}%` }} />
+            {/* Playhead line */}
+            <div className="absolute top-0 h-full w-[2px] bg-foreground z-10 pointer-events-none"
+              style={{ left: `${pct}%` }} />
           </div>
 
-          {/* Row 2: Speed, volume, keyboard hint */}
-          <div className="flex items-center gap-3 flex-wrap">
-            {/* Playback speed */}
+          {/* Row 3: Speed, Volume, Shortcuts */}
+          <div className="flex items-center gap-3 flex-wrap" dir="rtl">
             <div className="flex items-center gap-1.5">
               <span className="text-[10px] text-muted-foreground">מהירות:</span>
               {[0.5, 0.75, 1, 1.25, 1.5, 2].map(rate => (
-                <Button
-                  key={rate}
-                  variant={playbackRate === rate ? "default" : "outline"}
-                  size="sm"
+                <Button key={rate} variant={playbackRate === rate ? "default" : "outline"} size="sm"
                   className={`h-6 px-1.5 text-[10px] min-w-[32px] ${playbackRate === rate ? "" : "text-muted-foreground"}`}
-                  onClick={() => setPlaybackRate(rate)}
-                >
+                  onClick={() => setPlaybackRate(rate)}>
                   {rate}x
                 </Button>
               ))}
             </div>
-
-            {/* Volume */}
-            <div className="hidden sm:flex items-center gap-1.5 w-24 mr-auto">
+            <div className="hidden sm:flex items-center gap-1.5 w-24 mr-auto" dir="ltr">
               <Volume2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
               <Slider value={[volume]} onValueChange={([v]) => setVolume(v)} min={0} max={1} step={0.05} className="flex-1" />
             </div>
-
-            {/* Keyboard shortcuts hint */}
             <span className="hidden md:block text-[9px] text-muted-foreground">
               Space=ניגון · ←→=±5שנ · ↑↓=ווליום · []=מהירות
             </span>
           </div>
 
-          {/* Active speaker indicator */}
+          {/* Row 4: Active speaker indicator */}
           {activeSegIdx >= 0 && (
-            <div className="flex items-center gap-2 text-xs">
-              <span className={`w-2.5 h-2.5 rounded-full ${SPEAKER_BADGE_COLORS[speakerIndex[displaySegments[activeSegIdx]?.speaker_label] ?? 0]}`} />
+            <div className="flex items-center gap-2 text-xs" dir="rtl">
+              <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${SPEAKER_BADGE_COLORS[speakerIndex[displaySegments[activeSegIdx]?.speaker_label] ?? 0]}`} />
               <span className="font-medium">{getSpeakerName(displaySegments[activeSegIdx]?.speaker_label)}</span>
               <span className="text-muted-foreground truncate">{displaySegments[activeSegIdx]?.text.slice(0, 80)}...</span>
             </div>
           )}
         </div>
-      )}
+        );
+      })()}
 
       {/* Results */}
       {result && (
