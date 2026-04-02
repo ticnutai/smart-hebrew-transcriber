@@ -178,6 +178,7 @@ const Settings = () => {
           claude_key: claudeKey || null,
           assemblyai_key: primaryAssembly || null,
           deepgram_key: primaryDeepgram || null,
+          huggingface_key: huggingfaceKey.trim() || null,
           openai_keys_pool: openaiPool.length ? openaiPool : null,
           google_keys_pool: googlePool.length ? googlePool : null,
           groq_keys_pool: groqPool.length ? groqPool : null,
