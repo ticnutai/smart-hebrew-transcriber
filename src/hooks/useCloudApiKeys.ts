@@ -145,11 +145,11 @@ export const useCloudApiKeys = () => {
             whisper_server_url: data.whisper_server_url || '',
             whisper_api_key: data.whisper_api_key || '',
             ollama_base_url: data.ollama_base_url || '',
-            openai_keys_pool: data.openai_keys_pool || [],
-            google_keys_pool: data.google_keys_pool || [],
-            groq_keys_pool: data.groq_keys_pool || [],
-            assemblyai_keys_pool: data.assemblyai_keys_pool || [],
-            deepgram_keys_pool: data.deepgram_keys_pool || [],
+            openai_keys_pool: (Array.isArray(data.openai_keys_pool) ? data.openai_keys_pool : []) as string[],
+            google_keys_pool: (Array.isArray(data.google_keys_pool) ? data.google_keys_pool : []) as string[],
+            groq_keys_pool: (Array.isArray(data.groq_keys_pool) ? data.groq_keys_pool : []) as string[],
+            assemblyai_keys_pool: (Array.isArray(data.assemblyai_keys_pool) ? data.assemblyai_keys_pool : []) as string[],
+            deepgram_keys_pool: (Array.isArray(data.deepgram_keys_pool) ? data.deepgram_keys_pool : []) as string[],
           };
           cachedKeys = loaded;
           syncToLocalStorage(loaded);
