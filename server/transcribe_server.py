@@ -1750,6 +1750,149 @@ def unload_models_endpoint():
     return jsonify({"status": "ok", "unloaded": count})
 
 
+@app.route("/diarize-stream", methods=["POST"])
+def diarize_stream():
+    """Transcribe audio with speaker diarization — SSE streaming progress & partial segments.
+
+    Sends events: progress (stage+percent), segment (each segment as ready), done (final result), error.
+    """
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+
+    audio_file = request.files["file"]
+    model_id = request.form.get("model", _current_model_id or DEFAULT_MODEL)
+    language = request.form.get("language", "he")
+    min_gap = float(request.form.get("min_gap", "1.5"))
+    hf_token = request.form.get("hf_token", "")
+    diarization_engine = request.form.get("diarization_engine", "auto").strip().lower()
+    pyannote_model_id = request.form.get("pyannote_model", "pyannote/speaker-diarization-3.1").strip() or "pyannote/speaker-diarization-3.1"
+
+    resolved = MODEL_REGISTRY.get(model_id, model_id)
+    suffix = _safe_suffix(audio_file.filename)
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        audio_file.save(tmp)
+        tmp_path = tmp.name
+
+    def generate():
+        try:
+            start = time.time()
+            yield f"data: {json.dumps({'type': 'progress', 'stage': 'טוען מודל...', 'percent': 5})}\n\n"
+
+            model = load_model(resolved)
+
+            yield f"data: {json.dumps({'type': 'progress', 'stage': 'מתמלל אודיו...', 'percent': 15})}\n\n"
+
+            def _run(m):
+                return m.transcribe(
+                    tmp_path,
+                    language=language if language != "auto" else None,
+                    word_timestamps=True,
+                    vad_filter=True,
+                    vad_parameters=dict(min_silence_duration_ms=500, speech_pad_ms=200),
+                )
+
+            try:
+                segments_raw, info = _run(model)
+            except Exception as fa_err:
+                if "flash attention" in str(fa_err).lower():
+                    model = _reload_model_without_flash(resolved)
+                    segments_raw, info = _run(model)
+                else:
+                    raise
+
+            yield f"data: {json.dumps({'type': 'progress', 'stage': 'בונה קטעים...', 'percent': 50})}\n\n"
+
+            raw_segments = []
+            for seg in segments_raw:
+                words = []
+                if seg.words:
+                    words = [{"word": w.word.strip(), "start": round(w.start, 3),
+                              "end": round(w.end, 3), "probability": round(w.probability, 3)}
+                             for w in seg.words]
+                raw_segments.append({
+                    "text": seg.text.strip(),
+                    "start": round(seg.start, 3),
+                    "end": round(seg.end, 3),
+                    "words": words,
+                })
+
+            yield f"data: {json.dumps({'type': 'progress', 'stage': f'מעבד {len(raw_segments)} קטעים...', 'percent': 55})}\n\n"
+
+            # Speaker diarization
+            speaker_segments = None
+            diarization_method = "silence-gap"
+
+            if hf_token and diarization_engine in {"auto", "pyannote"}:
+                yield f"data: {json.dumps({'type': 'progress', 'stage': 'מריץ זיהוי דוברים (pyannote)...', 'percent': 65})}\n\n"
+                try:
+                    from pyannote.audio import Pipeline as PyannotePipeline
+                    pipe = PyannotePipeline.from_pretrained(pyannote_model_id, use_auth_token=hf_token)
+                    if _has_torch and torch.cuda.is_available():
+                        pipe.to(torch.device("cuda"))
+                    diarization = pipe(tmp_path)
+                    speaker_segments = []
+                    for turn, _, speaker in diarization.itertracks(yield_label=True):
+                        speaker_segments.append({"speaker": speaker, "start": round(turn.start, 3), "end": round(turn.end, 3)})
+                    diarization_method = "pyannote"
+                except ImportError:
+                    _log.warning("pyannote.audio not installed — falling back to silence-gap")
+                except Exception as e:
+                    _log.warning(f"pyannote failed: {e} — falling back to silence-gap")
+
+            yield f"data: {json.dumps({'type': 'progress', 'stage': 'מקצה דוברים לקטעים...', 'percent': 85})}\n\n"
+
+            # Assign speakers
+            if speaker_segments and diarization_method == "pyannote":
+                for seg in raw_segments:
+                    best_speaker, best_overlap = "SPEAKER_00", 0
+                    for sp in speaker_segments:
+                        overlap = min(seg["end"], sp["end"]) - max(seg["start"], sp["start"])
+                        if overlap > best_overlap:
+                            best_overlap = overlap
+                            best_speaker = sp["speaker"]
+                    seg["speaker"] = best_speaker
+            else:
+                current_speaker = 0
+                for i, seg in enumerate(raw_segments):
+                    if i > 0:
+                        gap = seg["start"] - raw_segments[i - 1]["end"]
+                        if gap >= min_gap:
+                            current_speaker = (current_speaker + 1) % 10
+                    seg["speaker"] = f"SPEAKER_{current_speaker:02d}"
+
+            # Normalize labels
+            seen_speakers, speaker_counter = {}, 0
+            for seg in raw_segments:
+                sp = seg["speaker"]
+                if sp not in seen_speakers:
+                    seen_speakers[sp] = f"דובר {speaker_counter + 1}"
+                    speaker_counter += 1
+                seg["speaker_label"] = seen_speakers[sp]
+
+            # Stream each segment
+            for idx, seg in enumerate(raw_segments):
+                pct = 85 + int((idx + 1) / len(raw_segments) * 14)
+                yield f"data: {json.dumps({'type': 'segment', 'index': idx, 'total': len(raw_segments), 'percent': pct, 'segment': seg})}\n\n"
+
+            elapsed = time.time() - start
+            full_text = " ".join(s["text"] for s in raw_segments)
+
+            yield f"data: {json.dumps({'type': 'done', 'text': full_text, 'segments': raw_segments, 'speakers': list(seen_speakers.values()), 'speaker_count': speaker_counter, 'duration': round(info.duration, 2), 'language': info.language, 'model': resolved, 'processing_time': round(elapsed, 2), 'diarization_method': diarization_method})}\n\n"
+
+        except Exception as e:
+            _log.error(f"Diarize-stream error: {e}\n{_tb_module.format_exc()}")
+            yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+    return app.response_class(generate(), mimetype="text/event-stream",
+                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 @app.route("/diarize", methods=["POST"])
 def diarize():
     """Transcribe audio with speaker diarization.

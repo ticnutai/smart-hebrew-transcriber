@@ -181,6 +181,8 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000", initia
   const [playbackRate, setPlaybackRate] = useState(1);
   const [showBgJobs, setShowBgJobs] = useState(false);
   const [useTranscriptAssist, setUseTranscriptAssist] = useState(true);
+  const [streamingSegments, setStreamingSegments] = useState<DiarizedSegment[]>([]);
+  const [streamProgress, setStreamProgress] = useState<{ stage: string; percent: number } | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounterRef = useRef(0);
@@ -479,19 +481,72 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000", initia
             formData.append("pyannote_model", pyannoteModel === 'community-1' ? 'pyannote/speaker-diarization-community-1' : 'pyannote/speaker-diarization-3.1');
           }
         }
+
+        // Use streaming endpoint for live progress
+        setStreamingSegments([]);
+        setStreamProgress({ stage: 'מתחבר לשרת...', percent: 0 });
         let resp: Response;
         try {
-          resp = await fetch(`${serverUrl}/diarize`, { method: "POST", body: formData });
+          resp = await fetch(`${serverUrl}/diarize-stream`, { method: "POST", body: formData });
         } catch (fetchErr) {
-          throw new Error(`לא ניתן להתחבר לשרת המקומי (${serverUrl}). וודא שהשרת רץ או בחר מנוע ענן (AssemblyAI / Deepgram / OpenAI).`);
+          throw new Error(`לא ניתן להתחבר לשרת המקומי (${serverUrl}). וודא שהשרת רץ או בחר מנוע ענן.`);
         }
-        if (!resp.ok) {
+        if (!resp.ok || !resp.body) {
           const err = await resp.json().catch(() => ({ error: "Server error" }));
           throw new Error(err.error || `HTTP ${resp.status}`);
         }
-        const data: DiarizationResult = await resp.json();
-        setResult(data);
-        toast({ title: "זיהוי דוברים הושלם", description: `${data.speaker_count} דוברים זוהו (${mode === 'whisperx' ? 'WhisperX' : 'מקומי'})` });
+
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let finalResult: DiarizationResult | null = null;
+        const collectedSegments: DiarizedSegment[] = [];
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const event = JSON.parse(line.slice(6));
+              if (event.type === 'progress') {
+                setStreamProgress({ stage: event.stage, percent: event.percent });
+              } else if (event.type === 'segment') {
+                const seg = event.segment as DiarizedSegment;
+                collectedSegments.push(seg);
+                setStreamingSegments([...collectedSegments]);
+                setStreamProgress({ stage: `קטע ${event.index + 1}/${event.total}`, percent: event.percent });
+                // Save partial progress
+                try {
+                  localStorage.setItem('diarize_partial_segments', JSON.stringify(collectedSegments));
+                  localStorage.setItem('diarize_partial_file', file.name);
+                } catch { /* quota */ }
+              } else if (event.type === 'done') {
+                finalResult = event as DiarizationResult;
+              } else if (event.type === 'error') {
+                throw new Error(event.error);
+              }
+            } catch (parseErr) {
+              if (parseErr instanceof Error && parseErr.message !== 'Unexpected end of JSON input') throw parseErr;
+            }
+          }
+        }
+
+        if (finalResult) {
+          setResult(finalResult);
+          setStreamingSegments([]);
+          setStreamProgress(null);
+          // Clean up partial progress
+          localStorage.removeItem('diarize_partial_segments');
+          localStorage.removeItem('diarize_partial_file');
+          toast({ title: "זיהוי דוברים הושלם", description: `${finalResult.speaker_count} דוברים זוהו (${mode === 'whisperx' ? 'WhisperX' : 'מקומי'})` });
+        } else {
+          throw new Error("השרת לא החזיר תוצאה מלאה");
+        }
       } else if (mode === 'openai') {
         if (!cloudApiKey.trim()) throw new Error("נדרש מפתח API של OpenAI");
         const formData = new FormData();
@@ -975,10 +1030,17 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000", initia
         onClick={() => !isProcessing && !preloadedFileRef.current && fileInputRef.current?.click()}
       >
         {isProcessing ? (
-          <div className="flex flex-col items-center gap-2 w-full max-w-xs mx-auto">
+          <div className="flex flex-col items-center gap-2 w-full max-w-sm mx-auto">
             <Loader2 className="w-8 h-8 animate-spin text-primary" />
-            <span className="text-sm font-medium">{browserProgress ? browserProgress.stage : "מזהה דוברים..."}</span>
-            {browserProgress && <Progress value={browserProgress.percent} className="w-full h-2" />}
+            <span className="text-sm font-medium">
+              {streamProgress ? streamProgress.stage : browserProgress ? browserProgress.stage : "מזהה דוברים..."}
+            </span>
+            {(streamProgress || browserProgress) && (
+              <Progress value={streamProgress?.percent ?? browserProgress?.percent ?? 0} className="w-full h-2.5" />
+            )}
+            {streamProgress && (
+              <span className="text-[10px] text-muted-foreground">{streamProgress.percent}%</span>
+            )}
           </div>
         ) : preloadedFileRef.current && !result ? (
           <div className="flex flex-col items-center gap-3">
@@ -1138,6 +1200,34 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000", initia
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* ──── Live Streaming Segments Preview ──── */}
+      {isProcessing && streamingSegments.length > 0 && (
+        <div className="mb-4 p-3 rounded-xl border border-primary/30 bg-primary/5 space-y-2 max-h-64 overflow-y-auto">
+          <div className="flex items-center justify-between sticky top-0 bg-primary/5 pb-1">
+            <span className="text-xs font-medium flex items-center gap-1.5">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              תצוגה חיה — {streamingSegments.length} קטעים זוהו
+            </span>
+            <Badge variant="outline" className="text-[10px]">
+              {streamingSegments.filter((s, i, a) => a.findIndex(x => x.speaker_label === s.speaker_label) === i).length} דוברים
+            </Badge>
+          </div>
+          {streamingSegments.map((seg, i) => {
+            const uniqueSpeakers = [...new Set(streamingSegments.map(s => s.speaker_label))];
+            const colorIdx = uniqueSpeakers.indexOf(seg.speaker_label);
+            return (
+              <div key={i} className="flex gap-2 text-xs animate-in fade-in slide-in-from-bottom-1 duration-300">
+                <Badge variant="secondary" className={`shrink-0 text-[10px] ${SPEAKER_BADGE_COLORS[colorIdx % SPEAKER_BADGE_COLORS.length]}`}>
+                  {seg.speaker_label}
+                </Badge>
+                <span className="text-muted-foreground shrink-0 tabular-nums">{formatTime(seg.start)}</span>
+                <span className="flex-1 truncate">{seg.text}</span>
+              </div>
+            );
+          })}
         </div>
       )}
 
