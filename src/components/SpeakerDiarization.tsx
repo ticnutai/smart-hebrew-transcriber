@@ -62,6 +62,20 @@ const SPEAKER_BAR_COLORS = [
   "#06b6d4", "#eab308", "#ef4444", "#6366f1", "#14b8a6",
 ];
 
+const SPEAKER_ROLE_OPTIONS = [
+  { value: '', label: 'ללא סיווג' },
+  { value: 'interviewer', label: 'מראיין' },
+  { value: 'interviewee', label: 'מרואיין' },
+  { value: 'host', label: 'מנחה' },
+  { value: 'guest', label: 'אורח' },
+  { value: 'moderator', label: 'מנהל דיון' },
+  { value: 'caller', label: 'מתקשר' },
+  { value: 'customer', label: 'לקוח' },
+  { value: 'agent', label: 'נציג שירות' },
+  { value: 'teacher', label: 'מרצה' },
+  { value: 'student', label: 'תלמיד' },
+];
+
 function formatTime(sec: number): string {
   const m = Math.floor(sec / 60);
   const s = Math.floor(sec % 60);
@@ -82,17 +96,24 @@ interface SpeakerDiarizationProps {
 export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000" }: SpeakerDiarizationProps) => {
   const [result, setResult] = useState<DiarizationResult | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const [minGap, setMinGap] = useState(1.5);
   const [hfToken, setHfToken] = useState("");
   const [diarizationEngine, setDiarizationEngine] = useState<"auto" | "whisperx" | "pyannote" | "silence-gap">("auto");
   const [activeSpeakerFilter, setActiveSpeakerFilter] = useState<string | null>(null);
   const [speakerNames, setSpeakerNames] = useState<Record<string, string>>({});
+  const [speakerRoles, setSpeakerRoles] = useState<Record<string, string>>({});
   const [editingSpeaker, setEditingSpeaker] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dragCounterRef = useRef(0);
 
   // Get display name for a speaker (custom name or original)
   const getSpeakerName = (originalLabel: string) => speakerNames[originalLabel] || originalLabel;
+  const getSpeakerRoleLabel = (speakerLabel: string) => {
+    const role = speakerRoles[speakerLabel] || '';
+    return SPEAKER_ROLE_OPTIONS.find(r => r.value === role)?.label || '';
+  };
 
   const startEditingSpeaker = (label: string) => {
     setEditingSpeaker(label);
@@ -108,6 +129,12 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000" }: Spea
     }));
     setEditingSpeaker(null);
     toast({ title: "שם דובר עודכן", description: `${editingSpeaker} → ${trimmed || editingSpeaker}` });
+  };
+
+  const setSpeakerRole = (speakerLabel: string, role: string) => {
+    setSpeakerRoles(prev => ({ ...prev, [speakerLabel]: role }));
+    const roleText = SPEAKER_ROLE_OPTIONS.find(r => r.value === role)?.label || 'ללא סיווג';
+    toast({ title: "סיווג עודכן", description: `${getSpeakerName(speakerLabel)}: ${roleText}` });
   };
 
   // Compute speaker statistics
@@ -207,10 +234,57 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000" }: Spea
     e.target.value = "";
   };
 
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current += 1;
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current -= 1;
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0;
+      setIsDragging(false);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    dragCounterRef.current = 0;
+
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+
+    if (!(file.type.startsWith('audio/') || file.type.startsWith('video/'))) {
+      toast({
+        title: "סוג קובץ לא נתמך",
+        description: "יש להעלות קובץ אודיו או וידאו",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    handleDiarize(file);
+  };
+
   const copyAsText = () => {
     if (!result) return;
     const text = result.segments
-      .map(s => `[${getSpeakerName(s.speaker_label)}] (${formatTime(s.start)}) ${s.text}`)
+      .map(s => {
+        const roleLabel = getSpeakerRoleLabel(s.speaker_label);
+        const roleSuffix = roleLabel ? ` (${roleLabel})` : '';
+        return `[${getSpeakerName(s.speaker_label)}${roleSuffix}] (${formatTime(s.start)}) ${s.text}`;
+      })
       .join("\n");
     navigator.clipboard.writeText(text);
     toast({ title: "הועתק", description: "התמלול עם דוברים הועתק ללוח" });
@@ -220,7 +294,7 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000" }: Spea
     if (!result) return;
     const header = `זיהוי דוברים — ${result.speaker_count} דוברים | ${formatTime(result.duration)} | ${result.diarization_method}\n`;
     const statsSection = speakerStats.map(s =>
-      `${getSpeakerName(s.label)}: ${formatDuration(s.totalTime)} (${Math.round(s.percentage)}%) | ${s.wordCount} מילים | ${s.segmentCount} קטעים`
+      `${getSpeakerName(s.label)}${getSpeakerRoleLabel(s.label) ? ` [${getSpeakerRoleLabel(s.label)}]` : ''}: ${formatDuration(s.totalTime)} (${Math.round(s.percentage)}%) | ${s.wordCount} מילים | ${s.segmentCount} קטעים`
     ).join("\n");
     const separator = "\n" + "─".repeat(50) + "\n\n";
     const segments = result.segments
@@ -249,9 +323,11 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000" }: Spea
       const ms = Math.round((sec % 1) * 1000);
       return `${pad(h)}:${pad(m)}:${pad(s)},${ms.toString().padStart(3, "0")}`;
     };
-    const srt = result.segments.map((seg, i) =>
-      `${i + 1}\n${formatSrt(seg.start)} --> ${formatSrt(seg.end)}\n[${getSpeakerName(seg.speaker_label)}] ${seg.text}`
-    ).join("\n\n");
+    const srt = result.segments.map((seg, i) => {
+      const roleLabel = getSpeakerRoleLabel(seg.speaker_label);
+      const roleSuffix = roleLabel ? ` (${roleLabel})` : '';
+      return `${i + 1}\n${formatSrt(seg.start)} --> ${formatSrt(seg.end)}\n[${getSpeakerName(seg.speaker_label)}${roleSuffix}] ${seg.text}`;
+    }).join("\n\n");
     const blob = new Blob(["\uFEFF" + srt], { type: "text/srt;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -335,31 +411,50 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000" }: Spea
         onChange={handleFileSelect}
         className="hidden"
       />
-      <Button
-        onClick={() => fileInputRef.current?.click()}
-        disabled={isProcessing}
-        className="w-full mb-4"
+      <div
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+        className={`mb-4 rounded-xl border-2 border-dashed p-3 transition-all ${
+          isDragging ? "border-primary bg-primary/10" : "border-border"
+        }`}
       >
-        {isProcessing ? (
-          <>
-            <Loader2 className="w-4 h-4 ml-2 animate-spin" />
-            מזהה דוברים...
-          </>
-        ) : (
-          <>
-            <Upload className="w-4 h-4 ml-2" />
-            העלה קובץ לזיהוי דוברים
-          </>
+        <Button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isProcessing}
+          className="w-full"
+        >
+          {isProcessing ? (
+            <>
+              <Loader2 className="w-4 h-4 ml-2 animate-spin" />
+              מזהה דוברים...
+            </>
+          ) : (
+            <>
+              <Upload className="w-4 h-4 ml-2" />
+              העלה קובץ לזיהוי דוברים
+            </>
+          )}
+        </Button>
+        {!isProcessing && (
+          <p className="text-xs text-muted-foreground mt-2 text-center">
+            {isDragging ? "שחרר כאן את הקובץ" : "אפשר גם לגרור קובץ אודיו/וידאו לכאן"}
+          </p>
         )}
-      </Button>
+      </div>
 
       {/* Results */}
       {result && (
         <Tabs defaultValue="stats" className="mt-2">
-          <TabsList className="w-full grid grid-cols-3 mb-3">
+          <TabsList className="w-full grid grid-cols-4 mb-3">
             <TabsTrigger value="stats" className="text-xs gap-1">
               <BarChart3 className="w-3.5 h-3.5" />
               סטטיסטיקות
+            </TabsTrigger>
+            <TabsTrigger value="classify" className="text-xs gap-1">
+              <Users className="w-3.5 h-3.5" />
+              סיווג
             </TabsTrigger>
             <TabsTrigger value="timeline" className="text-xs gap-1">
               <Clock className="w-3.5 h-3.5" />
@@ -502,6 +597,58 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000" }: Spea
             </div>
           </TabsContent>
 
+          {/* === Classification Tab === */}
+          <TabsContent value="classify" className="space-y-4">
+            <div className="text-sm text-muted-foreground">
+              סווג כל דובר עם תפקיד. הסיווג ישולב בהעתקה ובקבצי הייצוא.
+            </div>
+            <div className="space-y-3">
+              {result.speakers.map((sp) => {
+                const colorIdx = speakerIndex[sp] ?? 0;
+                const currentRole = speakerRoles[sp] || '';
+                return (
+                  <div
+                    key={sp}
+                    className={`p-3 rounded-lg border ${SPEAKER_COLORS[colorIdx % SPEAKER_COLORS.length]}`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <span className={`w-3 h-3 rounded-full ${SPEAKER_BADGE_COLORS[colorIdx % SPEAKER_BADGE_COLORS.length]}`} />
+                        <span className="font-semibold text-sm truncate">{getSpeakerName(sp)}</span>
+                      </div>
+                      <select
+                        value={currentRole || '__none__'}
+                        onChange={(e) => setSpeakerRole(sp, e.target.value === '__none__' ? '' : e.target.value)}
+                        className="h-8 rounded-md border border-input bg-background px-2 text-xs min-w-[160px]"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {SPEAKER_ROLE_OPTIONS.map((opt) => (
+                          <option key={opt.value || '__none__'} value={opt.value || '__none__'}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="mt-2 flex items-center gap-2">
+                      <Label className="text-[11px] text-muted-foreground whitespace-nowrap">שם מותאם:</Label>
+                      <Input
+                        defaultValue={getSpeakerName(sp)}
+                        className="h-7 text-xs flex-1"
+                        onBlur={(e) => {
+                          const val = e.target.value.trim();
+                          if (val && val !== sp) setSpeakerNames(prev => ({ ...prev, [sp]: val }));
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </TabsContent>
+
           {/* === Timeline Tab === */}
           <TabsContent value="timeline" className="space-y-2">
             <div className="text-xs text-muted-foreground mb-2">
@@ -619,7 +766,10 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000" }: Spea
                   >
                     <div className="flex items-center gap-2 mb-1">
                       <span className={`w-2 h-2 rounded-full ${SPEAKER_BADGE_COLORS[colorIdx % SPEAKER_BADGE_COLORS.length]}`} />
-                      <span className="font-semibold text-xs">{getSpeakerName(seg.speaker_label)}</span>
+                      <span className="font-semibold text-xs">
+                        {getSpeakerName(seg.speaker_label)}
+                        {getSpeakerRoleLabel(seg.speaker_label) ? ` (${getSpeakerRoleLabel(seg.speaker_label)})` : ''}
+                      </span>
                       <span className="text-xs text-muted-foreground">
                         {formatTime(seg.start)} – {formatTime(seg.end)}
                       </span>
