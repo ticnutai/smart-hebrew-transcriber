@@ -228,6 +228,7 @@ const Settings = () => {
       if (primaryAssembly) setAssemblyaiKey(primaryAssembly);
       if (primaryDeepgram) setDeepgramKey(primaryDeepgram);
 
+      invalidateApiKeysCache();
       toast.success("המפתחות נשמרו בהצלחה בענן! ☁️");
     } catch (error) {
       console.error("Error saving keys:", error);
