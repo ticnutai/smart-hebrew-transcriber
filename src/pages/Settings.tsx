@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { Settings as SettingsIcon, ArrowRight, LogOut, Eye, EyeOff, Wrench, Cpu, Palette, Key } from "lucide-react";
+import { Settings as SettingsIcon, ArrowRight, LogOut, Eye, EyeOff, Wrench, Cpu, Palette, Key, Pencil, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import DevToolsPanel from "@/components/DevToolsPanel";
 import { OllamaManager } from "@/components/OllamaManager";
@@ -35,6 +35,8 @@ const Settings = () => {
   const [showClaude, setShowClaude] = useState(false);
   const [showAssemblyAI, setShowAssemblyAI] = useState(false);
   const [showDeepgram, setShowDeepgram] = useState(false);
+  const [huggingfaceKey, setHuggingfaceKey] = useState("");
+  const [showHuggingface, setShowHuggingface] = useState(false);
   const [userIdentifier, setUserIdentifier] = useState("");
 
   useEffect(() => {
@@ -88,6 +90,7 @@ const Settings = () => {
         if (data.claude_key) setClaudeKey(data.claude_key);
         if (data.assemblyai_key) setAssemblyaiKey(data.assemblyai_key);
         if (data.deepgram_key) setDeepgramKey(data.deepgram_key);
+        if (data.huggingface_key) setHuggingfaceKey(data.huggingface_key);
 
         // Multi-key pools: load from cloud first, fall back to localStorage
         const loadPool = (cloudPool: any, poolStorageKey: string, fallback?: string, setter?: (v: string) => void) => {
@@ -120,6 +123,7 @@ const Settings = () => {
         const savedClaude = getApiKey("claude_api_key");
         const savedAssemblyAI = getApiKey("assemblyai_api_key");
         const savedDeepgram = getApiKey("deepgram_api_key");
+        const savedHuggingface = getApiKey("huggingface_api_key");
         
         if (savedOpenAI) setOpenaiKey(savedOpenAI);
         if (savedGoogle) setGoogleKey(savedGoogle);
@@ -127,6 +131,7 @@ const Settings = () => {
         if (savedClaude) setClaudeKey(savedClaude);
         if (savedAssemblyAI) setAssemblyaiKey(savedAssemblyAI);
         if (savedDeepgram) setDeepgramKey(savedDeepgram);
+        if (savedHuggingface) setHuggingfaceKey(savedHuggingface);
 
         loadPoolOrFallback("openai_api_keys_pool", savedOpenAI, setOpenaiKeysPoolText);
         loadPoolOrFallback("google_api_keys_pool", savedGoogle, setGoogleKeysPoolText);
@@ -173,6 +178,7 @@ const Settings = () => {
           claude_key: claudeKey || null,
           assemblyai_key: primaryAssembly || null,
           deepgram_key: primaryDeepgram || null,
+          huggingface_key: huggingfaceKey.trim() || null,
           openai_keys_pool: openaiPool.length ? openaiPool : null,
           google_keys_pool: googlePool.length ? googlePool : null,
           groq_keys_pool: groqPool.length ? groqPool : null,
@@ -202,6 +208,7 @@ const Settings = () => {
         localStorage.setItem("groq_api_keys_pool", JSON.stringify(groqPool));
       }
       if (claudeKey) localStorage.setItem("claude_api_key", claudeKey);
+      if (huggingfaceKey.trim()) localStorage.setItem("huggingface_api_key", huggingfaceKey.trim());
       if (primaryAssembly) {
         localStorage.setItem("assemblyai_api_key", primaryAssembly);
         localStorage.setItem("assemblyai_api_keys_pool", JSON.stringify(assemblyPool));
@@ -514,6 +521,60 @@ const Settings = () => {
                 dir="ltr"
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="huggingface">HuggingFace Token</Label>
+              <div className="relative flex gap-1">
+                <Input
+                  id="huggingface"
+                  type={showHuggingface ? "text" : "password"}
+                  placeholder="hf_..."
+                  value={huggingfaceKey}
+                  onChange={(e) => setHuggingfaceKey(e.target.value)}
+                  dir="ltr"
+                  className="pr-10"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="absolute left-0 top-0 h-full px-3 hover:bg-transparent"
+                  onClick={() => setShowHuggingface(!showHuggingface)}
+                  title="הצג/הסתר"
+                >
+                  {showHuggingface ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="shrink-0"
+                  onClick={() => {
+                    setHuggingfaceKey("");
+                    setShowHuggingface(true);
+                  }}
+                  title="ערוך"
+                >
+                  <Pencil className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="shrink-0 text-destructive hover:text-destructive"
+                  onClick={() => {
+                    setHuggingfaceKey("");
+                    toast.success("הטוקן נמחק — לחץ שמור לעדכון בענן");
+                  }}
+                  title="מחק"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground text-right">
+                טוקן עבור HuggingFace — נדרש לזיהוי דוברים עם מודל pyannote (נשמר בענן)
+              </p>
             </div>
 
             <div className="space-y-2">
