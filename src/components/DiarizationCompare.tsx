@@ -1,7 +1,8 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { BarChart3, Clock, Users, MessageSquare, ArrowLeftRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { BarChart3, Clock, Users, MessageSquare, ArrowLeftRight, FileText, Copy } from "lucide-react";
 
 interface DiarizedSegment {
   text: string;
@@ -123,6 +124,9 @@ function computeAgreement(a: DiarizationResult, b: DiarizationResult): number {
 }
 
 export const DiarizationCompare = ({ entries }: DiarizationCompareProps) => {
+  const [showTranscript, setShowTranscript] = useState<number | null>(null);
+  const [showSideBySide, setShowSideBySide] = useState(false);
+
   const comparisons = useMemo(() => {
     if (entries.length < 2) return [];
     const results: Array<{ a: string; b: string; agreement: number }> = [];
@@ -180,7 +184,7 @@ export const DiarizationCompare = ({ entries }: DiarizationCompareProps) => {
       )}
 
       {/* Side-by-side comparison */}
-      <div className="grid grid-cols-1 gap-3">
+      <div className={`grid gap-3 ${entries.length === 2 ? 'grid-cols-2' : entries.length >= 3 ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3' : 'grid-cols-1'}`}>
         {entries.map((entry, idx) => {
           const dist = getSpeakerDistribution(entry.result);
           return (
@@ -262,6 +266,106 @@ export const DiarizationCompare = ({ entries }: DiarizationCompareProps) => {
           );
         })}
       </div>
+
+      {/* ──── Action buttons ──── */}
+      <div className="flex gap-2 flex-wrap">
+        <Button variant="outline" size="sm" className="text-xs gap-1" onClick={() => setShowSideBySide(!showSideBySide)}>
+          <FileText className="w-3.5 h-3.5" />
+          {showSideBySide ? 'הסתר השוואת טקסט' : 'השוואת טקסט side-by-side'}
+        </Button>
+        {entries.map((entry, idx) => (
+          <Button key={idx} variant={showTranscript === idx ? 'default' : 'outline'} size="sm" className="text-xs gap-1"
+            onClick={() => setShowTranscript(showTranscript === idx ? null : idx)}>
+            <MessageSquare className="w-3.5 h-3.5" />
+            תמלול נקי — {entry.label}
+          </Button>
+        ))}
+      </div>
+
+      {/* ──── Clean Transcript View ──── */}
+      {showTranscript !== null && entries[showTranscript] && (() => {
+        const entry = entries[showTranscript];
+        // Merge consecutive segments from same speaker
+        const merged: DiarizedSegment[] = [];
+        for (const seg of entry.result.segments) {
+          const prev = merged[merged.length - 1];
+          if (prev && prev.speaker_label === seg.speaker_label) {
+            prev.text = prev.text + ' ' + seg.text;
+            prev.end = seg.end;
+          } else {
+            merged.push({ ...seg });
+          }
+        }
+        return (
+          <Card className="p-4 space-y-3 max-h-[500px] overflow-y-auto" dir="rtl">
+            <div className="flex items-center justify-between sticky top-0 bg-card pb-2 z-10">
+              <h4 className="text-sm font-semibold flex items-center gap-2">
+                <MessageSquare className="w-4 h-4" />
+                תמלול נקי — {entry.label}
+              </h4>
+              <Button variant="ghost" size="sm" className="text-xs gap-1" onClick={() => {
+                const text = merged.map(s => `[${s.speaker_label}] (${formatTime(s.start)}-${formatTime(s.end)})\n${s.text}`).join('\n\n');
+                navigator.clipboard.writeText(text);
+              }}>
+                <Copy className="w-3.5 h-3.5" />העתק
+              </Button>
+            </div>
+            {merged.map((seg, i) => {
+              const spIdx = entry.result.speakers.indexOf(seg.speaker_label);
+              return (
+                <div key={i} className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: BAR_COLORS[spIdx % BAR_COLORS.length] }} />
+                    <span className="text-xs font-semibold">{seg.speaker_label}</span>
+                    <span className="text-[10px] text-muted-foreground">{formatTime(seg.start)} – {formatTime(seg.end)}</span>
+                  </div>
+                  <p className="text-sm leading-relaxed pr-5">{seg.text}</p>
+                </div>
+              );
+            })}
+          </Card>
+        );
+      })()}
+
+      {/* ──── Side-by-Side Text Comparison ──── */}
+      {showSideBySide && entries.length >= 2 && (
+        <div className={`grid gap-3 ${entries.length === 2 ? 'grid-cols-2' : 'grid-cols-1 md:grid-cols-2'}`}>
+          {entries.map((entry, idx) => {
+            const merged: DiarizedSegment[] = [];
+            for (const seg of entry.result.segments) {
+              const prev = merged[merged.length - 1];
+              if (prev && prev.speaker_label === seg.speaker_label) {
+                prev.text = prev.text + ' ' + seg.text;
+                prev.end = seg.end;
+              } else {
+                merged.push({ ...seg });
+              }
+            }
+            return (
+              <Card key={idx} className="p-3 max-h-[400px] overflow-y-auto" dir="rtl">
+                <div className="sticky top-0 bg-card pb-2 z-10">
+                  <Badge variant="outline" className="text-xs mb-2">{entry.label}</Badge>
+                </div>
+                <div className="space-y-2">
+                  {merged.map((seg, i) => {
+                    const spIdx = entry.result.speakers.indexOf(seg.speaker_label);
+                    return (
+                      <div key={i} className="text-xs">
+                        <span className="inline-flex items-center gap-1 font-semibold mb-0.5">
+                          <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: BAR_COLORS[spIdx % BAR_COLORS.length] }} />
+                          {seg.speaker_label}
+                          <span className="font-normal text-muted-foreground">({formatTime(seg.start)})</span>
+                        </span>
+                        <p className="leading-relaxed">{seg.text}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };

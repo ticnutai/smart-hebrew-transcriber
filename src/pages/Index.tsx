@@ -1934,15 +1934,28 @@ const Index = () => {
         {/* Live Transcription */}
         <LiveTranscriber
           serverConnected={serverConnected}
-          onTranscriptComplete={(result: LiveTranscriptResult) => {
+          onTranscriptComplete={async (result: LiveTranscriptResult) => {
             const { text, audioBlob, wordTimings, folder, durationSec } = result;
             setTranscriptFromEngine(text);
             const engineLabel = audioBlob ? 'Live (CUDA Whisper)' : 'Live (Web Speech API)';
             const audioFile = audioBlob
               ? new File([audioBlob], `live-${Date.now()}.webm`, { type: audioBlob.type })
               : undefined;
+            // Save audio to Dexie so TextEditor & Diarization can recover it
+            if (audioBlob) {
+              try {
+                await db.audioBlobs.put({
+                  id: 'last_audio',
+                  blob: audioBlob,
+                  type: audioBlob.type || 'audio/webm',
+                  name: audioFile?.name || `live-${Date.now()}.webm`,
+                  saved_at: Date.now(),
+                });
+              } catch { /* Dexie not available */ }
+            }
+            const liveAudioUrl = audioBlob ? URL.createObjectURL(audioBlob) : undefined;
             saveToHistory(text, engineLabel, undefined, wordTimings, audioFile, folder).then(() => {
-              setTimeout(() => navigate('/text-editor', { state: { text, transcriptId: lastSavedTranscriptIdRef.current } }), 1000);
+              setTimeout(() => navigate('/text-editor', { state: { text, audioUrl: liveAudioUrl, wordTimings, transcriptId: lastSavedTranscriptIdRef.current } }), 1000);
             });
             addAnalyticsRecord({
               engine: engineLabel, status: 'success',

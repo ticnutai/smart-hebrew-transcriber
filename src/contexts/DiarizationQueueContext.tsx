@@ -201,7 +201,7 @@ export function DiarizationQueueProvider({ children }: { children: React.ReactNo
     }
 
     const mode = currentJob.mode;
-    const serverUrl = config.serverUrl || 'http://localhost:3000';
+    const serverUrl = config.serverUrl || '/whisper';
     const abortController = new AbortController();
     abortControllersRef.current.set(jobId, abortController);
 
@@ -354,7 +354,7 @@ export function DiarizationQueueProvider({ children }: { children: React.ReactNo
     };
     jobFilesRef.current.set(id, file);
     jobConfigsRef.current.set(id, {
-      serverUrl: config.serverUrl || 'http://localhost:3000',
+      serverUrl: config.serverUrl || '/whisper',
       minGap: config.minGap ?? 1.5,
       hfToken: config.hfToken || '',
       pyannoteModel: config.pyannoteModel || 'community-1',
@@ -375,7 +375,7 @@ export function DiarizationQueueProvider({ children }: { children: React.ReactNo
       ids.push(id);
       jobFilesRef.current.set(id, file);
       jobConfigsRef.current.set(id, {
-        serverUrl: config.serverUrl || 'http://localhost:3000',
+        serverUrl: config.serverUrl || '/whisper',
         minGap: config.minGap ?? 1.5,
         hfToken: config.hfToken || '',
         pyannoteModel: config.pyannoteModel || 'community-1',

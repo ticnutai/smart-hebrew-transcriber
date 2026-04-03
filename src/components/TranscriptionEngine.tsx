@@ -36,7 +36,8 @@ const START_CMD_LOVABLE = '.\\scripts\\start-lovable.ps1';
 const isNonLocalHost = !['localhost', '127.0.0.1'].includes(window.location.hostname);
 const hasCustomServerUrl = () => {
   const url = localStorage.getItem('whisper_server_url') || '';
-  return url !== '' && !url.includes('localhost') && !url.includes('127.0.0.1');
+  if (url === '' || url.startsWith('/')) return false;
+  return !url.includes('localhost') && !url.includes('127.0.0.1');
 };
 
 export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, onSourceLanguageChange }: TranscriptionEngineProps) => {

@@ -144,7 +144,7 @@ export const FileUploader = ({
   const [savedJobIds, setSavedJobIds] = useState<Set<string>>(new Set());
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const showBatch = isAuthenticated && isCloudEngine && !!onSubmitBatch;
+  const showBatch = (isAuthenticated && isCloudEngine && !!onSubmitBatch) || engine === 'local-server';
   const batchJobs = jobs.filter(j => submittedJobIds.has(j.id));
 
   // Auto-save completed batch jobs
@@ -190,15 +190,41 @@ export const FileUploader = ({
   };
 
   const startBatchProcessing = async () => {
-    if (isSubmitting || pendingBatchFiles.length === 0 || !onSubmitBatch) return;
+    if (isSubmitting || pendingBatchFiles.length === 0) return;
     setIsSubmitting(true);
-    const ids = await onSubmitBatch(pendingBatchFiles);
-    setSubmittedJobIds(prev => {
-      const next = new Set(prev);
-      ids.forEach(id => next.add(id));
-      return next;
-    });
+
+    // Cloud batch: submit all at once via onSubmitBatch
+    if (onSubmitBatch) {
+      const ids = await onSubmitBatch(pendingBatchFiles);
+      setSubmittedJobIds(prev => {
+        const next = new Set(prev);
+        ids.forEach(id => next.add(id));
+        return next;
+      });
+      setPendingBatchFiles([]);
+      setIsSubmitting(false);
+      return;
+    }
+
+    // Local-server batch: process files one by one via onFileSelect
+    const files = [...pendingBatchFiles];
     setPendingBatchFiles([]);
+    for (const file of files) {
+      onFileSelect(file);
+      // Wait for current transcription to finish before sending next
+      await new Promise<void>(resolve => {
+        const check = () => {
+          // Poll isLoading state — when it goes false, the job is done
+          setTimeout(() => {
+            const still = document.querySelector('[data-transcribing="true"]');
+            if (still) check();
+            else resolve();
+          }, 1000);
+        };
+        // Give time for onFileSelect to set isLoading=true
+        setTimeout(check, 2000);
+      });
+    }
     setIsSubmitting(false);
   };
 

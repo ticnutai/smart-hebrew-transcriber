@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo, memo } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, memo, forwardRef, useImperativeHandle } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -92,6 +92,18 @@ const NOISE_PRESETS: NoisePreset[] = [
   },
 ];
 
+export interface SyncAudioPlayerRef {
+  seekTo: (time: number) => void;
+  play: () => void;
+  pause: () => void;
+}
+
+export interface SpeakerSegmentForWaveform {
+  start: number;
+  end: number;
+  speaker: string;
+}
+
 interface SyncAudioPlayerProps {
   audioUrl: string | null;
   wordTimings: WordTiming[];
@@ -100,11 +112,14 @@ interface SyncAudioPlayerProps {
   onWordClick?: (index: number, timing: WordTiming) => void;
   syncEnabled?: boolean;
   onSyncToggle?: (enabled: boolean) => void;
+  compact?: boolean;
+  onPlayStateChange?: (playing: boolean) => void;
+  speakerSegments?: SpeakerSegmentForWaveform[];
 }
 
 const SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
-export const SyncAudioPlayer = memo(({
+export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlayerProps>(({
   audioUrl,
   wordTimings,
   currentTime: externalTime,
@@ -112,7 +127,10 @@ export const SyncAudioPlayer = memo(({
   onWordClick,
   syncEnabled: externalSync,
   onSyncToggle,
-}: SyncAudioPlayerProps) => {
+  compact,
+  onPlayStateChange,
+  speakerSegments,
+}, ref) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const animFrameRef = useRef<number>(0);
@@ -120,6 +138,32 @@ export const SyncAudioPlayer = memo(({
   const analyserRef = useRef<AnalyserNode | null>(null);
   const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
   const lastDrawTimeRef = useRef<number>(0);
+
+  // Static waveform
+  const staticCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [peaksData, setPeaksData] = useState<Float32Array | null>(null);
+  const [decodedDuration, setDecodedDuration] = useState<number>(0);
+  const staticAnimFrameRef = useRef<number>(0);
+
+  // Speaker color palette
+  const SPEAKER_COLORS = useMemo(() => [
+    '#6366f1', // indigo
+    '#f59e0b', // amber
+    '#10b981', // emerald
+    '#ef4444', // red
+    '#8b5cf6', // violet
+    '#06b6d4', // cyan
+    '#f97316', // orange
+    '#ec4899', // pink
+  ], []);
+
+  const speakerColorMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    if (!speakerSegments) return map;
+    const speakers = [...new Set(speakerSegments.map(s => s.speaker))];
+    speakers.forEach((sp, i) => { map[sp] = SPEAKER_COLORS[i % SPEAKER_COLORS.length]; });
+    return map;
+  }, [speakerSegments, SPEAKER_COLORS]);
 
   // Audio graph nodes
   const gainNodeRef = useRef<GainNode | null>(null);
@@ -150,6 +194,34 @@ export const SyncAudioPlayer = memo(({
     setInternalSync(next);
     onSyncToggle?.(next);
   }, [isSyncEnabled, onSyncToggle]);
+
+  // Imperative ref for external control (e.g. from SpeakerDiarization)
+  useImperativeHandle(ref, () => ({
+    seekTo: (time: number) => {
+      if (audioRef.current) {
+        audioRef.current.currentTime = time;
+        setCurrentTime(time);
+        onTimeUpdate?.(time);
+      }
+    },
+    play: () => {
+      if (audioRef.current && audioRef.current.paused) {
+        initAudioContext();
+        if (audioContextRef.current?.state === 'suspended') audioContextRef.current.resume();
+        audioRef.current.play();
+        setIsPlaying(true);
+      }
+    },
+    pause: () => {
+      if (audioRef.current && !audioRef.current.paused) {
+        audioRef.current.pause();
+        setIsPlaying(false);
+      }
+    },
+  }));
+
+  // Notify parent of play state changes
+  useEffect(() => { onPlayStateChange?.(isPlaying); }, [isPlaying, onPlayStateChange]);
 
   // Noise reduction state
   const [presetId, setPresetId] = useState('off');
@@ -314,9 +386,9 @@ export const SyncAudioPlayer = memo(({
 
     ctx.clearRect(0, 0, width, height);
 
-    // Gradient background
+    // Gradient background (RTL: right-to-left)
     const isActive = presetId !== 'off';
-    const grad = ctx.createLinearGradient(0, 0, width, 0);
+    const grad = ctx.createLinearGradient(width, 0, 0, 0);
     if (isActive) {
       grad.addColorStop(0, 'rgba(34, 197, 94, 0.08)');
       grad.addColorStop(0.5, 'rgba(99, 102, 241, 0.08)');
@@ -336,9 +408,9 @@ export const SyncAudioPlayer = memo(({
     ctx.lineTo(width, height / 2);
     ctx.stroke();
 
-    // Waveform line
+    // Waveform line (RTL: right-to-left)
     ctx.lineWidth = 2;
-    const gradient = ctx.createLinearGradient(0, 0, width, 0);
+    const gradient = ctx.createLinearGradient(width, 0, 0, 0);
     if (isPlaying) {
       gradient.addColorStop(0, isActive ? '#22c55e' : '#6366f1');
       gradient.addColorStop(1, isActive ? '#3b82f6' : '#8b5cf6');
@@ -350,29 +422,31 @@ export const SyncAudioPlayer = memo(({
     ctx.beginPath();
 
     const sliceWidth = width / bufferLength;
-    let x = 0;
+    let x = width; // RTL: start drawing from right
     for (let i = 0; i < bufferLength; i++) {
       const v = dataArray[i] / 128.0;
       const y = (v * height) / 2;
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
-      x += sliceWidth;
+      x -= sliceWidth;
     }
-    ctx.lineTo(width, height / 2);
+    ctx.lineTo(0, height / 2);
     ctx.stroke();
 
-    // Progress overlay
+    // Progress overlay (RTL: fills from right)
     if (duration > 0) {
-      const progressX = (currentTime / duration) * width;
+      const progressFraction = currentTime / duration;
+      const progressW = progressFraction * width;
+      const playheadX = width - progressW;
       ctx.fillStyle = isActive ? 'rgba(34,197,94,0.12)' : 'rgba(99, 102, 241, 0.15)';
-      ctx.fillRect(0, 0, progressX, height);
+      ctx.fillRect(playheadX, 0, progressW, height);
 
       // Playhead line
       ctx.strokeStyle = isActive ? '#22c55e' : '#6366f1';
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.moveTo(progressX, 0);
-      ctx.lineTo(progressX, height);
+      ctx.moveTo(playheadX, 0);
+      ctx.lineTo(playheadX, height);
       ctx.stroke();
     }
 
@@ -406,6 +480,128 @@ export const SyncAudioPlayer = memo(({
     };
   }, []);
 
+  // ─── Decode audio → peaks for static waveform ───────────────
+  useEffect(() => {
+    if (!audioUrl) { setPeaksData(null); setDecodedDuration(0); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const resp = await fetch(audioUrl);
+        if (cancelled) return;
+        const arrayBuf = await resp.arrayBuffer();
+        if (cancelled) return;
+        const offlineCtx = new OfflineAudioContext(1, 1, 44100);
+        const decoded = await offlineCtx.decodeAudioData(arrayBuf);
+        if (cancelled) return;
+
+        // Use decoded.duration as the authoritative duration (fixes WebM blob issues)
+        const realDuration = decoded.duration;
+        if (realDuration && isFinite(realDuration) && realDuration > 0) {
+          setDuration(realDuration);
+          setDecodedDuration(realDuration);
+        }
+
+        const raw = decoded.getChannelData(0);
+        const BARS = 300;
+        const peaks = new Float32Array(BARS);
+        const blockSize = Math.floor(raw.length / BARS);
+        for (let i = 0; i < BARS; i++) {
+          let sum = 0;
+          const start = i * blockSize;
+          for (let j = start; j < start + blockSize && j < raw.length; j++) {
+            sum += Math.abs(raw[j]);
+          }
+          peaks[i] = sum / blockSize;
+        }
+        // Normalize to 0-1
+        const max = Math.max(...peaks) || 1;
+        for (let i = 0; i < BARS; i++) peaks[i] /= max;
+        if (!cancelled) setPeaksData(peaks);
+      } catch { /* decode not supported for this format */ }
+    })();
+    return () => { cancelled = true; };
+  }, [audioUrl]);
+
+  // Use the best available duration (decoded is most reliable)
+  const effectiveDuration = decodedDuration > 0 ? decodedDuration : duration;
+
+  // ─── Draw static waveform with speaker colors + playhead ────
+  const drawStaticWaveform = useCallback(() => {
+    const canvas = staticCanvasRef.current;
+    if (!canvas || !peaksData) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+
+    const W = rect.width;
+    const H = rect.height;
+    const BARS = peaksData.length;
+    const barW = W / BARS;
+    const gap = Math.max(1, barW * 0.15);
+    const dur = effectiveDuration || 1;
+
+    ctx.clearRect(0, 0, W, H);
+
+    // Background
+    ctx.fillStyle = 'rgba(241, 245, 249, 0.5)';
+    ctx.fillRect(0, 0, W, H);
+
+    for (let i = 0; i < BARS; i++) {
+      // RTL: bar 0 = right edge
+      const x = W - (i + 1) * barW;
+      const barH = Math.max(2, peaksData[i] * (H * 0.85));
+      const y = (H - barH) / 2;
+
+      // Determine bar time position for speaker coloring
+      const barTimeFraction = i / BARS;
+      const barTime = barTimeFraction * dur;
+
+      // Find speaker for this time
+      let color = 'rgba(99, 102, 241, 0.6)'; // default indigo
+      if (speakerSegments?.length) {
+        for (const seg of speakerSegments) {
+          if (barTime >= seg.start && barTime <= seg.end) {
+            color = speakerColorMap[seg.speaker] || color;
+            break;
+          }
+        }
+      }
+
+      // Dim bars after playhead (already played = full, upcoming = dimmed)
+      const playFraction = dur > 0 ? currentTime / dur : 0;
+      const opacity = barTimeFraction <= playFraction ? 1.0 : 0.35;
+
+      ctx.globalAlpha = opacity;
+      ctx.fillStyle = color;
+      ctx.fillRect(x + gap / 2, y, barW - gap, barH);
+    }
+    ctx.globalAlpha = 1.0;
+
+    // Playhead line (thin red line)
+    if (dur > 0) {
+      const playFraction = currentTime / dur;
+      const headX = W - playFraction * W; // RTL
+      ctx.strokeStyle = '#dc2626';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(headX, 0);
+      ctx.lineTo(headX, H);
+      ctx.stroke();
+    }
+  }, [currentTime, effectiveDuration, peaksData, speakerSegments, speakerColorMap]);
+
+  // Redraw static waveform on time/peaks change
+  useEffect(() => {
+    if (staticAnimFrameRef.current) cancelAnimationFrame(staticAnimFrameRef.current);
+    staticAnimFrameRef.current = requestAnimationFrame(drawStaticWaveform);
+    return () => { if (staticAnimFrameRef.current) cancelAnimationFrame(staticAnimFrameRef.current); };
+  }, [drawStaticWaveform]);
+
   // ─── External time sync ──────────────────────────────────────
   useEffect(() => {
     if (isSyncEnabled && externalTime !== undefined && audioRef.current && Math.abs(audioRef.current.currentTime - externalTime) > 0.2) {
@@ -423,10 +619,26 @@ export const SyncAudioPlayer = memo(({
   }, [onTimeUpdate]);
 
   const handleLoadedMetadata = useCallback(() => {
-    if (audioRef.current) setDuration(audioRef.current.duration);
+    if (!audioRef.current) return;
+    const d = audioRef.current.duration;
+    if (d && isFinite(d) && d > 0) setDuration(d);
   }, []);
 
-  const handleEnded = useCallback(() => setIsPlaying(false), []);
+  // WebM blobs from MediaRecorder often report wrong duration initially
+  const handleDurationChange = useCallback(() => {
+    if (!audioRef.current) return;
+    const d = audioRef.current.duration;
+    if (d && isFinite(d) && d > 0) setDuration(d);
+  }, []);
+
+  const handleEnded = useCallback(() => {
+    setIsPlaying(false);
+    // Fix duration from actual playback end time
+    if (audioRef.current) {
+      const t = audioRef.current.currentTime;
+      if (t > duration) setDuration(t);
+    }
+  }, [duration]);
 
   // ─── Playback controls ──────────────────────────────────────
   const togglePlay = useCallback(() => {
@@ -545,6 +757,7 @@ export const SyncAudioPlayer = memo(({
   const VolumeIcon = isMuted ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
 
   if (!audioUrl) {
+    if (compact) return null;
     return (
       <Card className="p-8 text-center" dir="rtl">
         <AudioLines className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
@@ -554,15 +767,21 @@ export const SyncAudioPlayer = memo(({
     );
   }
 
+  const Wrapper = compact ? 'div' as const : Card;
+  const wrapperClass = compact
+    ? 'p-3 rounded-xl border bg-gradient-to-l from-primary/5 to-transparent space-y-3'
+    : `p-4 space-y-3 ${isExpanded ? 'fixed inset-4 z-50 overflow-auto' : ''}`;
+
   return (
     <TooltipProvider delayDuration={300}>
-      <Card className={`p-4 space-y-3 ${isExpanded ? 'fixed inset-4 z-50 overflow-auto' : ''}`} dir="rtl">
+      <Wrapper className={wrapperClass} dir="rtl">
         {/* Hidden audio element */}
         <audio
           ref={audioRef}
           src={audioUrl}
           onTimeUpdate={handleTimeUpdate}
           onLoadedMetadata={handleLoadedMetadata}
+          onDurationChange={handleDurationChange}
           onEnded={handleEnded}
           preload="auto"
           crossOrigin="anonymous"
@@ -571,12 +790,18 @@ export const SyncAudioPlayer = memo(({
         {/* ─── Header ─────────────────────────────────────── */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Waves className="w-5 h-5 text-primary no-theme-icon" />
-            <h3 className="font-semibold text-sm">נגן סינכרוני</h3>
+            {!compact && <Waves className="w-5 h-5 text-primary no-theme-icon" />}
+            {!compact && <h3 className="font-semibold text-sm">נגן סינכרוני</h3>}
+            {compact && presetId !== 'off' && (
+              <Badge className="text-xs gap-1 bg-green-600 hover:bg-green-700">
+                <ShieldCheck className="w-3 h-3 no-theme-icon" />
+                {currentPreset.nameHe}
+              </Badge>
+            )}
             {wordTimings.length > 0 && (
               <Badge variant="secondary" className="text-xs">{wordTimings.length} מילים</Badge>
             )}
-            {presetId !== 'off' && (
+            {!compact && presetId !== 'off' && (
               <Badge className="text-xs gap-1 bg-green-600 hover:bg-green-700">
                 <ShieldCheck className="w-3 h-3 no-theme-icon" />
                 {currentPreset.nameHe}
@@ -630,23 +855,49 @@ export const SyncAudioPlayer = memo(({
           </div>
         </div>
 
-        {/* ─── Waveform Canvas ─────────────────────────────── */}
+        {/* ─── Static Waveform (peaks + speaker colors + playhead) ── */}
         <canvas
-          ref={canvasRef}
+          ref={staticCanvasRef}
           className="w-full rounded-lg cursor-pointer bg-muted/30"
-          height={isExpanded ? 120 : 64}
+          style={{ height: isExpanded ? 120 : 80 }}
           onClick={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            seekTo((x / rect.width) * duration);
+            const x = rect.right - e.clientX; // RTL: right = start
+            seekTo((x / rect.width) * effectiveDuration);
           }}
         />
 
+        {/* ─── Live Waveform Canvas (overlay, only when playing) ── */}
+        {isPlaying && (
+          <canvas
+            ref={canvasRef}
+            className="w-full rounded-lg cursor-pointer bg-transparent"
+            height={isExpanded ? 50 : 32}
+            onClick={(e) => {
+              const rect = e.currentTarget.getBoundingClientRect();
+              const x = rect.right - e.clientX; // RTL: right = start
+              seekTo((x / rect.width) * effectiveDuration);
+            }}
+          />
+        )}
+
+        {/* ─── Speaker Legend ──────────────────────────────── */}
+        {speakerSegments && speakerSegments.length > 0 && (
+          <div className="flex flex-wrap gap-2 justify-end">
+            {Object.entries(speakerColorMap).map(([speaker, color]) => (
+              <div key={speaker} className="flex items-center gap-1 text-xs">
+                <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: color }} />
+                <span>{speaker}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* ─── Time Slider ─────────────────────────────────── */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3" dir="ltr">
+          <span className="text-xs text-muted-foreground font-mono min-w-[40px] text-center">{formatTime(effectiveDuration)}</span>
+          <Slider value={[currentTime]} max={effectiveDuration || 1} step={0.1} onValueChange={handleSliderSeek} className="flex-1" dir="rtl" />
           <span className="text-xs text-muted-foreground font-mono min-w-[40px] text-center">{formatTime(currentTime)}</span>
-          <Slider value={[currentTime]} max={duration || 1} step={0.1} onValueChange={handleSliderSeek} className="flex-1" />
-          <span className="text-xs text-muted-foreground font-mono min-w-[40px] text-center">{formatTime(duration)}</span>
         </div>
 
         {/* ─── Main Controls ───────────────────────────────── */}
@@ -870,7 +1121,7 @@ export const SyncAudioPlayer = memo(({
         <p className="text-[10px] text-muted-foreground text-center opacity-60">
           ⌨️ Space=נגן/עצור · Ctrl+←→=±5s · Shift+←→=מילה · M=השתק · Alt+S=מהירות
         </p>
-      </Card>
+      </Wrapper>
     </TooltipProvider>
   );
-});
+}));

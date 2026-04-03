@@ -61,7 +61,24 @@ interface ServerStatus {
   model_ready: boolean;
 }
 
-const DEFAULT_SERVER_URL = 'http://localhost:3000';
+const DEFAULT_SERVER_URL = '/whisper';
+
+const normalizeServerUrl = (raw: string | null): string => {
+  const v = (raw || '').trim();
+  if (!v) return DEFAULT_SERVER_URL;
+
+  // In local dev on :4000, force legacy localhost:3000 values through Vite proxy.
+  if (typeof window !== 'undefined') {
+    const isLocalPage = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+    const isPort4000 = window.location.port === '4000';
+    const isLegacy3000 = v.includes('localhost:3000') || v.includes('127.0.0.1:3000');
+    if (isLocalPage && isPort4000 && isLegacy3000) {
+      return DEFAULT_SERVER_URL;
+    }
+  }
+
+  return v;
+};
 
 /** Key used to persist partial transcription in localStorage */
 const PARTIAL_STORAGE_KEY = 'transcription_partial';
@@ -100,7 +117,7 @@ export const useLocalServer = () => {
   const preloadAbortRef = useRef<AbortController | null>(null);
 
   const getBaseUrl = () => {
-    return localStorage.getItem('whisper_server_url') || DEFAULT_SERVER_URL;
+    return normalizeServerUrl(localStorage.getItem('whisper_server_url'));
   };
 
   const getApiHeaders = (): Record<string, string> => {
@@ -113,6 +130,7 @@ export const useLocalServer = () => {
     setServerStatus(null);
     setModelReady(false);
     setModelLoading(false);
+    window.dispatchEvent(new CustomEvent('server-connection-change', { detail: false }));
   }, []);
 
   const applyConnectedStatus = useCallback((data: ServerStatus) => {
@@ -120,6 +138,7 @@ export const useLocalServer = () => {
     setIsConnected(true);
     setModelReady(data.model_ready ?? false);
     setModelLoading(data.model_loading ?? false);
+    window.dispatchEvent(new CustomEvent('server-connection-change', { detail: true }));
   }, []);
 
   const checkConnection = useCallback(async () => {

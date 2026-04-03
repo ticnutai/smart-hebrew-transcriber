@@ -12,6 +12,7 @@ Usage:
 import os
 import sys
 import json
+import hashlib
 import argparse
 import tempfile
 import time
@@ -132,7 +133,7 @@ threading.Thread(target=_cleanup_rate_limit_store, daemon=True, name="rate-limit
 def _auth_and_rate_limit():
     """Check API key (if configured) and rate limit on mutation endpoints."""
     # Exempt endpoints — always accessible for server discovery
-    exempt = {"/health", "/status", "/models", "/presets"}
+    exempt = {"/health", "/status", "/models", "/presets", "/metrics"}
     if request.path in exempt or request.method == "OPTIONS":
         return None
 
@@ -205,6 +206,112 @@ _transcribe_active_info: dict | None = None  # metadata about active transcripti
 MAX_UPLOAD_SIZE_MB = 500  # reject files larger than this
 WAITRESS_CHANNEL_TIMEOUT = 1800  # 30 minutes — enough for very long audio
 WAITRESS_RECV_BYTES = 131072  # 128 KB receive buffer
+
+# ════════════════════════════════════════════════════════════════════
+#  SHA-256 RESPONSE CACHE — skip GPU work for repeated files
+# ════════════════════════════════════════════════════════════════════
+_result_cache: dict[str, dict] = {}      # sha256 → result JSON
+_result_cache_ts: dict[str, float] = {}  # sha256 → insertion time
+RESULT_CACHE_MAX = 100                   # max entries
+RESULT_CACHE_TTL = 24 * 3600            # 24 hours
+
+def _file_sha256(path: str) -> str:
+    """Compute SHA-256 hex digest for a file."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(131072), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+def _cache_get(sha: str) -> dict | None:
+    """Return cached result if it exists and hasn't expired."""
+    if sha in _result_cache:
+        if time.time() - _result_cache_ts.get(sha, 0) < RESULT_CACHE_TTL:
+            return _result_cache[sha]
+        # Expired
+        _result_cache.pop(sha, None)
+        _result_cache_ts.pop(sha, None)
+    return None
+
+def _cache_put(sha: str, result: dict):
+    """Store result in cache, evicting oldest if full."""
+    if len(_result_cache) >= RESULT_CACHE_MAX:
+        oldest = min(_result_cache_ts, key=_result_cache_ts.get)
+        _result_cache.pop(oldest, None)
+        _result_cache_ts.pop(oldest, None)
+    _result_cache[sha] = result
+    _result_cache_ts[sha] = time.time()
+
+# ════════════════════════════════════════════════════════════════════
+#  AUDIO NORMALIZATION — FFmpeg loudnorm for consistent quality
+# ════════════════════════════════════════════════════════════════════
+_ffmpeg_available: bool | None = None
+
+def _check_ffmpeg() -> bool:
+    global _ffmpeg_available
+    if _ffmpeg_available is not None:
+        return _ffmpeg_available
+    import subprocess
+    try:
+        subprocess.run(["ffmpeg", "-version"], capture_output=True, timeout=5)
+        _ffmpeg_available = True
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        _ffmpeg_available = False
+    return _ffmpeg_available
+
+def _normalize_audio(input_path: str) -> str:
+    """Normalize audio loudness using FFmpeg loudnorm filter.
+    Returns path to normalized file (or original if FFmpeg unavailable)."""
+    if not _check_ffmpeg():
+        return input_path
+    import subprocess
+    suffix = Path(input_path).suffix or ".wav"
+    output_path = input_path + "_norm" + suffix
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
+             "-ar", "16000", "-ac", "1",
+             output_path],
+            capture_output=True, timeout=120,
+        )
+        if result.returncode == 0 and os.path.exists(output_path):
+            return output_path
+    except (subprocess.TimeoutExpired, Exception) as e:
+        _log.warning(f"Audio normalization failed: {e}")
+    return input_path
+
+# ════════════════════════════════════════════════════════════════════
+#  PERFORMANCE METRICS — per-model latency percentiles
+# ════════════════════════════════════════════════════════════════════
+_perf_metrics: dict[str, list[float]] = {}  # model_id → list of RTFs
+PERF_METRICS_MAX_SAMPLES = 200
+
+def _record_metric(model_id: str, rtf: float):
+    """Record a real-time-factor measurement for a model."""
+    if model_id not in _perf_metrics:
+        _perf_metrics[model_id] = []
+    samples = _perf_metrics[model_id]
+    samples.append(rtf)
+    if len(samples) > PERF_METRICS_MAX_SAMPLES:
+        _perf_metrics[model_id] = samples[-PERF_METRICS_MAX_SAMPLES:]
+
+def _compute_percentiles(samples: list[float]) -> dict:
+    """Compute p50, p90, p95, p99 from a list of values."""
+    if not samples:
+        return {}
+    s = sorted(samples)
+    n = len(s)
+    return {
+        "count": n,
+        "p50": round(s[int(n * 0.5)], 4),
+        "p90": round(s[int(n * 0.9)], 4),
+        "p95": round(s[min(int(n * 0.95), n - 1)], 4),
+        "p99": round(s[min(int(n * 0.99), n - 1)], 4),
+        "min": round(s[0], 4),
+        "max": round(s[-1], 4),
+        "avg": round(sum(s) / n, 4),
+    }
 
 # GPU memory cache for fast health checks
 _gpu_mem_cache: dict | None = None
@@ -342,10 +449,18 @@ MODEL_REGISTRY = {
     "distil-small.en": "Systran/faster-distil-whisper-small.en",
     # Ivrit.ai Hebrew-optimized models (pre-converted CT2 format on HuggingFace)
     "ivrit-ai/faster-whisper-v2-d4": "ivrit-ai/faster-whisper-v2-d4",
+    "ivrit-ai/whisper-large-v3-turbo-ct2": "ivrit-ai/whisper-large-v3-turbo-ct2",
     # ivrit-ai/whisper-large-v3-turbo — requires local HF→CT2 conversion (see MODELS_NEEDING_CONVERSION)
 }
 
 DEFAULT_MODEL = "large-v3-turbo"
+
+
+def _default_model_for(language: str = "he") -> str:
+    """Return the best default model, preferring ivrit-ai for Hebrew."""
+    if language == "he":
+        return "ivrit-ai/whisper-large-v3-turbo-ct2"
+    return DEFAULT_MODEL
 
 
 def get_device() -> str:
@@ -662,6 +777,25 @@ def health():
         "flash_attention_disabled": _flash_attention_disabled,
         "transcribe_active": _transcribe_active,
         "uptime_seconds": int(uptime),
+        "result_cache_size": len(_result_cache),
+        "ffmpeg_available": _check_ffmpeg(),
+    })
+
+
+@app.route("/metrics", methods=["GET"])
+def metrics_endpoint():
+    """Per-model performance metrics with latency percentiles."""
+    metrics = {}
+    for model_id, samples in _perf_metrics.items():
+        metrics[model_id] = _compute_percentiles(samples)
+    return jsonify({
+        "models": metrics,
+        "cache": {
+            "size": len(_result_cache),
+            "max": RESULT_CACHE_MAX,
+            "ttl_hours": RESULT_CACHE_TTL / 3600,
+            "hit_keys": list(_result_cache.keys())[:10],
+        },
     })
 
 
@@ -826,9 +960,10 @@ def transcribe():
         return jsonify({"error": "No file provided"}), 400
 
     audio_file = request.files["file"]
-    model_id = request.form.get("model", _current_model_id or DEFAULT_MODEL)
     language = request.form.get("language", "he")
+    model_id = request.form.get("model", _current_model_id or _default_model_for(language))
     beam_size = int(request.form.get("beam_size", 3))
+    normalize = request.form.get("normalize", "1") == "1"
 
     # Resolve model ID
     resolved = MODEL_REGISTRY.get(model_id, model_id)
@@ -839,23 +974,40 @@ def transcribe():
         audio_file.save(tmp)
         tmp_path = tmp.name
 
+    norm_path = None
     try:
+        # SHA-256 cache lookup — skip GPU work for repeated files
+        file_hash = _file_sha256(tmp_path)
+        cache_key = f"{file_hash}:{resolved}:{language}:{beam_size}"
+        cached = _cache_get(cache_key)
+        if cached:
+            _log.info(f"  Cache HIT for {audio_file.filename} ({cache_key[:16]}...)")
+            cached["cache_hit"] = True
+            return jsonify(cached)
+
+        # Audio normalization for consistent quality
+        transcribe_path = tmp_path
+        if normalize:
+            norm_path = _normalize_audio(tmp_path)
+            if norm_path != tmp_path:
+                transcribe_path = norm_path
+
         model = load_model(resolved)
 
         print(f"\n  Transcribing: {audio_file.filename} (model={resolved}, lang={language})")
         start = time.time()
+        hebrew_prompt = "תמלול שיחה בעברית." if language == "he" else None
 
         def _run_transcribe(m):
-            return m.transcribe(
-                tmp_path,
+            from faster_whisper import BatchedInferencePipeline
+            pipeline = BatchedInferencePipeline(model=m)
+            return pipeline.transcribe(
+                transcribe_path,
                 language=language if language != "auto" else None,
                 word_timestamps=True,
                 beam_size=beam_size,
-                vad_filter=True,
-                vad_parameters=dict(
-                    min_silence_duration_ms=500,
-                    speech_pad_ms=200,
-                ),
+                batch_size=auto_batch_size(),
+                initial_prompt=hebrew_prompt,
             )
 
         try:
@@ -888,16 +1040,25 @@ def transcribe():
         full_text = " ".join(full_text_parts)
         elapsed = time.time() - start
 
+        # Record performance metric
+        if info.duration > 0:
+            _record_metric(resolved, round(elapsed / info.duration, 4))
+
         print(f"  Done in {elapsed:.1f}s — {len(word_timings)} words, {info.duration:.1f}s audio")
 
-        return jsonify({
+        result = {
             "text": full_text,
             "wordTimings": word_timings,
             "duration": round(info.duration, 2),
             "language": info.language,
             "model": resolved,
             "processing_time": round(elapsed, 2),
-        })
+        }
+
+        # Store in cache
+        _cache_put(cache_key, result)
+
+        return jsonify(result)
 
     except Exception as e:
         err_msg = str(e)
@@ -912,6 +1073,11 @@ def transcribe():
             os.unlink(tmp_path)
         except OSError:
             pass
+        if norm_path and norm_path != tmp_path:
+            try:
+                os.unlink(norm_path)
+            except OSError:
+                pass
 
 
 @app.route("/transcribe-stream", methods=["POST"])
@@ -966,8 +1132,8 @@ def transcribe_stream():
         _log.warning(f"[{request_id}] QUEUED: another transcription in progress ({active_info.get('filename', '?')})")
         # Don't reject — wait for lock in generate()
 
-    model_id = request.form.get("model", _current_model_id or DEFAULT_MODEL)
     language = request.form.get("language", "he")
+    model_id = request.form.get("model", _current_model_id or _default_model_for(language))
     start_from = max(0.0, float(request.form.get("start_from", "0")))
 
     # ── Input validation ──
@@ -1111,6 +1277,8 @@ def transcribe_stream():
             _log.info(f"[{request_id}] Transcribing: model={resolved}, lang={language}, start_from={start_from}s, mode={mode_label}, compute={ct_label}, beam={beam_size or 'default'}, batch={batch_size}, cond_prev={condition_on_prev}, vad_agg={vad_aggressive}{preset_label}{hotwords_label})")
             start = time.time()
 
+            hebrew_prompt = "תמלול שיחה בעברית." if language == "he" else None
+
             def _do_transcribe(mdl, override_batch=None):
                 bs = override_batch if override_batch is not None else batch_size
                 if fast_mode:
@@ -1124,6 +1292,7 @@ def transcribe_stream():
                         batch_size=bs,
                         condition_on_previous_text=condition_on_prev,
                         hotwords=hotwords,
+                        initial_prompt=hebrew_prompt,
                     )
                 else:
                     vad_params = dict(
@@ -1140,6 +1309,7 @@ def transcribe_stream():
                         vad_parameters=vad_params,
                         condition_on_previous_text=condition_on_prev,
                         hotwords=hotwords,
+                        initial_prompt=hebrew_prompt,
                     )
 
             try:
@@ -1258,6 +1428,10 @@ def transcribe_stream():
             request_record["segments"] = segment_count
             request_record["words"] = len(all_word_timings)
 
+            # Record performance metric for this model
+            if total_duration > 0:
+                _record_metric(resolved, rtf)
+
         except Exception as e:
             elapsed = time.time() - start if 'start' in dir() else time.time() - request_start
             error_str = str(e)
@@ -1337,8 +1511,8 @@ def transcribe_live():
         return jsonify({"error": "No file provided"}), 400
 
     audio_file = request.files["file"]
-    model_id = request.form.get("model", _current_model_id or DEFAULT_MODEL)
     language = request.form.get("language", "he")
+    model_id = request.form.get("model", _current_model_id or _default_model_for(language))
     is_final = str(request.form.get("final", "0")).lower() in ("1", "true", "yes")
 
     resolved = MODEL_REGISTRY.get(model_id, model_id)
@@ -1468,7 +1642,7 @@ def youtube_transcribe():
     data = request.get_json(force=True) or {}
     url = (data.get("url") or "").strip()
     language = data.get("language", "he")
-    model_id = data.get("model")
+    model_id = data.get("model") or _default_model_for(language)
 
     if not url:
         return jsonify({"error": "No URL provided"}), 400
@@ -1522,22 +1696,24 @@ def youtube_transcribe():
             return jsonify({"error": f"Audio too large ({file_size_mb:.1f}MB > {MAX_UPLOAD_SIZE_MB}MB)"}), 400
 
         # Model handling
-        target_model = model_id or DEFAULT_MODEL
-        if not current_model or current_model_id != target_model:
-            _load_model(target_model)
+        target_model = model_id or _current_model_id or DEFAULT_MODEL
+        resolved = MODEL_REGISTRY.get(target_model, target_model)
 
-        if current_model is None:
-            return jsonify({"error": "Model failed to load"}), 500
+        model = load_model(resolved)
 
         # Transcribe
         start_time = time.time()
-        with gpu_lock:
-            segments_gen, info = current_model.transcribe(
+        hebrew_prompt = "תמלול שיחה בעברית." if language == "he" else None
+        with _transcribe_lock:
+            from faster_whisper import BatchedInferencePipeline
+            pipeline = BatchedInferencePipeline(model=model)
+            segments_gen, info = pipeline.transcribe(
                 audio_file,
-                language=language,
+                language=language if language != "auto" else None,
                 beam_size=3,
                 word_timestamps=True,
-                vad_filter=True,
+                batch_size=auto_batch_size(),
+                initial_prompt=hebrew_prompt,
             )
             segments = list(segments_gen)
 
@@ -1750,99 +1926,6 @@ def unload_models_endpoint():
     return jsonify({"status": "ok", "unloaded": count})
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Shared diarization helpers
-# ═══════════════════════════════════════════════════════════════════════════════
-
-_cached_pyannote_pipe = None           # cached pyannote pipeline
-_cached_pyannote_model_id = None       # which model is cached
-
-
-def _get_pyannote_pipeline(pyannote_model_id: str, hf_token: str):
-    """Load (and cache) a pyannote speaker-diarization pipeline."""
-    global _cached_pyannote_pipe, _cached_pyannote_model_id
-    if _cached_pyannote_pipe is not None and _cached_pyannote_model_id == pyannote_model_id:
-        return _cached_pyannote_pipe
-    from pyannote.audio import Pipeline as PyannotePipeline
-    pipe = PyannotePipeline.from_pretrained(pyannote_model_id, use_auth_token=hf_token)
-    if _has_torch and torch.cuda.is_available():
-        pipe.to(torch.device("cuda"))
-    _cached_pyannote_pipe = pipe
-    _cached_pyannote_model_id = pyannote_model_id
-    _log.info(f"Loaded & cached pyannote pipeline: {pyannote_model_id}")
-    return pipe
-
-
-def _run_pyannote(tmp_path: str, pyannote_model_id: str, hf_token: str,
-                  num_speakers: int | None = None, min_speakers: int | None = None,
-                  max_speakers: int | None = None):
-    """Run pyannote diarization and return list of speaker segments."""
-    pipe = _get_pyannote_pipeline(pyannote_model_id, hf_token)
-    kwargs = {}
-    if num_speakers is not None:
-        kwargs["num_speakers"] = num_speakers
-    elif min_speakers is not None or max_speakers is not None:
-        if min_speakers is not None:
-            kwargs["min_speakers"] = min_speakers
-        if max_speakers is not None:
-            kwargs["max_speakers"] = max_speakers
-    diarization = pipe(tmp_path, **kwargs)
-    speaker_segments = []
-    for turn, _, speaker in diarization.itertracks(yield_label=True):
-        speaker_segments.append({"speaker": speaker, "start": round(turn.start, 3), "end": round(turn.end, 3)})
-    return speaker_segments
-
-
-def _assign_speakers_pyannote(raw_segments: list, speaker_segments: list, min_overlap: float = 0.1):
-    """Assign pyannote speakers to whisper segments using max-overlap matching.
-
-    Requires at least `min_overlap` seconds of overlap for assignment.
-    Segments with insufficient overlap get SPEAKER_UNKNOWN.
-    """
-    for seg in raw_segments:
-        best_speaker, best_overlap = None, 0.0
-        for sp in speaker_segments:
-            overlap = min(seg["end"], sp["end"]) - max(seg["start"], sp["start"])
-            if overlap > best_overlap:
-                best_overlap = overlap
-                best_speaker = sp["speaker"]
-        if best_speaker and best_overlap >= min_overlap:
-            seg["speaker"] = best_speaker
-        else:
-            seg["speaker"] = "SPEAKER_UNKNOWN"
-
-
-def _assign_speakers_silence_gap(raw_segments: list, min_gap: float = 1.5):
-    """Assign speaker labels based on silence gaps between segments.
-
-    Uses unbounded speaker counter (no mod-10 wrap) so each unique gap-separated
-    block gets its own speaker label without conflating distant speakers.
-    """
-    current_speaker = 0
-    for i, seg in enumerate(raw_segments):
-        if i > 0:
-            gap = seg["start"] - raw_segments[i - 1]["end"]
-            if gap >= min_gap:
-                current_speaker += 1
-        seg["speaker"] = f"SPEAKER_{current_speaker:02d}"
-
-
-def _normalize_speaker_labels(raw_segments: list) -> tuple[dict, int]:
-    """Normalize speaker labels to sequential Hebrew labels (דובר 1, דובר 2, ...).
-    Returns (seen_speakers_map, speaker_count).
-    """
-    seen_speakers: dict[str, str] = {}
-    counter = 0
-    for seg in raw_segments:
-        sp = str(seg.get("speaker") or "SPEAKER_UNKNOWN")
-        if sp not in seen_speakers:
-            counter += 1
-            seen_speakers[sp] = f"דובר {counter}"
-        seg["speaker"] = sp
-        seg["speaker_label"] = seen_speakers[sp]
-    return seen_speakers, counter
-
-
 @app.route("/diarize-stream", methods=["POST"])
 def diarize_stream():
     """Transcribe audio with speaker diarization — SSE streaming progress & partial segments.
@@ -1853,19 +1936,12 @@ def diarize_stream():
         return jsonify({"error": "No file provided"}), 400
 
     audio_file = request.files["file"]
-    model_id = request.form.get("model", _current_model_id or DEFAULT_MODEL)
     language = request.form.get("language", "he")
+    model_id = request.form.get("model", _current_model_id or _default_model_for(language))
     min_gap = float(request.form.get("min_gap", "1.5"))
     hf_token = request.form.get("hf_token", "")
     diarization_engine = request.form.get("diarization_engine", "auto").strip().lower()
     pyannote_model_id = request.form.get("pyannote_model", "pyannote/speaker-diarization-3.1").strip() or "pyannote/speaker-diarization-3.1"
-    # Speaker count hints
-    num_speakers = request.form.get("num_speakers")
-    min_speakers = request.form.get("min_speakers")
-    max_speakers = request.form.get("max_speakers")
-    num_speakers = int(num_speakers) if num_speakers else None
-    min_speakers = int(min_speakers) if min_speakers else None
-    max_speakers = int(max_speakers) if max_speakers else None
 
     resolved = MODEL_REGISTRY.get(model_id, model_id)
     suffix = _safe_suffix(audio_file.filename)
@@ -1875,29 +1951,24 @@ def diarize_stream():
         tmp_path = tmp.name
 
     def generate():
-        acquired = False
         try:
             start = time.time()
-            yield f"data: {json.dumps({'type': 'progress', 'stage': 'ממתין לתור GPU...', 'percent': 2})}\n\n"
-
-            acquired = _transcribe_lock.acquire(timeout=600)
-            if not acquired:
-                yield f"data: {json.dumps({'type': 'error', 'error': 'GPU busy — timeout waiting for lock'})}\n\n"
-                return
-
             yield f"data: {json.dumps({'type': 'progress', 'stage': 'טוען מודל...', 'percent': 5})}\n\n"
 
             model = load_model(resolved)
 
             yield f"data: {json.dumps({'type': 'progress', 'stage': 'מתמלל אודיו...', 'percent': 15})}\n\n"
+            hebrew_prompt = "תמלול שיחה בעברית." if language == "he" else None
 
             def _run(m):
-                return m.transcribe(
+                from faster_whisper import BatchedInferencePipeline
+                pipeline = BatchedInferencePipeline(model=m)
+                return pipeline.transcribe(
                     tmp_path,
                     language=language if language != "auto" else None,
                     word_timestamps=True,
-                    vad_filter=True,
-                    vad_parameters=dict(min_silence_duration_ms=500, speech_pad_ms=200),
+                    batch_size=auto_batch_size(),
+                    initial_prompt=hebrew_prompt,
                 )
 
             try:
@@ -1928,29 +1999,55 @@ def diarize_stream():
             yield f"data: {json.dumps({'type': 'progress', 'stage': f'מעבד {len(raw_segments)} קטעים...', 'percent': 55})}\n\n"
 
             # Speaker diarization
+            speaker_segments = None
             diarization_method = "silence-gap"
 
             if hf_token and diarization_engine in {"auto", "pyannote"}:
                 yield f"data: {json.dumps({'type': 'progress', 'stage': 'מריץ זיהוי דוברים (pyannote)...', 'percent': 65})}\n\n"
                 try:
-                    speaker_segments = _run_pyannote(
-                        tmp_path, pyannote_model_id, hf_token,
-                        num_speakers=num_speakers, min_speakers=min_speakers, max_speakers=max_speakers,
-                    )
-                    _assign_speakers_pyannote(raw_segments, speaker_segments)
+                    from pyannote.audio import Pipeline as PyannotePipeline
+                    pipe = PyannotePipeline.from_pretrained(pyannote_model_id, use_auth_token=hf_token)
+                    if _has_torch and torch.cuda.is_available():
+                        pipe.to(torch.device("cuda"))
+                    diarization = pipe(tmp_path)
+                    speaker_segments = []
+                    for turn, _, speaker in diarization.itertracks(yield_label=True):
+                        speaker_segments.append({"speaker": speaker, "start": round(turn.start, 3), "end": round(turn.end, 3)})
                     diarization_method = "pyannote"
                 except ImportError:
                     _log.warning("pyannote.audio not installed — falling back to silence-gap")
-                    _assign_speakers_silence_gap(raw_segments, min_gap)
                 except Exception as e:
                     _log.warning(f"pyannote failed: {e} — falling back to silence-gap")
-                    _assign_speakers_silence_gap(raw_segments, min_gap)
-            else:
-                _assign_speakers_silence_gap(raw_segments, min_gap)
 
             yield f"data: {json.dumps({'type': 'progress', 'stage': 'מקצה דוברים לקטעים...', 'percent': 85})}\n\n"
 
-            seen_speakers, speaker_counter = _normalize_speaker_labels(raw_segments)
+            # Assign speakers
+            if speaker_segments and diarization_method == "pyannote":
+                for seg in raw_segments:
+                    best_speaker, best_overlap = "SPEAKER_00", 0
+                    for sp in speaker_segments:
+                        overlap = min(seg["end"], sp["end"]) - max(seg["start"], sp["start"])
+                        if overlap > best_overlap:
+                            best_overlap = overlap
+                            best_speaker = sp["speaker"]
+                    seg["speaker"] = best_speaker
+            else:
+                current_speaker = 0
+                for i, seg in enumerate(raw_segments):
+                    if i > 0:
+                        gap = seg["start"] - raw_segments[i - 1]["end"]
+                        if gap >= min_gap:
+                            current_speaker = (current_speaker + 1) % 10
+                    seg["speaker"] = f"SPEAKER_{current_speaker:02d}"
+
+            # Normalize labels
+            seen_speakers, speaker_counter = {}, 0
+            for seg in raw_segments:
+                sp = seg["speaker"]
+                if sp not in seen_speakers:
+                    seen_speakers[sp] = f"דובר {speaker_counter + 1}"
+                    speaker_counter += 1
+                seg["speaker_label"] = seen_speakers[sp]
 
             # Stream each segment
             for idx, seg in enumerate(raw_segments):
@@ -1966,8 +2063,6 @@ def diarize_stream():
             _log.error(f"Diarize-stream error: {e}\n{_tb_module.format_exc()}")
             yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
         finally:
-            if acquired:
-                _transcribe_lock.release()
             try:
                 os.unlink(tmp_path)
             except OSError:
@@ -1993,28 +2088,18 @@ def diarize():
         hf_token: HuggingFace token for pyannote (optional)
         diarization_engine: auto | whisperx | pyannote | silence-gap (optional, default auto)
         whisperx_model: WhisperX model id (optional, default large-v3)
-        num_speakers: exact speaker count hint (optional)
-        min_speakers: minimum speaker count hint (optional)
-        max_speakers: maximum speaker count hint (optional)
     """
     if "file" not in request.files:
         return jsonify({"error": "No file provided"}), 400
 
     audio_file = request.files["file"]
-    model_id = request.form.get("model", _current_model_id or DEFAULT_MODEL)
     language = request.form.get("language", "he")
+    model_id = request.form.get("model", _current_model_id or _default_model_for(language))
     min_gap = float(request.form.get("min_gap", "1.5"))
     hf_token = request.form.get("hf_token", "")
     diarization_engine = request.form.get("diarization_engine", "auto").strip().lower()
     whisperx_model = request.form.get("whisperx_model", "large-v3").strip() or "large-v3"
     pyannote_model_id = request.form.get("pyannote_model", "pyannote/speaker-diarization-3.1").strip() or "pyannote/speaker-diarization-3.1"
-    # Speaker count hints
-    num_speakers = request.form.get("num_speakers")
-    min_speakers = request.form.get("min_speakers")
-    max_speakers = request.form.get("max_speakers")
-    num_speakers = int(num_speakers) if num_speakers else None
-    min_speakers = int(min_speakers) if min_speakers else None
-    max_speakers = int(max_speakers) if max_speakers else None
 
     allowed_engines = {"auto", "whisperx", "pyannote", "silence-gap"}
     if diarization_engine not in allowed_engines:
@@ -2026,14 +2111,6 @@ def diarize():
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         audio_file.save(tmp)
         tmp_path = tmp.name
-
-    acquired = _transcribe_lock.acquire(timeout=600)
-    if not acquired:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        return jsonify({"error": "GPU busy — timeout waiting for lock"}), 503
 
     try:
         _log.info(
@@ -2124,16 +2201,26 @@ def diarize():
                     })
 
                 # If speaker was not assigned by WhisperX diarization, use silence-gap heuristic.
-                for seg in raw_segments:
-                    if not seg.get("speaker"):
-                        seg["_needs_fallback"] = True
-                # Collect segments needing fallback and apply silence-gap
-                fallback_segs = [s for s in raw_segments if s.pop("_needs_fallback", False)]
-                if fallback_segs:
-                    _assign_speakers_silence_gap(fallback_segs, min_gap)
+                current_speaker = 0
+                for i, seg in enumerate(raw_segments):
+                    has_speaker = bool(seg.get("speaker"))
+                    if not has_speaker:
+                        if i > 0:
+                            gap = seg["start"] - raw_segments[i - 1]["end"]
+                            if gap >= min_gap:
+                                current_speaker = (current_speaker + 1) % 10
+                        seg["speaker"] = f"SPEAKER_{current_speaker:02d}"
 
                 # Normalize speaker labels to sequential Hebrew labels
-                seen_speakers, speaker_counter = _normalize_speaker_labels(raw_segments)
+                seen_speakers = {}
+                speaker_counter = 0
+                for seg in raw_segments:
+                    sp = str(seg.get("speaker") or "SPEAKER_00")
+                    if sp not in seen_speakers:
+                        seen_speakers[sp] = f"דובר {speaker_counter + 1}"
+                        speaker_counter += 1
+                    seg["speaker"] = sp
+                    seg["speaker_label"] = seen_speakers[sp]
 
                 elapsed = time.time() - start
                 full_text = " ".join(s["text"] for s in raw_segments)
@@ -2170,6 +2257,7 @@ def diarize():
 
         # Load faster-whisper model for non-WhisperX path
         model = load_model(resolved)
+        hebrew_prompt = "תמלול שיחה בעברית." if language == "he" else None
 
         def _run_diarize(m):
             return m.transcribe(
@@ -2178,6 +2266,7 @@ def diarize():
                 word_timestamps=True,
                 vad_filter=True,
                 vad_parameters=dict(min_silence_duration_ms=500, speech_pad_ms=200),
+                initial_prompt=hebrew_prompt,
             )
 
         try:
@@ -2205,28 +2294,64 @@ def diarize():
             })
 
         # Try pyannote diarization if available and token provided
+        speaker_segments = None
         diarization_method = "silence-gap"
 
         if hf_token and diarization_engine in {"auto", "pyannote"}:
             try:
+                from pyannote.audio import Pipeline as PyannotePipeline
                 _log.info(f"Using pyannote.audio for speaker diarization (model={pyannote_model_id})")
-                speaker_segments = _run_pyannote(
-                    tmp_path, pyannote_model_id, hf_token,
-                    num_speakers=num_speakers, min_speakers=min_speakers, max_speakers=max_speakers,
+                pipe = PyannotePipeline.from_pretrained(
+                    pyannote_model_id,
+                    use_auth_token=hf_token,
                 )
-                _assign_speakers_pyannote(raw_segments, speaker_segments)
+                if _has_torch and torch.cuda.is_available():
+                    pipe.to(torch.device("cuda"))
+                diarization = pipe(tmp_path)
+                speaker_segments = []
+                for turn, _, speaker in diarization.itertracks(yield_label=True):
+                    speaker_segments.append({
+                        "speaker": speaker,
+                        "start": round(turn.start, 3),
+                        "end": round(turn.end, 3),
+                    })
                 diarization_method = "pyannote"
             except ImportError:
                 _log.warning("pyannote.audio not installed — falling back to silence-gap heuristic")
-                _assign_speakers_silence_gap(raw_segments, min_gap)
             except Exception as e:
                 _log.warning(f"pyannote diarization failed: {e} — falling back to silence-gap heuristic")
-                _assign_speakers_silence_gap(raw_segments, min_gap)
+
+        # Assign speakers to segments
+        if speaker_segments and diarization_method == "pyannote":
+            # Map each whisper segment to the pyannote speaker with largest overlap
+            for seg in raw_segments:
+                best_speaker = "SPEAKER_00"
+                best_overlap = 0
+                for sp in speaker_segments:
+                    overlap = min(seg["end"], sp["end"]) - max(seg["start"], sp["start"])
+                    if overlap > best_overlap:
+                        best_overlap = overlap
+                        best_speaker = sp["speaker"]
+                seg["speaker"] = best_speaker
         else:
-            _assign_speakers_silence_gap(raw_segments, min_gap)
+            # Silence-gap heuristic: detect speaker changes based on gaps between segments
+            current_speaker = 0
+            for i, seg in enumerate(raw_segments):
+                if i > 0:
+                    gap = seg["start"] - raw_segments[i - 1]["end"]
+                    if gap >= min_gap:
+                        current_speaker = (current_speaker + 1) % 10
+                seg["speaker"] = f"SPEAKER_{current_speaker:02d}"
 
         # Normalize speaker labels to sequential numbers
-        seen_speakers, speaker_counter = _normalize_speaker_labels(raw_segments)
+        seen_speakers = {}
+        speaker_counter = 0
+        for seg in raw_segments:
+            sp = seg["speaker"]
+            if sp not in seen_speakers:
+                seen_speakers[sp] = f"דובר {speaker_counter + 1}"
+                speaker_counter += 1
+            seg["speaker_label"] = seen_speakers[sp]
 
         elapsed = time.time() - start
         full_text = " ".join(s["text"] for s in raw_segments)
@@ -2249,7 +2374,6 @@ def diarize():
         _log.error(f"Diarization error: {e}\n{_tb_module.format_exc()}")
         return jsonify({"error": str(e)}), 500
     finally:
-        _transcribe_lock.release()
         try:
             os.unlink(tmp_path)
         except OSError:
@@ -2441,6 +2565,7 @@ def main():
     print("    GET  /health            — Server status + GPU memory info")
     print("    GET  /debug             — Full diagnostics (GPU, RAM, request history)")
     print("    GET  /diagnostics       — Complete request history")
+    print("    GET  /metrics           — Per-model performance percentiles (p50/p95/p99)")
     print("    GET  /models            — Available models")
     print("    GET  /presets           — Available transcription presets")
     print("    POST /transcribe        — Transcribe audio (single response)")

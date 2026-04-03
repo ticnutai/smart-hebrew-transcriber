@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
@@ -40,7 +41,7 @@ function whisperServerLauncher(): Plugin {
           const scriptPath = path.join(projectRoot, 'server', 'transcribe_server.py');
 
           try {
-            serverProcess = spawn(pythonExe, [scriptPath, '--port', '3000'], {
+            serverProcess = spawn(pythonExe, [scriptPath, '--port', '4001'], {
               cwd: projectRoot,
               stdio: 'pipe',
               detached: false,
@@ -123,17 +124,20 @@ export default defineConfig(({ mode }) => {
   return {
   server: {
     host: "::",
-    port: 8080,
+    port: 4000,
+    proxy: {
+      '/whisper': {
+        target: 'http://127.0.0.1:4001',
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/whisper/, ''),
+      },
+    },
     hmr: {
       protocol: isLovableCloud ? "wss" : "ws",
       ...(isLovableCloud ? { clientPort: 443 } : {}),
     },
     // Allow Cloudflare Tunnel and external preview origins
     allowedHosts: ['localhost', '.trycloudflare.com', '.lovable.app', '.lovableproject.com'],
-    headers: {
-      'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Embedder-Policy': 'require-corp',
-    },
   },
   plugins: [
     react(),
@@ -152,7 +156,6 @@ export default defineConfig(({ mode }) => {
   },
   optimizeDeps: {
     include: ['react', 'react-dom'],
-    exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/util'],
   },
   build: {
     rollupOptions: {
@@ -171,12 +174,17 @@ export default defineConfig(({ mode }) => {
           'vendor-pdf': ['jspdf'],
           'vendor-docx': ['docx'],
           'vendor-ai': ['@huggingface/transformers'],
-          'vendor-ffmpeg': ['@ffmpeg/ffmpeg', '@ffmpeg/util'],
         },
       },
     },
     // Increase chunk size warning limit
     chunkSizeWarningLimit: 1000,
+  },
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: './src/test/setup.ts',
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
   },
   };
 });

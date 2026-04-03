@@ -1,4 +1,5 @@
 import { useState, useEffect, ReactNode } from "react";
+import { ConnectionStatusBanner } from "./ConnectionStatusBanner";
 
 const SIDEBAR_WIDTH = 260;
 
@@ -11,6 +12,7 @@ const AppLayout = ({ children }: { children: ReactNode }) => {
     }
   });
   const [isOpen, setIsOpen] = useState(false);
+  const [serverConnected, setServerConnected] = useState(true);
 
   useEffect(() => {
     const pinHandler = (e: Event) => {
@@ -19,11 +21,17 @@ const AppLayout = ({ children }: { children: ReactNode }) => {
     const openHandler = (e: Event) => {
       setIsOpen((e as CustomEvent).detail);
     };
+    // Listen for server connection status from useLocalServer
+    const serverHandler = (e: Event) => {
+      setServerConnected((e as CustomEvent).detail);
+    };
     window.addEventListener("sidebar-pin-change", pinHandler);
     window.addEventListener("sidebar-open-change", openHandler);
+    window.addEventListener("server-connection-change", serverHandler);
     return () => {
       window.removeEventListener("sidebar-pin-change", pinHandler);
       window.removeEventListener("sidebar-open-change", openHandler);
+      window.removeEventListener("server-connection-change", serverHandler);
     };
   }, []);
 
@@ -35,6 +43,7 @@ const AppLayout = ({ children }: { children: ReactNode }) => {
       dir="rtl"
       style={{ marginRight: showMargin ? SIDEBAR_WIDTH : 0 }}
     >
+      <ConnectionStatusBanner serverConnected={serverConnected} />
       {children}
     </div>
   );

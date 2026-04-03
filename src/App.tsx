@@ -14,6 +14,7 @@ import { SmartConsole } from "./components/SmartConsole";
 import { TranscriptionAnalytics } from "./components/TranscriptionAnalytics";
 import { PWAInstallButton } from "./components/PWAInstallButton";
 import { BackgroundSync } from "./components/BackgroundSync";
+import { SWUpdateNotifier } from "./components/SWUpdateNotifier";
 import { DiarizationQueueProvider } from "./contexts/DiarizationQueueContext";
 import { DiarizationFloatingStatus } from "./components/DiarizationFloatingStatus";
 import { useTheme } from "./hooks/useTheme";
@@ -120,6 +121,7 @@ const App = () => {
           <RouteLogger />
           <CloudKeySync />
           <BackgroundSync />
+          <SWUpdateNotifier />
           <UserFloatingBadge />
           <SmartConsole />
           <TranscriptionAnalytics />

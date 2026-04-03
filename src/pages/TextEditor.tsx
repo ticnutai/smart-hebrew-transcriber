@@ -132,6 +132,24 @@ const TextEditor = () => {
     })();
   }, []);
 
+  // Fallback: if audioUrl exists but audioBlob is still null, fetch the blob from URL
+  useEffect(() => {
+    if (audioBlob || !audioUrl) return;
+    (async () => {
+      try {
+        const resp = await fetch(audioUrl);
+        if (resp.ok) {
+          const blob = await resp.blob();
+          setAudioBlob(blob);
+          // Also persist to Dexie for diarization recovery
+          try {
+            await db.audioBlobs.put({ id: 'last_audio', blob, type: blob.type, name: audioFileName || 'audio', saved_at: Date.now() });
+          } catch { /* Dexie not available */ }
+        }
+      } catch { /* fetch failed */ }
+    })();
+  }, [audioUrl, audioBlob, audioFileName]);
+
   useEffect(() => {
     // Get text from navigation state or localStorage
     const stateText = location.state?.text;
@@ -664,7 +682,7 @@ const TextEditor = () => {
 
           <TabsContent value="speakers" className="space-y-4">
             <LazyErrorBoundary label="זיהוי דוברים">
-              <SpeakerDiarization serverUrl="http://localhost:3000" initialAudioBlob={audioBlob} initialAudioName={audioFileName} initialText={text} />
+              <SpeakerDiarization serverUrl="/whisper" initialAudioBlob={audioBlob} initialAudioName={audioFileName} initialText={text} />
             </LazyErrorBoundary>
           </TabsContent>
 

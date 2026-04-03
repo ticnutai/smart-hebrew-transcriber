@@ -151,6 +151,27 @@ self.addEventListener('message', (event) => {
       data: { url: url || '/' },
     });
   }
+
+  // Client says "skip waiting" after user accepted update
+  if (event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+
+// ═══════════════════════════════════════════════
+//  SERVICE WORKER UPDATE NOTIFICATION
+// ═══════════════════════════════════════════════
+// When a new SW is installed and waiting, notify all clients
+self.addEventListener('install', (event) => {
+  // The original install handler at the top already handles caching.
+  // This additional listener notifies clients that an update is available.
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window' }).then((windowClients) => {
+      for (const client of windowClients) {
+        client.postMessage({ type: 'SW_UPDATE_AVAILABLE' });
+      }
+    })
+  );
 });
 
 // Handle notification click — focus or open the app

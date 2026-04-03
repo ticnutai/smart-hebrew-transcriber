@@ -1,8 +1,8 @@
-import { useState, useRef, useMemo, useEffect, useCallback } from "react";
+import { useState, useRef, useMemo, useEffect, useCallback, lazy, Suspense } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
-import { Users, Upload, Loader2, Copy, Download, BarChart3, Clock, MessageSquare, Mic, Pencil, Check, X, Subtitles, Cloud, Server, Save, FolderOpen, Search, Merge, Globe, ArrowLeftRight, FileText, Play, Square, Pause, SkipBack, SkipForward, Volume2, Tag, RefreshCw, Zap, Music } from "lucide-react";
+import { Users, Upload, Loader2, Copy, Download, BarChart3, Clock, MessageSquare, Mic, Pencil, Check, X, Subtitles, Cloud, Server, Save, FolderOpen, Search, Merge, Globe, ArrowLeftRight, FileText, Play, Square, Pause, Tag, RefreshCw, Zap, Music, Sparkles, BookmarkPlus, Share2, FileDown, AlertTriangle } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,6 +19,20 @@ import { useCloudApiKeys } from "@/hooks/useCloudApiKeys";
 import { DiarizationCompare } from "@/components/DiarizationCompare";
 import { useDiarizationJobs } from "@/hooks/useDiarizationJobs";
 import { useDiarizationQueue, type QueueJob } from "@/contexts/DiarizationQueueContext";
+import type { SyncAudioPlayerRef, WordTiming } from "@/components/SyncAudioPlayer";
+import { DiarizationNotes } from "@/components/DiarizationNotes";
+import { DiarizationAI } from "@/components/DiarizationAI";
+import {
+  detectOverlaps,
+  exportAsVTT,
+  exportAsASS,
+  exportAsPDFHtml,
+  generateShareableText,
+  type OverlapRegion,
+  type SegmentNote,
+} from "@/utils/diarizationEnhancements";
+
+const SyncAudioPlayer = lazy(() => import("@/components/SyncAudioPlayer").then(m => ({ default: m.SyncAudioPlayer })));
 
 interface DiarizedSegment {
   text: string;
@@ -145,7 +159,7 @@ interface SpeakerDiarizationProps {
   initialText?: string;
 }
 
-export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000", initialAudioBlob, initialAudioName, initialText }: SpeakerDiarizationProps) => {
+export const SpeakerDiarization = ({ serverUrl = "/whisper", initialAudioBlob, initialAudioName, initialText }: SpeakerDiarizationProps) => {
   const [result, setResult] = useState<DiarizationResult | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [minGap, setMinGap] = useState(1.5);
@@ -177,16 +191,21 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000", initia
   const [currentTime, setCurrentTime] = useState(0);
   const [audioDuration, setAudioDuration] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [volume, setVolume] = useState(1);
-  const [playbackRate, setPlaybackRate] = useState(1);
   const [showBgJobs, setShowBgJobs] = useState(false);
   const [useTranscriptAssist, setUseTranscriptAssist] = useState(true);
   const [streamingSegments, setStreamingSegments] = useState<DiarizedSegment[]>([]);
   const [streamProgress, setStreamProgress] = useState<{ stage: string; percent: number } | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const syncPlayerRef = useRef<SyncAudioPlayerRef>(null);
+  const segEndRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounterRef = useRef(0);
-  const timeUpdateRef = useRef<number>(0);
+  const compareRunRef = useRef<string | null>(null);
+
+  // Enhancement state
+  const [segmentNotes, setSegmentNotes] = useState<SegmentNote[]>([]);
+  const [overlaps, setOverlaps] = useState<OverlapRegion[]>([]);
+  const [editingBoundary, setEditingBoundary] = useState<{ segIdx: number; edge: 'start' | 'end' } | null>(null);
+  const [editingBoundaryValue, setEditingBoundaryValue] = useState("");
 
   const { keys: cloudKeys, saveKeys: saveCloudKeys, isLoaded: keysLoaded } = useCloudApiKeys();
   const { jobs: bgJobs, startBackgroundJob, retryJob } = useDiarizationJobs();
@@ -383,59 +402,20 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000", initia
     return segs;
   }, [result, activeSpeakerFilter, autoMerge, searchQuery]);
 
-  // ──── Advanced Audio Player ────
-  const setupAudio = useCallback((url: string) => {
-    if (audioRef.current) { audioRef.current.pause(); }
-    const audio = new Audio(url);
-    audio.volume = volume;
-    audio.playbackRate = playbackRate;
-    audioRef.current = audio;
-
-    audio.addEventListener('loadedmetadata', () => setAudioDuration(audio.duration));
-    audio.addEventListener('ended', () => { setIsPlaying(false); setPlayingSegIdx(null); });
-
-    const updateTime = () => {
-      timeUpdateRef.current = requestAnimationFrame(() => {
-        setCurrentTime(audio.currentTime);
-        if (!audio.paused) updateTime();
-      });
-    };
-    audio.addEventListener('play', () => { setIsPlaying(true); updateTime(); });
-    audio.addEventListener('pause', () => { setIsPlaying(false); cancelAnimationFrame(timeUpdateRef.current); });
-
-    return audio;
-  }, [volume, playbackRate]);
-
-  const togglePlayPause = useCallback(() => {
-    if (!audioRef.current) return;
-    if (audioRef.current.paused) audioRef.current.play();
-    else audioRef.current.pause();
+  // ──── Audio Player (via SyncAudioPlayer ref) ────
+  const handlePlayerTimeUpdate = useCallback((time: number) => {
+    setCurrentTime(time);
+    // Stop at segment end when playing a specific segment
+    if (segEndRef.current !== null && time >= segEndRef.current) {
+      syncPlayerRef.current?.pause();
+      setPlayingSegIdx(null);
+      segEndRef.current = null;
+    }
   }, []);
 
   const seekTo = useCallback((time: number) => {
-    if (!audioRef.current) return;
-    audioRef.current.currentTime = time;
+    syncPlayerRef.current?.seekTo(time);
     setCurrentTime(time);
-  }, []);
-
-  const skipBy = useCallback((sec: number) => {
-    if (!audioRef.current) return;
-    const t = Math.max(0, Math.min(audioRef.current.duration, audioRef.current.currentTime + sec));
-    audioRef.current.currentTime = t;
-    setCurrentTime(t);
-  }, []);
-
-  useEffect(() => {
-    if (audioRef.current) {
-      audioRef.current.volume = volume;
-      audioRef.current.playbackRate = playbackRate;
-    }
-  }, [volume, playbackRate]);
-
-  // Cleanup audio on unmount
-  useEffect(() => () => {
-    if (audioRef.current) audioRef.current.pause();
-    cancelAnimationFrame(timeUpdateRef.current);
   }, []);
 
   // Find active segment based on current time
@@ -443,6 +423,132 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000", initia
     if (!result || !isPlaying) return -1;
     return displaySegments.findIndex(s => currentTime >= s.start && currentTime <= s.end);
   }, [result, currentTime, isPlaying, displaySegments]);
+
+  // Build word timings from diarization segments for SyncAudioPlayer
+  const wordTimingsFromSegments = useMemo<WordTiming[]>(() => {
+    if (!result) return [];
+    const timings: WordTiming[] = [];
+    for (const seg of result.segments) {
+      if (seg.words?.length) {
+        for (const w of seg.words) timings.push({ word: w.word, start: w.start, end: w.end, probability: w.probability });
+      }
+    }
+    return timings;
+  }, [result]);
+
+  // Detect overlapping segments
+  useEffect(() => {
+    if (!result) { setOverlaps([]); return; }
+    const sorted = [...result.segments].sort((a, b) => a.start - b.start);
+    setOverlaps(detectOverlaps(sorted));
+  }, [result]);
+
+  // Auto-add to compare when a compare-run finishes
+  useEffect(() => {
+    if (!result || !compareRunRef.current) return;
+    const label = compareRunRef.current;
+    compareRunRef.current = null;
+    setCompareEntries(prev => {
+      if (prev.some(e => e.label === label)) return prev.map(e => e.label === label ? { ...e, result } : e);
+      return [...prev, { label, result }];
+    });
+    toast({ title: "נוסף להשוואה", description: `${label} — ${result.speaker_count} דוברים` });
+  }, [result]);
+
+  // Keyboard shortcuts for speaker navigation
+  useEffect(() => {
+    if (!result) return;
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+      const segs = displaySegments;
+      if (!segs.length) return;
+
+      if (e.key === 'n' || e.key === 'N') {
+        if (activeSegIdx < 0) { seekTo(segs[0].start); return; }
+        const currentSpeaker = segs[activeSegIdx]?.speaker_label;
+        for (let i = activeSegIdx + 1; i < segs.length; i++) {
+          if (segs[i].speaker_label !== currentSpeaker) { seekTo(segs[i].start); break; }
+        }
+      } else if (e.key === 'p' || e.key === 'P') {
+        if (activeSegIdx <= 0) return;
+        const currentSpeaker = segs[activeSegIdx]?.speaker_label;
+        for (let i = activeSegIdx - 1; i >= 0; i--) {
+          if (segs[i].speaker_label !== currentSpeaker) { seekTo(segs[i].start); break; }
+        }
+      } else if (e.key >= '1' && e.key <= '9') {
+        const spIdx = parseInt(e.key) - 1;
+        if (spIdx < result.speakers.length) {
+          const sp = result.speakers[spIdx];
+          const seg = segs.find(s => s.speaker_label === sp);
+          if (seg) seekTo(seg.start);
+        }
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [result, displaySegments, activeSegIdx, seekTo]);
+
+  // Update segments (auto-punctuation, boundary edits)
+  const handleSegmentsUpdate = useCallback((updatedSegments: DiarizedSegment[]) => {
+    if (!result) return;
+    setResult({
+      ...result,
+      segments: updatedSegments,
+      text: updatedSegments.map(s => s.text).join(' '),
+    });
+  }, [result]);
+
+  // Boundary editing
+  const saveBoundaryEdit = useCallback(() => {
+    if (!editingBoundary || !result) return;
+    const val = parseFloat(editingBoundaryValue);
+    if (isNaN(val) || val < 0) return;
+    const updated = [...result.segments];
+    const seg = { ...updated[editingBoundary.segIdx] };
+    if (editingBoundary.edge === 'start') seg.start = val;
+    else seg.end = val;
+    if (seg.start >= seg.end) return;
+    updated[editingBoundary.segIdx] = seg;
+    handleSegmentsUpdate(updated);
+    setEditingBoundary(null);
+    setEditingBoundaryValue("");
+  }, [editingBoundary, editingBoundaryValue, result, handleSegmentsUpdate]);
+
+  // New export functions
+  const downloadAsVTT = () => {
+    if (!result) return;
+    const segs = autoMerge ? mergeConsecutiveSegments(result.segments) : result.segments;
+    const vtt = exportAsVTT(segs, speakerNames);
+    downloadBlob(new Blob([vtt], { type: "text/vtt;charset=utf-8" }), `diarization-${Date.now()}.vtt`);
+  };
+
+  const downloadAsASS = () => {
+    if (!result) return;
+    const segs = autoMerge ? mergeConsecutiveSegments(result.segments) : result.segments;
+    const ass = exportAsASS(segs, speakerNames, result.speakers);
+    downloadBlob(new Blob([ass], { type: "text/plain;charset=utf-8" }), `diarization-${Date.now()}.ass`);
+  };
+
+  const exportPDF = () => {
+    if (!result) return;
+    exportAsPDFHtml(result.segments, result.speakers, speakerNames, speakerRoles, speakerStats, result.duration, result.diarization_method, overlaps);
+  };
+
+  const shareResults = () => {
+    if (!result) return;
+    const text = generateShareableText(result.segments, result.speakers, speakerNames, speakerStats, result.duration);
+    if (navigator.share) {
+      navigator.share({ title: 'זיהוי דוברים', text }).catch(() => {
+        navigator.clipboard.writeText(text);
+        toast({ title: "הועתק ללוח" });
+      });
+    } else {
+      navigator.clipboard.writeText(text);
+      toast({ title: "הועתק ללוח", description: "התוצאות הועתקו — ניתן להדביק ולשתף" });
+    }
+  };
 
   const handleDiarize = async (file: File) => {
     setIsProcessing(true);
@@ -452,10 +558,13 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000", initia
     setBrowserProgress(null);
     setPlayingSegIdx(null);
     setSpeakerRoles({});
+    segEndRef.current = null;
+
+    // Keep reference to file for re-runs & comparisons
+    preloadedFileRef.current = file;
 
     const url = URL.createObjectURL(file);
     setAudioUrl(url);
-    setupAudio(url);
 
     try {
       if (mode === 'browser') {
@@ -650,7 +759,7 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000", initia
     if (!job.result) return;
     setResult(job.result);
     setCurrentFileName(job.fileName);
-    if (job.audioUrl) { setAudioUrl(job.audioUrl); setupAudio(job.audioUrl); }
+    if (job.audioUrl) { setAudioUrl(job.audioUrl); }
     toast({ title: "נטען מהתור", description: `${job.fileName} — ${job.result.speaker_count} דוברים` });
   };
 
@@ -763,28 +872,18 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000", initia
   };
 
   const playSegment = useCallback((segIdx: number, start: number, end: number) => {
-    if (!audioUrl) return;
-    if (playingSegIdx === segIdx && audioRef.current && !audioRef.current.paused) {
-      audioRef.current.pause();
+    if (!audioUrl || !syncPlayerRef.current) return;
+    if (playingSegIdx === segIdx && isPlaying) {
+      syncPlayerRef.current.pause();
       setPlayingSegIdx(null);
+      segEndRef.current = null;
       return;
     }
-    if (!audioRef.current || audioRef.current.src !== audioUrl) {
-      setupAudio(audioUrl);
-    }
-    const audio = audioRef.current!;
-    audio.currentTime = start;
+    syncPlayerRef.current.seekTo(start);
     setPlayingSegIdx(segIdx);
-    const onTimeUpdate = () => {
-      if (audio.currentTime >= end) {
-        audio.pause(); setPlayingSegIdx(null);
-        audio.removeEventListener('timeupdate', onTimeUpdate);
-      }
-    };
-    audio.onended = () => setPlayingSegIdx(null);
-    audio.addEventListener('timeupdate', onTimeUpdate);
-    audio.play().catch(() => setPlayingSegIdx(null));
-  }, [audioUrl, playingSegIdx, setupAudio]);
+    segEndRef.current = end;
+    syncPlayerRef.current.play();
+  }, [audioUrl, playingSegIdx, isPlaying]);
 
   const pendingBgJobs = bgJobs.filter(j => j.status === 'pending' || j.status === 'processing');
 
@@ -825,6 +924,26 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000", initia
                     <Subtitles className="w-3.5 h-3.5" />
                   </Button>
                 </TooltipTrigger><TooltipContent>הורד כ-SRT</TooltipContent></Tooltip>
+                <Tooltip><TooltipTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-8 text-xs px-2" onClick={downloadAsVTT}>
+                    <FileDown className="w-3.5 h-3.5" />
+                  </Button>
+                </TooltipTrigger><TooltipContent>VTT</TooltipContent></Tooltip>
+                <Tooltip><TooltipTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-8 text-xs px-2" onClick={downloadAsASS}>
+                    <FileDown className="w-3.5 h-3.5" />
+                  </Button>
+                </TooltipTrigger><TooltipContent>ASS</TooltipContent></Tooltip>
+                <Tooltip><TooltipTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-8 text-xs px-2" onClick={exportPDF}>
+                    <FileText className="w-3.5 h-3.5" />
+                  </Button>
+                </TooltipTrigger><TooltipContent>PDF / הדפסה</TooltipContent></Tooltip>
+                <Tooltip><TooltipTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-8 text-xs px-2" onClick={shareResults}>
+                    <Share2 className="w-3.5 h-3.5" />
+                  </Button>
+                </TooltipTrigger><TooltipContent>שתף תוצאות</TooltipContent></Tooltip>
               </TooltipProvider>
               <Button variant="outline" size="sm" className="h-8 text-xs px-2"
                 onClick={() => {
@@ -1231,135 +1350,103 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000", initia
         </div>
       )}
 
-      {/* ──── Audio Player ──── */}
-      {audioUrl && result && (() => {
-        const pct = audioDuration > 0 ? (currentTime / audioDuration) * 100 : 0;
-        const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
-          const rect = e.currentTarget.getBoundingClientRect();
-          const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-          seekTo(ratio * audioDuration);
-        };
-        return (
-        <div className="mb-4 p-3 rounded-xl border bg-gradient-to-l from-primary/5 to-transparent space-y-2"
-          tabIndex={0}
-          onKeyDown={e => {
-            if (e.target instanceof HTMLInputElement) return;
-            switch (e.key) {
-              case ' ': e.preventDefault(); togglePlayPause(); break;
-              case 'ArrowLeft': e.preventDefault(); skipBy(-5); break;
-              case 'ArrowRight': e.preventDefault(); skipBy(5); break;
-              case 'ArrowUp': e.preventDefault(); setVolume(v => Math.min(1, v + 0.1)); break;
-              case 'ArrowDown': e.preventDefault(); setVolume(v => Math.max(0, v - 0.1)); break;
-              case '[': e.preventDefault(); setPlaybackRate(r => Math.max(0.25, +(r - 0.25).toFixed(2))); break;
-              case ']': e.preventDefault(); setPlaybackRate(r => Math.min(3, +(r + 0.25).toFixed(2))); break;
-            }
-          }}
-        >
-          {/* Row 1: Controls + Seek bar + Time — all one line, forced LTR for consistent click */}
-          <div className="flex items-center gap-2" dir="ltr">
-            {/* Transport: skip-back, play/pause, skip-forward */}
-            <div className="flex items-center gap-0.5 shrink-0">
-              <TooltipProvider delayDuration={200}>
-                <Tooltip><TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => skipBy(-5)}>
-                    <SkipBack className="w-3.5 h-3.5" />
-                  </Button>
-                </TooltipTrigger><TooltipContent side="bottom" className="text-xs">-5s</TooltipContent></Tooltip>
-              </TooltipProvider>
-              <Button variant="default" size="icon" className="h-9 w-9 rounded-full" onClick={togglePlayPause}>
-                {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
-              </Button>
-              <TooltipProvider delayDuration={200}>
-                <Tooltip><TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => skipBy(5)}>
-                    <SkipForward className="w-3.5 h-3.5" />
-                  </Button>
-                </TooltipTrigger><TooltipContent side="bottom" className="text-xs">+5s</TooltipContent></Tooltip>
-              </TooltipProvider>
-            </div>
+      {/* ──── Advanced Audio Player (SyncAudioPlayer) ──── */}
+      {audioUrl && result && (
+        <div className="mb-4 space-y-2">
+          <Suspense fallback={<div className="h-20 rounded-xl border animate-pulse bg-muted/30" />}>
+            <SyncAudioPlayer
+              ref={syncPlayerRef}
+              audioUrl={audioUrl}
+              wordTimings={wordTimingsFromSegments}
+              onTimeUpdate={handlePlayerTimeUpdate}
+              onPlayStateChange={setIsPlaying}
+              speakerSegments={result.segments.map(s => ({ start: s.start, end: s.end, speaker: speakerNames[s.speaker_label] || s.speaker_label }))}
+              compact
+            />
+          </Suspense>
 
-            {/* Time — left side */}
-            <span className="text-[11px] text-muted-foreground tabular-nums shrink-0 w-[46px] text-right">
-              {formatTime(currentTime)}
-            </span>
-
-            {/* Seek bar — clean, always LTR */}
-            <div className="flex-1 relative h-2.5 rounded-full bg-muted cursor-pointer group"
-              onClick={handleSeek}>
-              {/* Filled portion */}
-              <div className="absolute inset-y-0 left-0 rounded-full bg-primary/80 transition-none"
-                style={{ width: `${pct}%` }} />
-              {/* Thumb circle — always visible */}
-              <div className="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-primary shadow-md border-2 border-background transition-none pointer-events-none"
-                style={{ left: `calc(${pct}% - 7px)` }} />
-            </div>
-
-            {/* Time — right side */}
-            <span className="text-[11px] text-muted-foreground tabular-nums shrink-0 w-[46px]">
-              {formatTime(audioDuration)}
-            </span>
-          </div>
-
-          {/* Row 2: Speaker color timeline — forced LTR */}
-          <div className="relative h-5 rounded bg-muted/40 overflow-hidden cursor-pointer" dir="ltr"
-            onClick={handleSeek}>
+          {/* Speaker color timeline */}
+          <div className="relative h-4 rounded-full bg-muted/50 overflow-hidden cursor-pointer"
+            onClick={e => {
+              const rect = e.currentTarget.getBoundingClientRect();
+              const dur = result.duration || 1;
+              const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+              seekTo(pct * dur);
+            }}>
             {result.segments.map((seg, i) => {
               const colorIdx = speakerIndex[seg.speaker_label] ?? 0;
-              const segLeft = (seg.start / audioDuration) * 100;
-              const segWidth = Math.max(((seg.end - seg.start) / audioDuration) * 100, 0.3);
+              const dur = result.duration || 1;
+              const left = (seg.start / dur) * 100;
+              const width = Math.max(((seg.end - seg.start) / dur) * 100, 0.3);
               return (
                 <div key={i} className="absolute h-full"
-                  style={{ left: `${segLeft}%`, width: `${segWidth}%`, backgroundColor: SPEAKER_BAR_COLORS[colorIdx % SPEAKER_BAR_COLORS.length], opacity: 0.75 }}
+                  style={{ left: `${left}%`, width: `${width}%`, backgroundColor: SPEAKER_BAR_COLORS[colorIdx % SPEAKER_BAR_COLORS.length], opacity: 0.7 }}
                 />
               );
             })}
-            {/* Playhead line */}
-            <div className="absolute top-0 h-full w-[2px] bg-foreground z-10 pointer-events-none"
-              style={{ left: `${pct}%` }} />
+            <div className="absolute top-0 h-full w-0.5 bg-foreground/80 z-10"
+              style={{ left: `${result.duration > 0 ? (currentTime / result.duration) * 100 : 0}%` }} />
           </div>
 
-          {/* Row 3: Speed, Volume, Shortcuts */}
-          <div className="flex items-center gap-3 flex-wrap" dir="rtl">
-            <div className="flex items-center gap-1.5">
-              <span className="text-[10px] text-muted-foreground">מהירות:</span>
-              {[0.5, 0.75, 1, 1.25, 1.5, 2].map(rate => (
-                <Button key={rate} variant={playbackRate === rate ? "default" : "outline"} size="sm"
-                  className={`h-6 px-1.5 text-[10px] min-w-[32px] ${playbackRate === rate ? "" : "text-muted-foreground"}`}
-                  onClick={() => setPlaybackRate(rate)}>
-                  {rate}x
-                </Button>
-              ))}
-            </div>
-            <div className="hidden sm:flex items-center gap-1.5 w-24 mr-auto" dir="ltr">
-              <Volume2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-              <Slider value={[volume]} onValueChange={([v]) => setVolume(v)} min={0} max={1} step={0.05} className="flex-1" />
-            </div>
-            <span className="hidden md:block text-[9px] text-muted-foreground">
-              Space=ניגון · ←→=±5שנ · ↑↓=ווליום · []=מהירות
-            </span>
-          </div>
-
-          {/* Row 4: Active speaker indicator */}
+          {/* Active speaker indicator */}
           {activeSegIdx >= 0 && (
-            <div className="flex items-center gap-2 text-xs" dir="rtl">
-              <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${SPEAKER_BADGE_COLORS[speakerIndex[displaySegments[activeSegIdx]?.speaker_label] ?? 0]}`} />
+            <div className="flex items-center gap-2 text-xs">
+              <span className={`w-2.5 h-2.5 rounded-full ${SPEAKER_BADGE_COLORS[speakerIndex[displaySegments[activeSegIdx]?.speaker_label] ?? 0]}`} />
               <span className="font-medium">{getSpeakerName(displaySegments[activeSegIdx]?.speaker_label)}</span>
               <span className="text-muted-foreground truncate">{displaySegments[activeSegIdx]?.text.slice(0, 80)}...</span>
             </div>
           )}
+
+          {/* Re-run diarization button */}
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" className="text-xs gap-1.5 h-7" onClick={() => {
+              if (preloadedFileRef.current) {
+                autoMergeApplied.current = false;
+                handleDiarize(preloadedFileRef.current);
+              } else {
+                fileInputRef.current?.click();
+              }
+            }}>
+              <RefreshCw className="w-3 h-3" />
+              הרץ זיהוי מחדש
+            </Button>
+            {/* Re-run with different engine */}
+            <Select value="" onValueChange={(engine) => {
+              const prev = mode;
+              setMode(engine as DiarizationMode);
+              if (preloadedFileRef.current) {
+                autoMergeApplied.current = false;
+                // brief delay to let mode state update
+                setTimeout(() => handleDiarize(preloadedFileRef.current!), 50);
+              }
+            }}>
+              <SelectTrigger className="h-7 w-auto min-w-[130px] text-xs">
+                <SelectValue placeholder="הרץ עם מנוע אחר..." />
+              </SelectTrigger>
+              <SelectContent>
+                {(['browser', 'whisperx', 'assemblyai', 'deepgram', 'openai', 'local'] as DiarizationMode[])
+                  .filter(m => m !== mode)
+                  .map(m => {
+                    const labels: Record<string, string> = { browser: 'דפדפן', whisperx: 'WhisperX', assemblyai: 'AssemblyAI', deepgram: 'Deepgram', openai: 'OpenAI', local: 'מקומי' };
+                    return <SelectItem key={m} value={m} className="text-xs">{labels[m]}</SelectItem>;
+                  })}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
-        );
-      })()}
+      )}
 
       {/* Results */}
       {result && (
         <Tabs defaultValue="stats" className="mt-2">
           <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 mb-3">
-            <TabsList className="inline-flex w-auto min-w-full sm:grid sm:w-full sm:grid-cols-6 gap-0.5">
+            <TabsList className="inline-flex w-auto min-w-full sm:grid sm:w-full sm:grid-cols-4 lg:grid-cols-8 gap-0.5">
               <TabsTrigger value="stats" className="text-xs gap-1 whitespace-nowrap"><BarChart3 className="w-3.5 h-3.5" />סטטיסטיקות</TabsTrigger>
               <TabsTrigger value="classify" className="text-xs gap-1 whitespace-nowrap"><Tag className="w-3.5 h-3.5" />סיווג</TabsTrigger>
               <TabsTrigger value="timeline" className="text-xs gap-1 whitespace-nowrap"><Clock className="w-3.5 h-3.5" />ציר זמן</TabsTrigger>
               <TabsTrigger value="transcript" className="text-xs gap-1 whitespace-nowrap"><MessageSquare className="w-3.5 h-3.5" />תמלול</TabsTrigger>
+              <TabsTrigger value="ai" className="text-xs gap-1 whitespace-nowrap"><Sparkles className="w-3.5 h-3.5" />AI</TabsTrigger>
+              <TabsTrigger value="notes" className="text-xs gap-1 whitespace-nowrap"><BookmarkPlus className="w-3.5 h-3.5" />הערות {segmentNotes.length > 0 && `(${segmentNotes.length})`}</TabsTrigger>
               <TabsTrigger value="merge" className="text-xs gap-1 whitespace-nowrap" onClick={() => { if (transcriptList.length === 0) loadTranscriptsForMerge(); }}><FileText className="w-3.5 h-3.5" />שילוב</TabsTrigger>
               <TabsTrigger value="compare" className="text-xs gap-1 whitespace-nowrap"><ArrowLeftRight className="w-3.5 h-3.5" />השוואה {compareEntries.length > 0 && `(${compareEntries.length})`}</TabsTrigger>
             </TabsList>
@@ -1441,6 +1528,34 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000", initia
                 </TooltipProvider>
               </div>
             </div>
+
+            {/* Overlap detection */}
+            {overlaps.length > 0 && (
+              <div className="mt-3 border rounded-xl p-3 bg-yellow-50/50 dark:bg-yellow-900/10 space-y-2">
+                <Label className="text-xs font-semibold flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 text-yellow-600" />
+                  חפיפות — {overlaps.length} אזורים ({formatDuration(overlaps.reduce((s, o) => s + o.duration, 0))} סה״כ)
+                </Label>
+                <div className="space-y-1 max-h-[150px] overflow-y-auto">
+                  {overlaps.map((o, i) => (
+                    <button key={i} className="w-full text-right text-xs p-1.5 rounded-lg border hover:bg-muted/50 transition-colors flex items-center gap-2"
+                      onClick={() => seekTo(o.start)}>
+                      <span className="tabular-nums text-muted-foreground">{formatTime(o.start)}–{formatTime(o.end)}</span>
+                      <span className="font-medium">{o.speakers.map(s => getSpeakerName(s)).join(' + ')}</span>
+                      <span className="text-muted-foreground mr-auto">{o.duration.toFixed(1)} שנ׳</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Keyboard shortcuts hint */}
+            <div className="mt-2 text-[10px] text-muted-foreground flex gap-3 flex-wrap">
+              <span>⌨️ קיצורים:</span>
+              <span><kbd className="px-1 py-0.5 rounded border bg-muted text-[9px]">N</kbd> דובר הבא</span>
+              <span><kbd className="px-1 py-0.5 rounded border bg-muted text-[9px]">P</kbd> דובר קודם</span>
+              <span><kbd className="px-1 py-0.5 rounded border bg-muted text-[9px]">1-9</kbd> קפוץ לדובר</span>
+            </div>
           </TabsContent>
 
           {/* === Classification Tab === */}
@@ -1496,7 +1611,7 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000", initia
 
           {/* === Timeline Tab === */}
           <TabsContent value="timeline" className="space-y-2">
-            <div className="text-xs text-muted-foreground mb-2">ציר זמן — כל קטע מייצג דובר לאורך ההקלטה ({formatTime(result.duration)})</div>
+            <div className="text-xs text-muted-foreground mb-2">ציר זמן — כל קטע מייצג דובר לאורך ההקלטה ({formatTime(result.duration)}). לחץ פעמיים על קטע לעריכת גבולות.</div>
             <div className="space-y-0.5">
               {result.segments.map((seg, i) => {
                 const colorIdx = speakerIndex[seg.speaker_label] ?? 0;
@@ -1504,7 +1619,8 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000", initia
                 const widthPct = Math.max(((seg.end - seg.start) / result.duration) * 100, 0.5);
                 return (
                   <TooltipProvider key={i}><Tooltip><TooltipTrigger asChild>
-                    <div className="relative h-5 w-full cursor-pointer" onClick={() => seekTo(seg.start)}>
+                    <div className="relative h-5 w-full cursor-pointer" onClick={() => seekTo(seg.start)}
+                      onDoubleClick={() => { setEditingBoundary({ segIdx: i, edge: 'start' }); setEditingBoundaryValue(seg.start.toFixed(2)); }}>
                       <div className="absolute h-full rounded-sm hover:opacity-100 transition-opacity"
                         style={{ right: `${leftPct}%`, width: `${widthPct}%`, backgroundColor: SPEAKER_BAR_COLORS[colorIdx % SPEAKER_BAR_COLORS.length],
                           opacity: activeSpeakerFilter && activeSpeakerFilter !== seg.speaker_label ? 0.15 : 0.85 }} />
@@ -1517,11 +1633,62 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000", initia
                 );
               })}
             </div>
+
+            {/* Overlap markers on timeline */}
+            {overlaps.length > 0 && (
+              <div className="relative h-3 w-full">
+                {overlaps.map((o, i) => {
+                  const leftPct = (o.start / result.duration) * 100;
+                  const widthPct = Math.max(((o.end - o.start) / result.duration) * 100, 0.3);
+                  return (
+                    <div key={i} className="absolute h-full rounded-sm bg-yellow-500/60 border border-yellow-600/40 cursor-pointer"
+                      style={{ right: `${leftPct}%`, width: `${widthPct}%` }}
+                      title={`חפיפה: ${o.speakers.map(s => getSpeakerName(s)).join(' + ')}`}
+                      onClick={() => seekTo(o.start)} />
+                  );
+                })}
+              </div>
+            )}
+
             <div className="flex justify-between text-[10px] text-muted-foreground mt-1 px-0.5" dir="ltr">
               <span>{formatTime(0)}</span><span>{formatTime(result.duration * 0.25)}</span>
               <span>{formatTime(result.duration * 0.5)}</span><span>{formatTime(result.duration * 0.75)}</span>
               <span>{formatTime(result.duration)}</span>
             </div>
+
+            {/* Boundary editor */}
+            {editingBoundary && (
+              <div className="border rounded-lg p-3 bg-muted/20 space-y-2" onClick={e => e.stopPropagation()}>
+                <Label className="text-xs font-semibold">✏️ עריכת גבולות — קטע #{editingBoundary.segIdx + 1}</Label>
+                <div className="flex gap-2 items-center flex-wrap">
+                  <div className="flex gap-1">
+                    <Button variant={editingBoundary.edge === 'start' ? 'default' : 'outline'} size="sm" className="text-xs h-7"
+                      onClick={() => { setEditingBoundary({ ...editingBoundary, edge: 'start' }); setEditingBoundaryValue(result.segments[editingBoundary.segIdx].start.toFixed(2)); }}>
+                      התחלה
+                    </Button>
+                    <Button variant={editingBoundary.edge === 'end' ? 'default' : 'outline'} size="sm" className="text-xs h-7"
+                      onClick={() => { setEditingBoundary({ ...editingBoundary, edge: 'end' }); setEditingBoundaryValue(result.segments[editingBoundary.segIdx].end.toFixed(2)); }}>
+                      סיום
+                    </Button>
+                  </div>
+                  <Input
+                    type="number"
+                    step="0.1"
+                    value={editingBoundaryValue}
+                    onChange={e => setEditingBoundaryValue(e.target.value)}
+                    className="w-24 h-7 text-xs"
+                    onKeyDown={e => { if (e.key === 'Enter') saveBoundaryEdit(); if (e.key === 'Escape') setEditingBoundary(null); }}
+                  />
+                  <span className="text-xs text-muted-foreground">שניות</span>
+                  <Button size="sm" className="h-7 text-xs" onClick={saveBoundaryEdit}><Check className="w-3 h-3 ml-1" />שמור</Button>
+                  <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setEditingBoundary(null)}><X className="w-3 h-3" /></Button>
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  מקור: {formatTime(result.segments[editingBoundary.segIdx].start)} – {formatTime(result.segments[editingBoundary.segIdx].end)} | {getSpeakerName(result.segments[editingBoundary.segIdx].speaker_label)}
+                </p>
+              </div>
+            )}
+
             <div className="flex flex-wrap gap-2 mt-3">
               {result.speakers.map((sp, i) => (
                 <button key={sp}
@@ -1593,6 +1760,28 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000", initia
             </div>
           </TabsContent>
 
+          {/* === AI Tab === */}
+          <TabsContent value="ai">
+            <DiarizationAI
+              result={result}
+              speakerNames={speakerNames}
+              openaiKey={cloudKeys.openai_key}
+              onSegmentsUpdate={handleSegmentsUpdate}
+              onSeek={seekTo}
+            />
+          </TabsContent>
+
+          {/* === Notes Tab === */}
+          <TabsContent value="notes">
+            <DiarizationNotes
+              segments={displaySegments}
+              notes={segmentNotes}
+              onNotesChange={setSegmentNotes}
+              speakerNames={speakerNames}
+              onSeek={seekTo}
+            />
+          </TabsContent>
+
           {/* === Merge Tab === */}
           <TabsContent value="merge" className="space-y-4">
             <div className="text-sm text-muted-foreground">שלב את תוצאות זיהוי הדוברים עם תמלול קיים.</div>
@@ -1643,7 +1832,61 @@ export const SpeakerDiarization = ({ serverUrl = "http://localhost:3000", initia
             )}
           </TabsContent>
 
-          <TabsContent value="compare">
+          <TabsContent value="compare" className="space-y-4">
+            {/* Quick compare: run with multiple engines */}
+            {preloadedFileRef.current && (
+              <div className="border rounded-xl p-3 bg-muted/20 space-y-2">
+                <Label className="text-sm font-semibold flex items-center gap-1.5">
+                  <ArrowLeftRight className="w-4 h-4 text-primary" />
+                  הרץ זיהוי עם מנועים שונים והשווה
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  לחץ על מנוע כדי להריץ זיהוי ולהוסיף אוטומטית להשוואה. הקובץ: <span className="font-medium">{currentFileName}</span>
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {([
+                    { value: 'browser' as DiarizationMode, label: 'דפדפן', icon: Globe },
+                    { value: 'whisperx' as DiarizationMode, label: 'WhisperX', icon: Mic },
+                    { value: 'assemblyai' as DiarizationMode, label: 'AssemblyAI', icon: Cloud },
+                    { value: 'deepgram' as DiarizationMode, label: 'Deepgram', icon: Cloud },
+                    { value: 'openai' as DiarizationMode, label: 'OpenAI', icon: Cloud },
+                    { value: 'local' as DiarizationMode, label: 'מקומי', icon: Server },
+                  ]).map(eng => {
+                    const alreadyRan = compareEntries.some(e => e.label === eng.label);
+                    return (
+                      <Button
+                        key={eng.value}
+                        variant={alreadyRan ? 'secondary' : 'outline'}
+                        size="sm"
+                        className="text-xs gap-1"
+                        disabled={isProcessing}
+                        onClick={async () => {
+                          if (!preloadedFileRef.current) return;
+                          const prevMode = mode;
+                          setMode(eng.value);
+                          // Brief delay for state update, then run
+                          await new Promise(r => setTimeout(r, 50));
+                          // Run diarization and auto-add to compare
+                          compareRunRef.current = eng.label;
+                          handleDiarize(preloadedFileRef.current!);
+                        }}
+                      >
+                        <eng.icon className="w-3.5 h-3.5" />
+                        {eng.label}
+                        {alreadyRan && <Check className="w-3 h-3 text-green-600" />}
+                      </Button>
+                    );
+                  })}
+                </div>
+                {isProcessing && (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    מריץ זיהוי...
+                  </div>
+                )}
+              </div>
+            )}
+
             <DiarizationCompare entries={compareEntries} />
             {compareEntries.length > 0 && (
               <Button variant="ghost" size="sm" className="mt-2 text-xs text-destructive" onClick={() => setCompareEntries([])}>
