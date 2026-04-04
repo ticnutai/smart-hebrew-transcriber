@@ -968,7 +968,7 @@ const DiarizationComparePage = () => {
   const [audioFileName, setAudioFileName] = useState<string>('');
   const [selectedEngine, setSelectedEngine] = useState<string>('assemblyai');
   const [isRunningEngine, setIsRunningEngine] = useState(false);
-  const { cloudKeys } = useCloudApiKeys();
+  const { keys: cloudKeys } = useCloudApiKeys();
 
   // New enhancement state
   const [searchQuery, setSearchQuery] = useState('');
