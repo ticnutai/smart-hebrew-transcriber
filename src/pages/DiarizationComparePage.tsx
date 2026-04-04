@@ -8,12 +8,18 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   ArrowLeftRight, BarChart3, Clock, Copy, Download, FileText,
   GitCompareArrows, MessageSquare, Users, ArrowRight,
   Maximize2, Minimize2, Eye, EyeOff, Filter, Printer, ChevronDown,
   Play, Volume2, Search, Square, Check, Merge, Subtitles, Pause,
+  Loader2, Cloud, Globe, Mic, Server, Zap,
 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { diarizeInBrowser } from "@/utils/browserDiarization";
+import { useCloudApiKeys } from "@/hooks/useCloudApiKeys";
 import DiffMatchPatch from "diff-match-patch";
 import type { SyncAudioPlayerRef } from "@/components/SyncAudioPlayer";
 
