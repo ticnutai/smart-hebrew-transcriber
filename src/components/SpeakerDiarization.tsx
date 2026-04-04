@@ -1440,7 +1440,41 @@ export const SpeakerDiarization = ({ serverUrl = "/whisper", initialAudioBlob, i
 
       {/* Results */}
       {result && (
-        <Tabs defaultValue="stats" className="mt-2">
+        <div className="mt-2">
+          {/* Quick Compare Button */}
+          <div className="flex justify-end mb-2">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-xs gap-1.5 border-primary/30 hover:bg-primary/10"
+                    onClick={() => {
+                      const entry = {
+                        label: result.diarization_method || mode,
+                        result,
+                      };
+                      navigate('/diarization/compare', {
+                        state: {
+                          entries: [entry],
+                          audioUrl,
+                          audioFileName: currentFileName,
+                        },
+                      });
+                    }}
+                  >
+                    <GitCompareArrows className="w-4 h-4 text-primary" />
+                    השוואת מנועים
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  <p>השווה תוצאה זו עם מנוע נוסף</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+        <Tabs defaultValue="stats" className="mt-0">
           <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 mb-3">
             <TabsList className="inline-flex w-auto min-w-full sm:grid sm:w-full sm:grid-cols-4 lg:grid-cols-8 gap-0.5">
               <TabsTrigger value="stats" className="text-xs gap-1 whitespace-nowrap"><BarChart3 className="w-3.5 h-3.5" />סטטיסטיקות</TabsTrigger>
