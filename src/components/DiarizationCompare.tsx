@@ -2,7 +2,9 @@ import { useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { BarChart3, Clock, Users, MessageSquare, ArrowLeftRight, FileText, Copy } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { BarChart3, Clock, Users, MessageSquare, ArrowLeftRight, FileText, Copy, Eye, GitCompareArrows } from "lucide-react";
+import DiffMatchPatch from "diff-match-patch";
 
 interface DiarizedSegment {
   text: string;
@@ -125,22 +127,91 @@ function computeAgreement(a: DiarizationResult, b: DiarizationResult): number {
 
 export const DiarizationCompare = ({ entries }: DiarizationCompareProps) => {
   const [showTranscript, setShowTranscript] = useState<number | null>(null);
-  const [showSideBySide, setShowSideBySide] = useState(false);
+  const [diffPair, setDiffPair] = useState<[number, number]>([0, 1]);
+
+  const dmp = useMemo(() => new DiffMatchPatch(), []);
 
   const comparisons = useMemo(() => {
     if (entries.length < 2) return [];
-    const results: Array<{ a: string; b: string; agreement: number }> = [];
+    const results: Array<{ a: string; b: string; aIdx: number; bIdx: number; agreement: number }> = [];
     for (let i = 0; i < entries.length; i++) {
       for (let j = i + 1; j < entries.length; j++) {
         results.push({
           a: entries[i].label,
           b: entries[j].label,
+          aIdx: i,
+          bIdx: j,
           agreement: computeAgreement(entries[i].result, entries[j].result),
         });
       }
     }
     return results;
   }, [entries]);
+
+  /** Merge consecutive same-speaker segments into clean paragraphs */
+  const getMergedSegments = (result: DiarizationResult): DiarizedSegment[] => {
+    const merged: DiarizedSegment[] = [];
+    for (const seg of result.segments) {
+      const prev = merged[merged.length - 1];
+      if (prev && prev.speaker_label === seg.speaker_label) {
+        prev.text = prev.text + ' ' + seg.text;
+        prev.end = seg.end;
+      } else {
+        merged.push({ ...seg });
+      }
+    }
+    return merged;
+  };
+
+  /** Get merged full text for diff purposes */
+  const getMergedText = (result: DiarizationResult): string => {
+    return getMergedSegments(result)
+      .map(s => `[${s.speaker_label}] ${s.text}`)
+      .join('\n');
+  };
+
+  /** Compute word-level diffs between two result texts */
+  const diffResult = useMemo(() => {
+    if (entries.length < 2) return null;
+    const [ai, bi] = diffPair;
+    if (!entries[ai] || !entries[bi]) return null;
+
+    const textA = getMergedText(entries[ai].result);
+    const textB = getMergedText(entries[bi].result);
+
+    const diffs = dmp.diff_main(textA, textB);
+    dmp.diff_cleanupSemantic(diffs);
+
+    // Count stats
+    let added = 0, removed = 0, same = 0;
+    for (const [op, text] of diffs) {
+      const words = text.split(/\s+/).filter(Boolean).length;
+      if (op === 1) added += words;
+      else if (op === -1) removed += words;
+      else same += words;
+    }
+    const total = same + Math.max(added, removed);
+    const similarity = total > 0 ? Math.round((same / total) * 100) : 0;
+
+    return { diffs, added, removed, same, similarity };
+  }, [entries, diffPair, dmp]);
+
+  /** Render diff elements for one side */
+  const renderDiffSide = (side: 'left' | 'right') => {
+    if (!diffResult) return null;
+    return diffResult.diffs.map(([op, text], i) => {
+      // Left side: show unchanged + removed
+      if (side === 'left') {
+        if (op === 0) return <span key={i}>{text}</span>;
+        if (op === -1) return <span key={i} className="bg-red-200/70 dark:bg-red-900/40 text-red-800 dark:text-red-300 line-through px-0.5 rounded">{text}</span>;
+        return null; // skip additions on left
+      }
+      // Right side: show unchanged + added
+      if (op === 0) return <span key={i}>{text}</span>;
+      if (op === 1) return <span key={i} className="bg-green-200/70 dark:bg-green-900/40 text-green-800 dark:text-green-300 font-semibold px-0.5 rounded">{text}</span>;
+      return null; // skip deletions on right
+    });
+  };
 
   if (entries.length < 2) {
     return (
@@ -163,7 +234,9 @@ export const DiarizationCompare = ({ entries }: DiarizationCompareProps) => {
           </h4>
           <div className="space-y-2">
             {comparisons.map((c, i) => (
-              <div key={i} className="flex items-center gap-3">
+              <div key={i} className="flex items-center gap-3 cursor-pointer hover:bg-muted/30 rounded px-1 py-0.5"
+                onClick={() => setDiffPair([c.aIdx, c.bIdx])}
+                title="לחץ להשוואת טקסט">
                 <span className="text-xs min-w-[140px]">{c.a} ↔ {c.b}</span>
                 <div className="flex-1 h-3 rounded-full bg-muted overflow-hidden">
                   <div
@@ -183,189 +256,221 @@ export const DiarizationCompare = ({ entries }: DiarizationCompareProps) => {
         </Card>
       )}
 
-      {/* Side-by-side comparison */}
-      <div className={`grid gap-3 ${entries.length === 2 ? 'grid-cols-2' : entries.length >= 3 ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3' : 'grid-cols-1'}`}>
-        {entries.map((entry, idx) => {
-          const dist = getSpeakerDistribution(entry.result);
-          return (
-            <Card key={idx} className="p-3">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="text-xs">{entry.label}</Badge>
-                  <span className="text-xs text-muted-foreground">{entry.result.diarization_method}</span>
-                </div>
-                <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                  <span className="flex items-center gap-1">
-                    <Users className="w-3 h-3" />
-                    {entry.result.speaker_count} דוברים
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <MessageSquare className="w-3 h-3" />
-                    {entry.result.segments.length} קטעים
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <Clock className="w-3 h-3" />
-                    {entry.result.processing_time} שנ׳
-                  </span>
-                </div>
-              </div>
+      <Tabs defaultValue="diff" className="w-full">
+        <TabsList className="w-full">
+          <TabsTrigger value="diff" className="flex-1 text-xs gap-1">
+            <GitCompareArrows className="w-3.5 h-3.5" />
+            השוואת טקסט
+          </TabsTrigger>
+          <TabsTrigger value="overview" className="flex-1 text-xs gap-1">
+            <BarChart3 className="w-3.5 h-3.5" />
+            סקירת מנועים
+          </TabsTrigger>
+          <TabsTrigger value="transcript" className="flex-1 text-xs gap-1">
+            <FileText className="w-3.5 h-3.5" />
+            תמלול נקי
+          </TabsTrigger>
+        </TabsList>
 
-              {/* Speaker distribution bar */}
-              <div className="flex h-4 rounded-full overflow-hidden mb-2">
-                {dist.map((d, i) => (
-                  <div
-                    key={d.label}
-                    className="h-full transition-all"
-                    style={{
-                      width: `${d.pct}%`,
-                      backgroundColor: BAR_COLORS[i % BAR_COLORS.length],
-                    }}
-                    title={`${d.label}: ${Math.round(d.pct)}%`}
-                  />
-                ))}
-              </div>
+        {/* ═══════ DIFF TAB — Side-by-side text comparison with highlighting ═══════ */}
+        <TabsContent value="diff" className="space-y-3">
+          {/* Diff pair selector (when >2 entries) */}
+          {entries.length > 2 && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-muted-foreground">השוואה בין:</span>
+              {comparisons.map((c, i) => (
+                <Button
+                  key={i}
+                  variant={diffPair[0] === c.aIdx && diffPair[1] === c.bIdx ? 'default' : 'outline'}
+                  size="sm"
+                  className="text-xs h-7"
+                  onClick={() => setDiffPair([c.aIdx, c.bIdx])}
+                >
+                  {c.a} ↔ {c.b}
+                </Button>
+              ))}
+            </div>
+          )}
 
-              {/* Speaker legend */}
-              <div className="flex flex-wrap gap-2">
-                {dist.map((d, i) => (
-                  <span key={d.label} className="flex items-center gap-1 text-xs">
-                    <span
-                      className="w-2 h-2 rounded-full"
-                      style={{ backgroundColor: BAR_COLORS[i % BAR_COLORS.length] }}
-                    />
-                    {d.label} ({Math.round(d.pct)}% · {formatDuration(d.time)})
-                  </span>
-                ))}
-              </div>
+          {/* Diff stats */}
+          {diffResult && (
+            <div className="flex items-center gap-4 text-xs flex-wrap">
+              <Badge variant="secondary" className="gap-1">
+                דמיון: {diffResult.similarity}%
+              </Badge>
+              <span className="text-green-600 dark:text-green-400">+{diffResult.added} מילים</span>
+              <span className="text-red-600 dark:text-red-400">−{diffResult.removed} מילים</span>
+              <span className="text-muted-foreground">{diffResult.same} משותפות</span>
+            </div>
+          )}
 
-              {/* Timeline preview */}
-              <div className="mt-2 relative h-6 bg-muted/50 rounded overflow-hidden">
-                {entry.result.segments.map((seg, si) => {
-                  const left = (seg.start / entry.result.duration) * 100;
-                  const width = ((seg.end - seg.start) / entry.result.duration) * 100;
-                  const spIdx = entry.result.speakers.indexOf(seg.speaker_label);
-                  return (
-                    <div
-                      key={si}
-                      className="absolute top-0 h-full opacity-80"
-                      style={{
-                        left: `${left}%`,
-                        width: `${Math.max(width, 0.3)}%`,
-                        backgroundColor: BAR_COLORS[spIdx % BAR_COLORS.length],
-                      }}
-                      title={`${seg.speaker_label} ${formatTime(seg.start)}-${formatTime(seg.end)}`}
-                    />
-                  );
-                })}
+          {/* Side-by-side diff panels */}
+          <div className="grid grid-cols-2 gap-3">
+            {/* Left panel */}
+            <Card className="p-3 max-h-[500px] overflow-y-auto" dir="rtl">
+              <div className="sticky top-0 bg-card pb-2 z-10 flex items-center justify-between">
+                <Badge variant="outline" className="text-xs">{entries[diffPair[0]]?.label}</Badge>
+                <Button variant="ghost" size="sm" className="h-6 text-xs gap-1" onClick={() => {
+                  navigator.clipboard.writeText(getMergedText(entries[diffPair[0]].result));
+                }}>
+                  <Copy className="w-3 h-3" />העתק
+                </Button>
               </div>
-              <div className="flex justify-between text-[10px] text-muted-foreground mt-0.5">
-                <span>0:00</span>
-                <span>{formatTime(entry.result.duration)}</span>
+              <div className="text-sm leading-relaxed whitespace-pre-wrap">
+                {renderDiffSide('left')}
               </div>
             </Card>
-          );
-        })}
-      </div>
 
-      {/* ──── Action buttons ──── */}
-      <div className="flex gap-2 flex-wrap">
-        <Button variant="outline" size="sm" className="text-xs gap-1" onClick={() => setShowSideBySide(!showSideBySide)}>
-          <FileText className="w-3.5 h-3.5" />
-          {showSideBySide ? 'הסתר השוואת טקסט' : 'השוואת טקסט side-by-side'}
-        </Button>
-        {entries.map((entry, idx) => (
-          <Button key={idx} variant={showTranscript === idx ? 'default' : 'outline'} size="sm" className="text-xs gap-1"
-            onClick={() => setShowTranscript(showTranscript === idx ? null : idx)}>
-            <MessageSquare className="w-3.5 h-3.5" />
-            תמלול נקי — {entry.label}
-          </Button>
-        ))}
-      </div>
+            {/* Right panel */}
+            <Card className="p-3 max-h-[500px] overflow-y-auto" dir="rtl">
+              <div className="sticky top-0 bg-card pb-2 z-10 flex items-center justify-between">
+                <Badge variant="outline" className="text-xs">{entries[diffPair[1]]?.label}</Badge>
+                <Button variant="ghost" size="sm" className="h-6 text-xs gap-1" onClick={() => {
+                  navigator.clipboard.writeText(getMergedText(entries[diffPair[1]].result));
+                }}>
+                  <Copy className="w-3 h-3" />העתק
+                </Button>
+              </div>
+              <div className="text-sm leading-relaxed whitespace-pre-wrap">
+                {renderDiffSide('right')}
+              </div>
+            </Card>
+          </div>
+        </TabsContent>
 
-      {/* ──── Clean Transcript View ──── */}
-      {showTranscript !== null && entries[showTranscript] && (() => {
-        const entry = entries[showTranscript];
-        // Merge consecutive segments from same speaker
-        const merged: DiarizedSegment[] = [];
-        for (const seg of entry.result.segments) {
-          const prev = merged[merged.length - 1];
-          if (prev && prev.speaker_label === seg.speaker_label) {
-            prev.text = prev.text + ' ' + seg.text;
-            prev.end = seg.end;
-          } else {
-            merged.push({ ...seg });
-          }
-        }
-        return (
-          <Card className="p-4 space-y-3 max-h-[500px] overflow-y-auto" dir="rtl">
-            <div className="flex items-center justify-between sticky top-0 bg-card pb-2 z-10">
-              <h4 className="text-sm font-semibold flex items-center gap-2">
-                <MessageSquare className="w-4 h-4" />
-                תמלול נקי — {entry.label}
-              </h4>
-              <Button variant="ghost" size="sm" className="text-xs gap-1" onClick={() => {
-                const text = merged.map(s => `[${s.speaker_label}] (${formatTime(s.start)}-${formatTime(s.end)})\n${s.text}`).join('\n\n');
-                navigator.clipboard.writeText(text);
-              }}>
-                <Copy className="w-3.5 h-3.5" />העתק
-              </Button>
-            </div>
-            {merged.map((seg, i) => {
-              const spIdx = entry.result.speakers.indexOf(seg.speaker_label);
+        {/* ═══════ OVERVIEW TAB — Engine cards with timelines ═══════ */}
+        <TabsContent value="overview" className="space-y-3">
+          <div className={`grid gap-3 ${entries.length === 2 ? 'grid-cols-2' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'}`}>
+            {entries.map((entry, idx) => {
+              const dist = getSpeakerDistribution(entry.result);
               return (
-                <div key={i} className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: BAR_COLORS[spIdx % BAR_COLORS.length] }} />
-                    <span className="text-xs font-semibold">{seg.speaker_label}</span>
-                    <span className="text-[10px] text-muted-foreground">{formatTime(seg.start)} – {formatTime(seg.end)}</span>
+                <Card key={idx} className="p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="text-xs">{entry.label}</Badge>
+                      <span className="text-xs text-muted-foreground">{entry.result.diarization_method}</span>
+                    </div>
+                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                      <span className="flex items-center gap-1">
+                        <Users className="w-3 h-3" />
+                        {entry.result.speaker_count} דוברים
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <MessageSquare className="w-3 h-3" />
+                        {entry.result.segments.length} קטעים
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        {entry.result.processing_time} שנ׳
+                      </span>
+                    </div>
                   </div>
-                  <p className="text-sm leading-relaxed pr-5">{seg.text}</p>
-                </div>
+
+                  {/* Speaker distribution bar */}
+                  <div className="flex h-4 rounded-full overflow-hidden mb-2">
+                    {dist.map((d, i) => (
+                      <div
+                        key={d.label}
+                        className="h-full transition-all"
+                        style={{
+                          width: `${d.pct}%`,
+                          backgroundColor: BAR_COLORS[i % BAR_COLORS.length],
+                        }}
+                        title={`${d.label}: ${Math.round(d.pct)}%`}
+                      />
+                    ))}
+                  </div>
+
+                  {/* Speaker legend */}
+                  <div className="flex flex-wrap gap-2">
+                    {dist.map((d, i) => (
+                      <span key={d.label} className="flex items-center gap-1 text-xs">
+                        <span
+                          className="w-2 h-2 rounded-full"
+                          style={{ backgroundColor: BAR_COLORS[i % BAR_COLORS.length] }}
+                        />
+                        {d.label} ({Math.round(d.pct)}% · {formatDuration(d.time)})
+                      </span>
+                    ))}
+                  </div>
+
+                  {/* Timeline preview */}
+                  <div className="mt-2 relative h-6 bg-muted/50 rounded overflow-hidden">
+                    {entry.result.segments.map((seg, si) => {
+                      const left = (seg.start / entry.result.duration) * 100;
+                      const width = ((seg.end - seg.start) / entry.result.duration) * 100;
+                      const spIdx = entry.result.speakers.indexOf(seg.speaker_label);
+                      return (
+                        <div
+                          key={si}
+                          className="absolute top-0 h-full opacity-80"
+                          style={{
+                            left: `${left}%`,
+                            width: `${Math.max(width, 0.3)}%`,
+                            backgroundColor: BAR_COLORS[spIdx % BAR_COLORS.length],
+                          }}
+                          title={`${seg.speaker_label} ${formatTime(seg.start)}-${formatTime(seg.end)}`}
+                        />
+                      );
+                    })}
+                  </div>
+                  <div className="flex justify-between text-[10px] text-muted-foreground mt-0.5">
+                    <span>0:00</span>
+                    <span>{formatTime(entry.result.duration)}</span>
+                  </div>
+                </Card>
               );
             })}
-          </Card>
-        );
-      })()}
+          </div>
+        </TabsContent>
 
-      {/* ──── Side-by-Side Text Comparison ──── */}
-      {showSideBySide && entries.length >= 2 && (
-        <div className={`grid gap-3 ${entries.length === 2 ? 'grid-cols-2' : 'grid-cols-1 md:grid-cols-2'}`}>
-          {entries.map((entry, idx) => {
-            const merged: DiarizedSegment[] = [];
-            for (const seg of entry.result.segments) {
-              const prev = merged[merged.length - 1];
-              if (prev && prev.speaker_label === seg.speaker_label) {
-                prev.text = prev.text + ' ' + seg.text;
-                prev.end = seg.end;
-              } else {
-                merged.push({ ...seg });
-              }
-            }
+        {/* ═══════ TRANSCRIPT TAB — Clean per-engine transcript ═══════ */}
+        <TabsContent value="transcript" className="space-y-3">
+          <div className="flex gap-2 flex-wrap">
+            {entries.map((entry, idx) => (
+              <Button key={idx} variant={showTranscript === idx ? 'default' : 'outline'} size="sm" className="text-xs gap-1"
+                onClick={() => setShowTranscript(showTranscript === idx ? null : idx)}>
+                <MessageSquare className="w-3.5 h-3.5" />
+                {entry.label}
+              </Button>
+            ))}
+          </div>
+
+          {showTranscript !== null && entries[showTranscript] && (() => {
+            const entry = entries[showTranscript];
+            const merged = getMergedSegments(entry.result);
             return (
-              <Card key={idx} className="p-3 max-h-[400px] overflow-y-auto" dir="rtl">
-                <div className="sticky top-0 bg-card pb-2 z-10">
-                  <Badge variant="outline" className="text-xs mb-2">{entry.label}</Badge>
+              <Card className="p-4 space-y-3 max-h-[500px] overflow-y-auto" dir="rtl">
+                <div className="flex items-center justify-between sticky top-0 bg-card pb-2 z-10">
+                  <h4 className="text-sm font-semibold flex items-center gap-2">
+                    <MessageSquare className="w-4 h-4" />
+                    תמלול נקי — {entry.label}
+                  </h4>
+                  <Button variant="ghost" size="sm" className="text-xs gap-1" onClick={() => {
+                    const text = merged.map(s => `[${s.speaker_label}] (${formatTime(s.start)}-${formatTime(s.end)})\n${s.text}`).join('\n\n');
+                    navigator.clipboard.writeText(text);
+                  }}>
+                    <Copy className="w-3.5 h-3.5" />העתק
+                  </Button>
                 </div>
-                <div className="space-y-2">
-                  {merged.map((seg, i) => {
-                    const spIdx = entry.result.speakers.indexOf(seg.speaker_label);
-                    return (
-                      <div key={i} className="text-xs">
-                        <span className="inline-flex items-center gap-1 font-semibold mb-0.5">
-                          <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: BAR_COLORS[spIdx % BAR_COLORS.length] }} />
-                          {seg.speaker_label}
-                          <span className="font-normal text-muted-foreground">({formatTime(seg.start)})</span>
-                        </span>
-                        <p className="leading-relaxed">{seg.text}</p>
+                {merged.map((seg, i) => {
+                  const spIdx = entry.result.speakers.indexOf(seg.speaker_label);
+                  return (
+                    <div key={i} className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: BAR_COLORS[spIdx % BAR_COLORS.length] }} />
+                        <span className="text-xs font-semibold">{seg.speaker_label}</span>
+                        <span className="text-[10px] text-muted-foreground">{formatTime(seg.start)} – {formatTime(seg.end)}</span>
                       </div>
-                    );
-                  })}
-                </div>
+                      <p className="text-sm leading-relaxed pr-5">{seg.text}</p>
+                    </div>
+                  );
+                })}
               </Card>
             );
-          })}
-        </div>
-      )}
+          })()}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 };
