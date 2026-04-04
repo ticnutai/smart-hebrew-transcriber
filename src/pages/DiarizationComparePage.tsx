@@ -985,11 +985,13 @@ const DiarizationComparePage = () => {
 
   // Load entries from navigation state or localStorage
   useEffect(() => {
-    const state = location.state as { entries?: CompareEntry[]; audioUrl?: string } | null;
+    const state = location.state as { entries?: CompareEntry[]; audioUrl?: string; audioFileName?: string } | null;
     const stateEntries = state?.entries;
-    if (stateEntries && stateEntries.length >= 2) {
+    if (stateEntries && stateEntries.length >= 1) {
       setEntries(stateEntries);
-      localStorage.setItem('diarization_compare_entries', JSON.stringify(stateEntries));
+      if (stateEntries.length >= 2) {
+        localStorage.setItem('diarization_compare_entries', JSON.stringify(stateEntries));
+      }
     } else {
       try {
         const saved = localStorage.getItem('diarization_compare_entries');
@@ -1005,6 +1007,9 @@ const DiarizationComparePage = () => {
     } else {
       const savedUrl = localStorage.getItem('diarization_compare_audioUrl');
       if (savedUrl) setAudioUrl(savedUrl);
+    }
+    if (state?.audioFileName) {
+      setAudioFileName(state.audioFileName);
     }
   }, [location.state]);
 
