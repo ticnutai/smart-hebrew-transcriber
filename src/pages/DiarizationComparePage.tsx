@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useCallback, useEffect } from "react";
+import { useState, useMemo, useRef, useCallback, useEffect, lazy, Suspense } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -11,8 +11,12 @@ import {
   ArrowLeftRight, BarChart3, Clock, Copy, Download, FileText,
   GitCompareArrows, MessageSquare, Users, ArrowRight,
   Maximize2, Minimize2, Eye, EyeOff, Filter, Printer, ChevronDown,
+  Play, Volume2,
 } from "lucide-react";
 import DiffMatchPatch from "diff-match-patch";
+import type { SyncAudioPlayerRef } from "@/components/SyncAudioPlayer";
+
+const SyncAudioPlayer = lazy(() => import("@/components/SyncAudioPlayer").then(m => ({ default: m.SyncAudioPlayer })));
 
 /* ═══════════════════════ Types ═══════════════════════ */
 
@@ -602,6 +606,137 @@ function TranscriptComparison({ entries, diffPair }: {
   );
 }
 
+/* ═══════════════════════ Split Column: Full Engine Result ═══════════════════════ */
+
+function EngineColumn({ entry, idx, currentTime, onSeek }: {
+  entry: CompareEntry;
+  idx: number;
+  currentTime: number;
+  onSeek: (time: number) => void;
+}) {
+  const color = ENGINE_COLORS[entry.label] || '#888';
+  const merged = getMergedSegments(entry.result);
+  const dist = getSpeakerDistribution(entry.result);
+  const totalWords = entry.result.segments.reduce((a, s) => a + s.text.split(/\s+/).filter(Boolean).length, 0);
+
+  // Find current segment for highlight
+  const activeIdx = merged.findIndex(s => currentTime >= s.start && currentTime < s.end);
+
+  return (
+    <div className="flex flex-col min-h-0">
+      {/* Engine header */}
+      <div className="sticky top-0 z-10 bg-background border-b px-4 py-3" style={{ borderTopColor: color, borderTopWidth: '3px' }}>
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <div className="w-3.5 h-3.5 rounded-full" style={{ backgroundColor: color }} />
+            <span className="font-bold text-base">{entry.label}</span>
+            <Badge variant="outline" className="text-[10px]">{entry.result.diarization_method}</Badge>
+          </div>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => {
+                  const text = merged.map(s => `[${s.speaker_label}] (${formatTime(s.start)}-${formatTime(s.end)})\n${s.text}`).join('\n\n');
+                  navigator.clipboard.writeText(text);
+                }}>
+                  <Copy className="w-3 h-3" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>העתק תמלול</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+
+        {/* Quick stats */}
+        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          <span>{entry.result.speaker_count} דוברים</span>
+          <span>·</span>
+          <span>{entry.result.segments.length} קטעים</span>
+          <span>·</span>
+          <span>{totalWords} מילים</span>
+          <span>·</span>
+          <span>{entry.result.processing_time.toFixed(1)}s עיבוד</span>
+        </div>
+
+        {/* Speaker distribution bar */}
+        <div className="flex h-3 rounded-full overflow-hidden mt-2">
+          {dist.map((d, i) => (
+            <div
+              key={d.label}
+              className="h-full"
+              style={{ width: `${d.pct}%`, backgroundColor: BAR_COLORS[i % BAR_COLORS.length] }}
+              title={`${d.label}: ${Math.round(d.pct)}%`}
+            />
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
+          {dist.map((d, i) => (
+            <span key={d.label} className="flex items-center gap-1 text-[10px] text-muted-foreground">
+              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: BAR_COLORS[i % BAR_COLORS.length] }} />
+              {d.label} ({Math.round(d.pct)}%)
+            </span>
+          ))}
+        </div>
+
+        {/* Mini timeline */}
+        <div className="mt-2 relative h-5 bg-muted/30 rounded overflow-hidden cursor-pointer"
+          onClick={e => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+            onSeek(pct * entry.result.duration);
+          }}
+        >
+          {entry.result.segments.map((seg, si) => {
+            const left = (seg.start / entry.result.duration) * 100;
+            const width = ((seg.end - seg.start) / entry.result.duration) * 100;
+            const spIdx = entry.result.speakers.indexOf(seg.speaker_label);
+            return (
+              <div
+                key={si}
+                className="absolute top-0 h-full opacity-80 hover:opacity-100 transition-opacity"
+                style={{
+                  left: `${left}%`,
+                  width: `${Math.max(width, 0.3)}%`,
+                  backgroundColor: BAR_COLORS[spIdx % BAR_COLORS.length],
+                }}
+              />
+            );
+          })}
+          {/* Playhead */}
+          {entry.result.duration > 0 && (
+            <div
+              className="absolute top-0 h-full w-0.5 bg-foreground/80 z-10"
+              style={{ left: `${(currentTime / entry.result.duration) * 100}%` }}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* Transcript segments — flowing continuously */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        {merged.map((seg, i) => {
+          const spIdx = entry.result.speakers.indexOf(seg.speaker_label);
+          const isActive = i === activeIdx;
+          return (
+            <div
+              key={i}
+              className={`space-y-1 p-2 rounded-lg cursor-pointer transition-colors ${isActive ? 'bg-primary/10 ring-1 ring-primary/30' : 'hover:bg-muted/50'}`}
+              onClick={() => onSeek(seg.start)}
+            >
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: BAR_COLORS[spIdx % BAR_COLORS.length] }} />
+                <span className="text-xs font-semibold">{seg.speaker_label}</span>
+                <span className="text-[10px] text-muted-foreground">{formatTime(seg.start)} – {formatTime(seg.end)}</span>
+              </div>
+              <p className="text-sm leading-relaxed pr-5">{seg.text}</p>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /* ═══════════════════════ Main Page Component ═══════════════════════ */
 
 const DiarizationComparePage = () => {
@@ -610,12 +745,17 @@ const DiarizationComparePage = () => {
   const [entries, setEntries] = useState<CompareEntry[]>([]);
   const [diffPair, setDiffPair] = useState<[number, number]>([0, 1]);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [showAnalysis, setShowAnalysis] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const playerRef = useRef<SyncAudioPlayerRef>(null);
   const dmp = useMemo(() => new DiffMatchPatch(), []);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
 
   // Load entries from navigation state or localStorage
   useEffect(() => {
-    const stateEntries = (location.state as { entries?: CompareEntry[] })?.entries;
+    const state = location.state as { entries?: CompareEntry[]; audioUrl?: string } | null;
+    const stateEntries = state?.entries;
     if (stateEntries && stateEntries.length >= 2) {
       setEntries(stateEntries);
       localStorage.setItem('diarization_compare_entries', JSON.stringify(stateEntries));
@@ -627,6 +767,13 @@ const DiarizationComparePage = () => {
           if (Array.isArray(parsed) && parsed.length >= 2) setEntries(parsed);
         }
       } catch { /* ignore */ }
+    }
+    if (state?.audioUrl) {
+      setAudioUrl(state.audioUrl);
+      localStorage.setItem('diarization_compare_audioUrl', state.audioUrl);
+    } else {
+      const savedUrl = localStorage.getItem('diarization_compare_audioUrl');
+      if (savedUrl) setAudioUrl(savedUrl);
     }
   }, [location.state]);
 
@@ -661,6 +808,12 @@ const DiarizationComparePage = () => {
     const handler = () => setIsFullscreen(!!document.fullscreenElement);
     document.addEventListener('fullscreenchange', handler);
     return () => document.removeEventListener('fullscreenchange', handler);
+  }, []);
+
+  const handleSeek = useCallback((time: number) => {
+    setCurrentTime(time);
+    playerRef.current?.seekTo(time);
+    playerRef.current?.play();
   }, []);
 
   const exportAsJSON = () => {
@@ -712,54 +865,31 @@ const DiarizationComparePage = () => {
     );
   }
 
+  const pairAgreement = comparisons.find(c =>
+    (c.aIdx === diffPair[0] && c.bIdx === diffPair[1]) || (c.aIdx === diffPair[1] && c.bIdx === diffPair[0])
+  );
+
   return (
-    <div ref={containerRef} className={`${isFullscreen ? 'bg-background p-4 overflow-auto' : 'container max-w-7xl mx-auto py-6 px-4'}`} dir="rtl">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6 flex-wrap gap-3 print:hidden">
+    <div ref={containerRef} className={`flex flex-col ${isFullscreen ? 'h-screen bg-background' : 'h-[calc(100vh-64px)]'}`} dir="rtl">
+      {/* ═══ Top Bar ═══ */}
+      <div className="shrink-0 border-b px-4 py-2 flex items-center justify-between flex-wrap gap-2 print:hidden bg-background">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-            <GitCompareArrows className="w-5 h-5 text-primary" />
+          <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+            <GitCompareArrows className="w-4 h-4 text-primary" />
           </div>
           <div>
-            <h1 className="text-xl font-bold">השוואת זיהוי דוברים</h1>
-            <p className="text-xs text-muted-foreground">{entries.length} מנועים · {formatDuration(entries[0]?.result.duration || 0)}</p>
+            <h1 className="text-base font-bold leading-tight">השוואת זיהוי דוברים</h1>
+            <p className="text-[10px] text-muted-foreground">{entries.length} מנועים · {formatDuration(entries[0]?.result.duration || 0)}</p>
           </div>
+          {pairAgreement && (
+            <Badge variant="secondary" className="text-sm font-bold mr-2">
+              התאמה: {Math.round(pairAgreement.agreement)}%
+            </Badge>
+          )}
         </div>
-        <div className="flex items-center gap-2">
-          <TooltipProvider>
-            <Tooltip><TooltipTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-1" onClick={exportAsJSON}>
-                <Download className="w-3.5 h-3.5" />JSON
-              </Button>
-            </TooltipTrigger><TooltipContent>ייצוא JSON</TooltipContent></Tooltip>
-            <Tooltip><TooltipTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-1" onClick={exportAsText}>
-                <FileText className="w-3.5 h-3.5" />TXT
-              </Button>
-            </TooltipTrigger><TooltipContent>ייצוא טקסט</TooltipContent></Tooltip>
-            <Tooltip><TooltipTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-1" onClick={handlePrint}>
-                <Printer className="w-3.5 h-3.5" />
-              </Button>
-            </TooltipTrigger><TooltipContent>הדפסה</TooltipContent></Tooltip>
-            <Tooltip><TooltipTrigger asChild>
-              <Button variant="outline" size="sm" onClick={toggleFullscreen}>
-                {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
-              </Button>
-            </TooltipTrigger><TooltipContent>{isFullscreen ? 'יציאה ממסך מלא' : 'מסך מלא'}</TooltipContent></Tooltip>
-          </TooltipProvider>
-          <Button variant="ghost" size="sm" className="gap-1 text-xs" onClick={() => navigate('/diarization')}>
-            <ArrowRight className="w-3.5 h-3.5" />
-            חזרה
-          </Button>
-        </div>
-      </div>
-
-      {/* Pair selector pills */}
-      {entries.length > 2 && (
-        <div className="flex items-center gap-2 flex-wrap mb-4 print:hidden">
-          <span className="text-xs text-muted-foreground font-medium">השוואה פעילה:</span>
-          {comparisons.map((c, i) => (
+        <div className="flex items-center gap-1.5">
+          {/* Pair selector for >2 engines */}
+          {entries.length > 2 && comparisons.map((c, i) => (
             <Button
               key={i}
               variant={diffPair[0] === c.aIdx && diffPair[1] === c.bIdx ? 'default' : 'outline'}
@@ -768,55 +898,120 @@ const DiarizationComparePage = () => {
               onClick={() => setDiffPair([c.aIdx, c.bIdx])}
             >
               {c.a} ↔ {c.b}
-              <Badge variant="secondary" className="text-[10px] h-4 px-1 mr-1">{Math.round(c.agreement)}%</Badge>
             </Button>
           ))}
+          <Separator orientation="vertical" className="h-5 mx-1" />
+          <Button variant={showAnalysis ? 'default' : 'outline'} size="sm" className="text-xs h-7 gap-1" onClick={() => setShowAnalysis(!showAnalysis)}>
+            <BarChart3 className="w-3.5 h-3.5" />
+            ניתוח
+          </Button>
+          <TooltipProvider>
+            <Tooltip><TooltipTrigger asChild>
+              <Button variant="outline" size="sm" className="h-7 w-7 p-0" onClick={exportAsJSON}>
+                <Download className="w-3.5 h-3.5" />
+              </Button>
+            </TooltipTrigger><TooltipContent>ייצוא JSON</TooltipContent></Tooltip>
+            <Tooltip><TooltipTrigger asChild>
+              <Button variant="outline" size="sm" className="h-7 w-7 p-0" onClick={exportAsText}>
+                <FileText className="w-3.5 h-3.5" />
+              </Button>
+            </TooltipTrigger><TooltipContent>ייצוא טקסט</TooltipContent></Tooltip>
+            <Tooltip><TooltipTrigger asChild>
+              <Button variant="outline" size="sm" className="h-7 w-7 p-0" onClick={handlePrint}>
+                <Printer className="w-3.5 h-3.5" />
+              </Button>
+            </TooltipTrigger><TooltipContent>הדפסה</TooltipContent></Tooltip>
+            <Tooltip><TooltipTrigger asChild>
+              <Button variant="outline" size="sm" className="h-7 w-7 p-0" onClick={toggleFullscreen}>
+                {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+              </Button>
+            </TooltipTrigger><TooltipContent>{isFullscreen ? 'יציאה ממסך מלא' : 'מסך מלא'}</TooltipContent></Tooltip>
+          </TooltipProvider>
+          <Button variant="ghost" size="sm" className="gap-1 text-xs h-7" onClick={() => navigate('/diarization')}>
+            <ArrowRight className="w-3.5 h-3.5" />
+            חזרה
+          </Button>
+        </div>
+      </div>
+
+      {/* ═══ Shared Audio Player ═══ */}
+      {audioUrl && (
+        <div className="shrink-0 border-b px-4 py-2 bg-muted/20">
+          <Suspense fallback={<div className="h-16 rounded-lg animate-pulse bg-muted/30" />}>
+            <SyncAudioPlayer
+              ref={playerRef}
+              audioUrl={audioUrl}
+              wordTimings={[]}
+              onTimeUpdate={setCurrentTime}
+              compact
+              speakerSegments={entries[diffPair[0]]?.result.segments.map(s => ({
+                start: s.start,
+                end: s.end,
+                speaker: s.speaker_label,
+              })) || []}
+            />
+          </Suspense>
         </div>
       )}
 
-      <Tabs defaultValue="diff" className="w-full">
-        <TabsList className="w-full max-w-2xl mb-4 print:hidden">
-          <TabsTrigger value="diff" className="flex-1 text-xs gap-1.5">
-            <GitCompareArrows className="w-4 h-4" />
-            השוואת טקסט
-          </TabsTrigger>
-          <TabsTrigger value="timeline" className="flex-1 text-xs gap-1.5">
-            <Clock className="w-4 h-4" />
-            ציר זמן
-          </TabsTrigger>
-          <TabsTrigger value="stats" className="flex-1 text-xs gap-1.5">
-            <BarChart3 className="w-4 h-4" />
-            סטטיסטיקות
-          </TabsTrigger>
-          <TabsTrigger value="transcript" className="flex-1 text-xs gap-1.5">
-            <MessageSquare className="w-4 h-4" />
-            תמלולים
-          </TabsTrigger>
-        </TabsList>
+      {/* ═══ Split-Screen: Two Engine Columns ═══ */}
+      <div className="flex-1 min-h-0 flex">
+        <div className="flex-1 min-w-0 border-l overflow-hidden">
+          <EngineColumn
+            entry={entries[diffPair[0]]}
+            idx={diffPair[0]}
+            currentTime={currentTime}
+            onSeek={handleSeek}
+          />
+        </div>
+        <div className="flex-1 min-w-0 overflow-hidden">
+          <EngineColumn
+            entry={entries[diffPair[1]]}
+            idx={diffPair[1]}
+            currentTime={currentTime}
+            onSeek={handleSeek}
+          />
+        </div>
+      </div>
 
-        {/* ═══ TAB: Text Diff ═══ */}
-        <TabsContent value="diff" className="space-y-4">
-          <AgreementMatrix entries={entries} comparisons={comparisons} activePair={diffPair} onSelectPair={setDiffPair} />
-          <SideBySideDiff entries={entries} diffPair={diffPair} dmp={dmp} />
-        </TabsContent>
+      {/* ═══ Analysis Panel (collapsible) ═══ */}
+      {showAnalysis && (
+        <div className="shrink-0 border-t bg-background max-h-[50vh] overflow-y-auto">
+          <div className="p-4 space-y-4">
+            <Tabs defaultValue="diff" className="w-full">
+              <TabsList className="w-full max-w-2xl mb-3">
+                <TabsTrigger value="diff" className="flex-1 text-xs gap-1.5">
+                  <GitCompareArrows className="w-3.5 h-3.5" />
+                  השוואת טקסט
+                </TabsTrigger>
+                <TabsTrigger value="timeline" className="flex-1 text-xs gap-1.5">
+                  <Clock className="w-3.5 h-3.5" />
+                  ציר זמן
+                </TabsTrigger>
+                <TabsTrigger value="stats" className="flex-1 text-xs gap-1.5">
+                  <BarChart3 className="w-3.5 h-3.5" />
+                  סטטיסטיקות
+                </TabsTrigger>
+              </TabsList>
 
-        {/* ═══ TAB: Timeline ═══ */}
-        <TabsContent value="timeline" className="space-y-4">
-          <TimelineComparison entries={entries} diffPair={diffPair} />
-          <AgreementMatrix entries={entries} comparisons={comparisons} activePair={diffPair} onSelectPair={setDiffPair} />
-        </TabsContent>
+              <TabsContent value="diff" className="space-y-4">
+                <AgreementMatrix entries={entries} comparisons={comparisons} activePair={diffPair} onSelectPair={setDiffPair} />
+                <SideBySideDiff entries={entries} diffPair={diffPair} dmp={dmp} />
+              </TabsContent>
 
-        {/* ═══ TAB: Stats ═══ */}
-        <TabsContent value="stats" className="space-y-4">
-          <EngineStatsCards entries={entries} />
-          <AgreementMatrix entries={entries} comparisons={comparisons} activePair={diffPair} onSelectPair={setDiffPair} />
-        </TabsContent>
+              <TabsContent value="timeline" className="space-y-4">
+                <TimelineComparison entries={entries} diffPair={diffPair} />
+                <AgreementMatrix entries={entries} comparisons={comparisons} activePair={diffPair} onSelectPair={setDiffPair} />
+              </TabsContent>
 
-        {/* ═══ TAB: Transcripts ═══ */}
-        <TabsContent value="transcript" className="space-y-4">
-          <TranscriptComparison entries={entries} diffPair={diffPair} />
-        </TabsContent>
-      </Tabs>
+              <TabsContent value="stats" className="space-y-4">
+                <EngineStatsCards entries={entries} />
+                <AgreementMatrix entries={entries} comparisons={comparisons} activePair={diffPair} onSelectPair={setDiffPair} />
+              </TabsContent>
+            </Tabs>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

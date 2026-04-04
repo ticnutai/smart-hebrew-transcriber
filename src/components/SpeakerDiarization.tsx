@@ -1891,7 +1891,7 @@ export const SpeakerDiarization = ({ serverUrl = "/whisper", initialAudioBlob, i
 
             <DiarizationCompare entries={compareEntries} />
             {compareEntries.length >= 2 && (
-              <Button variant="default" size="sm" className="mt-2 text-xs gap-1.5" onClick={() => navigate('/diarization/compare', { state: { entries: compareEntries } })}>
+              <Button variant="default" size="sm" className="mt-2 text-xs gap-1.5" onClick={() => navigate('/diarization/compare', { state: { entries: compareEntries, audioUrl } })}>
                 <Maximize2 className="w-3.5 h-3.5" />
                 פתח השוואה מלאה
               </Button>

@@ -76,48 +76,39 @@ test.describe('השוואת זיהוי דוברים בין מנועים', () => 
     // Navigate to the full comparison page
     await page.goto('/diarization/compare');
 
-    // Verify page loaded with comparison data  
+    // Verify page loaded — split-screen with both engines
     await expect(page.getByText('השוואת זיהוי דוברים')).toBeVisible({ timeout: 20000 });
     await expect(page.getByText('מקומי').first()).toBeVisible({ timeout: 10000 });
     await expect(page.getByText('WhisperX').first()).toBeVisible({ timeout: 10000 });
 
-    // Verify agreement matrix
-    await expect(page.getByText('מטריצת התאמה בין מנועים')).toBeVisible({ timeout: 10000 });
-
-    // Verify diff stats
-    await expect(page.getByText(/דמיון/).first()).toBeVisible({ timeout: 10000 });
-
-    // Take screenshot of the diff tab  
-    const screenshotDir = path.join(__dirname, '..', 'test-results');
-    fs.mkdirSync(screenshotDir, { recursive: true });
-    await page.screenshot({ path: path.join(screenshotDir, 'compare-page-diff.png'), fullPage: true });
-    console.log('📸 Screenshot 1: Diff tab');
-
-    // Switch to Timeline tab
-    const timelineTab = page.locator('[role="tab"]').filter({ hasText: 'ציר זמן' });
-    await timelineTab.click();
-    await page.waitForTimeout(500);
-    await expect(page.getByText('השוואת ציר זמן')).toBeVisible({ timeout: 10000 });
-    await page.screenshot({ path: path.join(screenshotDir, 'compare-page-timeline.png'), fullPage: true });
-    console.log('📸 Screenshot 2: Timeline tab');
-
-    // Switch to Stats tab
-    const statsTab = page.locator('[role="tab"]').filter({ hasText: 'סטטיסטיקות' });
-    await statsTab.click();
-    await page.waitForTimeout(500);
-    await expect(page.getByText('silence-gap').first()).toBeVisible({ timeout: 10000 });
-    await page.screenshot({ path: path.join(screenshotDir, 'compare-page-stats.png'), fullPage: true });
-    console.log('📸 Screenshot 3: Stats tab');
-
-    // Switch to Transcripts tab
-    const transcriptTab = page.locator('[role="tab"]').filter({ hasText: 'תמלולים' });
-    await transcriptTab.click();
-    await page.waitForTimeout(500);
+    // Verify split-screen shows speaker segments from both engines
     await expect(page.getByText('דובר 1').first()).toBeVisible({ timeout: 10000 });
     await expect(page.getByText('דובר 2').first()).toBeVisible({ timeout: 10000 });
-    await page.screenshot({ path: path.join(screenshotDir, 'compare-page-transcripts.png'), fullPage: true });
-    console.log('📸 Screenshot 4: Transcripts tab');
 
-    console.log('✅ Full comparison page verified with all 4 tabs');
+    // Verify engine stats are displayed in columns
+    await expect(page.getByText('silence-gap').first()).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('whisperx').first()).toBeVisible({ timeout: 10000 });
+
+    // Verify agreement badge
+    await expect(page.getByText(/התאמה/).first()).toBeVisible({ timeout: 10000 });
+
+    // Take screenshot of the split-screen view
+    const screenshotDir = path.join(__dirname, '..', 'test-results');
+    fs.mkdirSync(screenshotDir, { recursive: true });
+    await page.screenshot({ path: path.join(screenshotDir, 'compare-page-split.png'), fullPage: true });
+    console.log('📸 Screenshot 1: Split-screen view');
+
+    // Open analysis panel — use the specific toolbar button (not the floating sidebar one)
+    const analysisBtn = page.locator('button').filter({ hasText: 'ניתוח' }).filter({ has: page.locator('svg') }).last();
+    await analysisBtn.click();
+    await page.waitForTimeout(500);
+
+    // Verify analysis panel shows diff tabs
+    await expect(page.getByText('מטריצת התאמה בין מנועים')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(/דמיון/).first()).toBeVisible({ timeout: 10000 });
+    await page.screenshot({ path: path.join(screenshotDir, 'compare-page-analysis.png'), fullPage: true });
+    console.log('📸 Screenshot 2: Analysis panel');
+
+    console.log('✅ Full comparison page verified with split-screen + analysis');
   });
 });
