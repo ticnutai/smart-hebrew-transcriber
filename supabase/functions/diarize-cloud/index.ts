@@ -34,19 +34,46 @@ serve(async (req) => {
       const { upload_url } = await uploadResp.json();
 
       // Step 2: Request transcription with speaker diarization
-      const transcriptResp = await fetch('https://api.assemblyai.com/v2/transcript', {
+      const transcriptPayload: Record<string, unknown> = {
+        audio_url: upload_url,
+        speaker_labels: true,
+        // AssemblyAI now requires an explicit speech_models list for some accounts.
+        speech_models: ['universal-2'],
+      };
+      if (language !== 'auto') {
+        transcriptPayload.language_code = language;
+      }
+
+      let transcriptResp = await fetch('https://api.assemblyai.com/v2/transcript', {
         method: 'POST',
         headers: {
           'authorization': apiKey,
           'content-type': 'application/json',
         },
-        body: JSON.stringify({
-          audio_url: upload_url,
-          language_code: language === 'auto' ? null : language,
-          speaker_labels: true,
-        }),
+        body: JSON.stringify(transcriptPayload),
       });
-      if (!transcriptResp.ok) throw new Error(`Transcription request failed: ${await transcriptResp.text()}`);
+
+      if (!transcriptResp.ok) {
+        const firstErrorText = await transcriptResp.text();
+
+        // Compatibility fallback for accounts that require universal-3-pro.
+        if (firstErrorText.includes('speech_models')) {
+          transcriptPayload.speech_models = ['universal-3-pro'];
+          transcriptResp = await fetch('https://api.assemblyai.com/v2/transcript', {
+            method: 'POST',
+            headers: {
+              'authorization': apiKey,
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify(transcriptPayload),
+          });
+          if (!transcriptResp.ok) {
+            throw new Error(`Transcription request failed: ${await transcriptResp.text()}`);
+          }
+        } else {
+          throw new Error(`Transcription request failed: ${firstErrorText}`);
+        }
+      }
       const { id } = await transcriptResp.json();
 
       // Step 3: Poll for completion (max 10 min)
