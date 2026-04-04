@@ -98,6 +98,31 @@ test.describe('השוואת זיהוי דוברים בין מנועים', () => 
     await page.screenshot({ path: path.join(screenshotDir, 'compare-page-split.png'), fullPage: true });
     console.log('📸 Screenshot 1: Split-screen view');
 
+    // Enhancement 5: Search bar — type a search query
+    const searchInput = page.locator('input[placeholder="חיפוש..."]');
+    await expect(searchInput).toBeVisible({ timeout: 5000 });
+    await searchInput.fill('תור');
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: path.join(screenshotDir, 'compare-page-search.png'), fullPage: true });
+    console.log('📸 Screenshot 2: Search highlighting');
+    await searchInput.clear();
+
+    // Enhancement 1: Sync scroll toggle button
+    const syncBtn = page.locator('button').filter({ has: page.locator('svg.lucide-arrow-left-right') }).first();
+    await expect(syncBtn).toBeVisible({ timeout: 5000 });
+
+    // Enhancement 8: Merge toggle button
+    const mergeBtn = page.locator('button').filter({ hasText: 'מיזוג' });
+    await expect(mergeBtn).toBeVisible({ timeout: 5000 });
+    await mergeBtn.click();
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: path.join(screenshotDir, 'compare-page-merge.png'), fullPage: true });
+    console.log('📸 Screenshot 3: Merge mode');
+
+    // Enhancement 7: SRT/VTT export buttons visible in engine columns
+    await expect(page.getByText('SRT').first()).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('VTT').first()).toBeVisible({ timeout: 5000 });
+
     // Open analysis panel — use the specific toolbar button (not the floating sidebar one)
     const analysisBtn = page.locator('button').filter({ hasText: 'ניתוח' }).filter({ has: page.locator('svg') }).last();
     await analysisBtn.click();

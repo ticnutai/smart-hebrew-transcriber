@@ -7,11 +7,12 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Input } from "@/components/ui/input";
 import {
   ArrowLeftRight, BarChart3, Clock, Copy, Download, FileText,
   GitCompareArrows, MessageSquare, Users, ArrowRight,
   Maximize2, Minimize2, Eye, EyeOff, Filter, Printer, ChevronDown,
-  Play, Volume2,
+  Play, Volume2, Search, Square, Check, Merge, Subtitles, Pause,
 } from "lucide-react";
 import DiffMatchPatch from "diff-match-patch";
 import type { SyncAudioPlayerRef } from "@/components/SyncAudioPlayer";
@@ -155,6 +156,107 @@ function getMergedText(result: DiarizationResult): string {
   return getMergedSegments(result)
     .map(s => `[${s.speaker_label}] ${s.text}`)
     .join('\n');
+}
+
+/* ═══════════════════════ Speaker Mapping ═══════════════════════ */
+
+/** Build a map: speakerLabelA → speakerLabelB based on time overlap */
+function buildSpeakerMap(a: DiarizationResult, b: DiarizationResult): Map<string, string> {
+  const step = 0.5;
+  const duration = Math.max(a.duration, b.duration);
+  const totalSteps = Math.floor(duration / step);
+  if (totalSteps === 0) return new Map();
+
+  const overlapMatrix: Record<string, Record<string, number>> = {};
+  for (const sp of a.speakers) {
+    overlapMatrix[sp] = {};
+    for (const sp2 of b.speakers) overlapMatrix[sp][sp2] = 0;
+  }
+
+  for (let t = 0; t < totalSteps; t++) {
+    const time = t * step;
+    const segA = a.segments.find(s => time >= s.start && time < s.end);
+    const segB = b.segments.find(s => time >= s.start && time < s.end);
+    if (segA && segB) {
+      overlapMatrix[segA.speaker_label] = overlapMatrix[segA.speaker_label] || {};
+      overlapMatrix[segA.speaker_label][segB.speaker_label] = (overlapMatrix[segA.speaker_label][segB.speaker_label] || 0) + 1;
+    }
+  }
+
+  const map = new Map<string, string>();
+  const usedB = new Set<string>();
+  for (const spA of a.speakers) {
+    let bestB = '', bestCount = 0;
+    for (const spB of b.speakers) {
+      if (!usedB.has(spB) && (overlapMatrix[spA]?.[spB] || 0) > bestCount) {
+        bestCount = overlapMatrix[spA]?.[spB] || 0;
+        bestB = spB;
+      }
+    }
+    if (bestB) { map.set(spA, bestB); usedB.add(bestB); }
+  }
+  return map;
+}
+
+/** Find the matching segment by time overlap */
+function findMatchingSegment(seg: DiarizedSegment, otherSegs: DiarizedSegment[]): DiarizedSegment | null {
+  const mid = (seg.start + seg.end) / 2;
+  return otherSegs.find(s => mid >= s.start && mid < s.end) || null;
+}
+
+/* ═══════════════════════ SRT/VTT Export ═══════════════════════ */
+
+function formatSrtTime(sec: number): string {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
+  const ms = Math.round((sec % 1) * 1000);
+  return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')},${ms.toString().padStart(3, '0')}`;
+}
+
+function formatVttTime(sec: number): string {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
+  const ms = Math.round((sec % 1) * 1000);
+  return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`;
+}
+
+function exportSRT(entry: CompareEntry) {
+  const segs = getMergedSegments(entry.result);
+  const lines = segs.map((seg, i) =>
+    `${i + 1}\n${formatSrtTime(seg.start)} --> ${formatSrtTime(seg.end)}\n[${seg.speaker_label}] ${seg.text}\n`
+  );
+  const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `${entry.label}-diarization.srt`; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportVTT(entry: CompareEntry) {
+  const segs = getMergedSegments(entry.result);
+  const lines = [`WEBVTT\n`];
+  segs.forEach((seg, i) => {
+    lines.push(`${i + 1}\n${formatVttTime(seg.start)} --> ${formatVttTime(seg.end)}\n<v ${seg.speaker_label}>${seg.text}\n`);
+  });
+  const blob = new Blob([lines.join('\n')], { type: 'text/vtt;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `${entry.label}-diarization.vtt`; a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* ═══════════════════════ Search highlight helper ═══════════════════════ */
+
+function highlightSearchTerm(text: string, query: string): React.ReactNode {
+  if (!query || query.length < 2) return text;
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`(${escaped})`, 'gi');
+  const parts = text.split(regex);
+  return parts.map((part, i) =>
+    regex.test(part) ? <mark key={i} className="bg-yellow-300 dark:bg-yellow-700 px-0.5 rounded">{part}</mark> : part
+  );
 }
 
 /* ═══════════════════════ Section Components ═══════════════════════ */
@@ -608,19 +710,51 @@ function TranscriptComparison({ entries, diffPair }: {
 
 /* ═══════════════════════ Split Column: Full Engine Result ═══════════════════════ */
 
-function EngineColumn({ entry, idx, currentTime, onSeek }: {
+interface EngineColumnProps {
   entry: CompareEntry;
   idx: number;
   currentTime: number;
   onSeek: (time: number) => void;
-}) {
+  searchQuery: string;
+  highlightedSegIdx: number | null;
+  onHighlightSeg: (idx: number | null) => void;
+  otherEntry: CompareEntry | null;
+  speakerMap: Map<string, string>;
+  onPlaySegment: (start: number, end: number) => void;
+  mergeSelections: Map<number, 'left' | 'right'>;
+  onToggleMerge: (segIdx: number, side: 'left' | 'right') => void;
+  side: 'left' | 'right';
+  showMerge: boolean;
+  scrollRef: React.RefObject<HTMLDivElement | null>;
+  onScroll: (e: React.UIEvent<HTMLDivElement>) => void;
+  dmp: DiffMatchPatch;
+}
+
+function EngineColumn({
+  entry, idx, currentTime, onSeek, searchQuery, highlightedSegIdx,
+  onHighlightSeg, otherEntry, speakerMap, onPlaySegment,
+  mergeSelections, onToggleMerge, side, showMerge, scrollRef, onScroll, dmp,
+}: EngineColumnProps) {
   const color = ENGINE_COLORS[entry.label] || '#888';
-  const merged = getMergedSegments(entry.result);
+  const merged = useMemo(() => getMergedSegments(entry.result), [entry.result]);
+  const otherMerged = useMemo(() => otherEntry ? getMergedSegments(otherEntry.result) : [], [otherEntry]);
   const dist = getSpeakerDistribution(entry.result);
   const totalWords = entry.result.segments.reduce((a, s) => a + s.text.split(/\s+/).filter(Boolean).length, 0);
 
   // Find current segment for highlight
   const activeIdx = merged.findIndex(s => currentTime >= s.start && currentTime < s.end);
+
+  // Word-level diff per segment (Enhancement 3)
+  const segmentDiffs = useMemo(() => {
+    if (!otherEntry) return [];
+    return merged.map(seg => {
+      const match = findMatchingSegment(seg, otherMerged);
+      if (!match) return null;
+      const diffs = dmp.diff_main(seg.text, match.text);
+      dmp.diff_cleanupSemantic(diffs);
+      return diffs;
+    });
+  }, [merged, otherMerged, dmp, otherEntry]);
 
   return (
     <div className="flex flex-col min-h-0">
@@ -632,22 +766,43 @@ function EngineColumn({ entry, idx, currentTime, onSeek }: {
             <span className="font-bold text-base">{entry.label}</span>
             <Badge variant="outline" className="text-[10px]">{entry.result.diarization_method}</Badge>
           </div>
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => {
-                  const text = merged.map(s => `[${s.speaker_label}] (${formatTime(s.start)}-${formatTime(s.end)})\n${s.text}`).join('\n\n');
-                  navigator.clipboard.writeText(text);
-                }}>
-                  <Copy className="w-3 h-3" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>העתק תמלול</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          <div className="flex items-center gap-1">
+            {/* SRT/VTT export (Enhancement 7) */}
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => exportSRT(entry)}>
+                    <Subtitles className="w-3 h-3" />
+                    SRT
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>ייצוא SRT</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => exportVTT(entry)}>
+                    <Subtitles className="w-3 h-3" />
+                    VTT
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>ייצוא VTT</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => {
+                    const text = merged.map(s => `[${s.speaker_label}] (${formatTime(s.start)}-${formatTime(s.end)})\n${s.text}`).join('\n\n');
+                    navigator.clipboard.writeText(text);
+                  }}>
+                    <Copy className="w-3 h-3" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>העתק תמלול</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
         </div>
 
-        {/* Quick stats */}
+        {/* Quick stats + speaker mapping (Enhancement 4) */}
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
           <span>{entry.result.speaker_count} דוברים</span>
           <span>·</span>
@@ -657,6 +812,15 @@ function EngineColumn({ entry, idx, currentTime, onSeek }: {
           <span>·</span>
           <span>{entry.result.processing_time.toFixed(1)}s עיבוד</span>
         </div>
+        {speakerMap.size > 0 && (
+          <div className="flex flex-wrap gap-x-3 mt-1 text-[10px] text-muted-foreground/70">
+            {[...speakerMap.entries()].map(([a, b]) => (
+              <span key={a}>
+                {side === 'left' ? `${a} ↔ ${b}` : `${b} ↔ ${a}`}
+              </span>
+            ))}
+          </div>
+        )}
 
         {/* Speaker distribution bar */}
         <div className="flex h-3 rounded-full overflow-hidden mt-2">
@@ -713,22 +877,66 @@ function EngineColumn({ entry, idx, currentTime, onSeek }: {
       </div>
 
       {/* Transcript segments — flowing continuously */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3" onScroll={onScroll}>
         {merged.map((seg, i) => {
           const spIdx = entry.result.speakers.indexOf(seg.speaker_label);
           const isActive = i === activeIdx;
+          const isCrossHighlighted = highlightedSegIdx !== null && highlightedSegIdx === i;
+          const isSelected = mergeSelections.get(i) === side;
+          const diffResult = segmentDiffs[i];
+
+          // Render text with search highlight or word-level diff (Enhancement 3 & 5)
+          let renderedText: React.ReactNode = seg.text;
+          if (searchQuery && searchQuery.length >= 2) {
+            renderedText = highlightSearchTerm(seg.text, searchQuery);
+          } else if (diffResult) {
+            renderedText = diffResult.map(([op, text], di) => {
+              if (op === 0) return <span key={di}>{text}</span>;
+              if (op === -1) return <span key={di} className="bg-red-200 dark:bg-red-900/50 line-through text-red-700 dark:text-red-300">{text}</span>;
+              return null; // op === 1: text from the other side, skip
+            });
+          }
+
           return (
             <div
               key={i}
-              className={`space-y-1 p-2 rounded-lg cursor-pointer transition-colors ${isActive ? 'bg-primary/10 ring-1 ring-primary/30' : 'hover:bg-muted/50'}`}
+              data-seg-idx={i}
+              className={`space-y-1 p-2 rounded-lg cursor-pointer transition-colors group relative
+                ${isActive ? 'bg-primary/10 ring-1 ring-primary/30' : ''}
+                ${isCrossHighlighted ? 'bg-yellow-100 dark:bg-yellow-900/30 ring-1 ring-yellow-400/50' : ''}
+                ${!isActive && !isCrossHighlighted ? 'hover:bg-muted/50' : ''}
+                ${isSelected ? 'ring-2 ring-green-500' : ''}
+              `}
               onClick={() => onSeek(seg.start)}
+              onMouseEnter={() => onHighlightSeg(i)}
+              onMouseLeave={() => onHighlightSeg(null)}
             >
               <div className="flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: BAR_COLORS[spIdx % BAR_COLORS.length] }} />
                 <span className="text-xs font-semibold">{seg.speaker_label}</span>
                 <span className="text-[10px] text-muted-foreground">{formatTime(seg.start)} – {formatTime(seg.end)}</span>
+                {/* Play segment button (Enhancement 6) */}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                  onClick={e => { e.stopPropagation(); onPlaySegment(seg.start, seg.end); }}
+                >
+                  <Play className="w-3 h-3" />
+                </Button>
+                {/* Merge select button (Enhancement 8) */}
+                {showMerge && (
+                  <Button
+                    variant={isSelected ? 'default' : 'outline'}
+                    size="sm"
+                    className="h-5 px-1.5 text-[10px] opacity-0 group-hover:opacity-100 transition-opacity mr-auto"
+                    onClick={e => { e.stopPropagation(); onToggleMerge(i, side); }}
+                  >
+                    <Check className="w-3 h-3" />
+                  </Button>
+                )}
               </div>
-              <p className="text-sm leading-relaxed pr-5">{seg.text}</p>
+              <p className="text-sm leading-relaxed pr-5">{renderedText}</p>
             </div>
           );
         })}
@@ -751,6 +959,23 @@ const DiarizationComparePage = () => {
   const playerRef = useRef<SyncAudioPlayerRef>(null);
   const dmp = useMemo(() => new DiffMatchPatch(), []);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+
+  // New enhancement state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [highlightedSegIdx, setHighlightedSegIdx] = useState<number | null>(null);
+  const [mergeSelections, setMergeSelections] = useState<Map<number, 'left' | 'right'>>(new Map());
+  const [showMerge, setShowMerge] = useState(false);
+  const [syncScrollEnabled, setSyncScrollEnabled] = useState(true);
+  const leftScrollRef = useRef<HTMLDivElement>(null);
+  const rightScrollRef = useRef<HTMLDivElement>(null);
+  const isScrolling = useRef(false);
+  const segmentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Enhancement 4: Speaker mapping
+  const speakerMap = useMemo(() => {
+    if (entries.length < 2) return new Map<string, string>();
+    return buildSpeakerMap(entries[diffPair[0]]?.result, entries[diffPair[1]]?.result);
+  }, [entries, diffPair]);
 
   // Load entries from navigation state or localStorage
   useEffect(() => {
@@ -815,6 +1040,67 @@ const DiarizationComparePage = () => {
     playerRef.current?.seekTo(time);
     playerRef.current?.play();
   }, []);
+
+  // Enhancement 6: Play individual segment
+  const handlePlaySegment = useCallback((start: number, end: number) => {
+    setCurrentTime(start);
+    playerRef.current?.seekTo(start);
+    playerRef.current?.play();
+    // Stop at end of segment
+    if (segmentTimerRef.current) clearTimeout(segmentTimerRef.current);
+    const dur = (end - start) * 1000;
+    segmentTimerRef.current = setTimeout(() => {
+      playerRef.current?.pause();
+    }, dur);
+  }, []);
+
+  // Enhancement 1: Synchronized scrolling
+  const handleLeftScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    if (!syncScrollEnabled || isScrolling.current) return;
+    isScrolling.current = true;
+    const target = e.currentTarget;
+    if (rightScrollRef.current) {
+      const pct = target.scrollTop / (target.scrollHeight - target.clientHeight || 1);
+      rightScrollRef.current.scrollTop = pct * (rightScrollRef.current.scrollHeight - rightScrollRef.current.clientHeight);
+    }
+    requestAnimationFrame(() => { isScrolling.current = false; });
+  }, [syncScrollEnabled]);
+
+  const handleRightScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    if (!syncScrollEnabled || isScrolling.current) return;
+    isScrolling.current = true;
+    const target = e.currentTarget;
+    if (leftScrollRef.current) {
+      const pct = target.scrollTop / (target.scrollHeight - target.clientHeight || 1);
+      leftScrollRef.current.scrollTop = pct * (leftScrollRef.current.scrollHeight - leftScrollRef.current.clientHeight);
+    }
+    requestAnimationFrame(() => { isScrolling.current = false; });
+  }, [syncScrollEnabled]);
+
+  // Enhancement 8: Toggle merge selection
+  const handleToggleMerge = useCallback((segIdx: number, side: 'left' | 'right') => {
+    setMergeSelections(prev => {
+      const next = new Map(prev);
+      if (next.get(segIdx) === side) next.delete(segIdx);
+      else next.set(segIdx, side);
+      return next;
+    });
+  }, []);
+
+  // Enhancement 8: Build merged transcript
+  const mergedTranscript = useMemo(() => {
+    if (!showMerge || entries.length < 2) return '';
+    const leftMerged = getMergedSegments(entries[diffPair[0]].result);
+    const rightMerged = getMergedSegments(entries[diffPair[1]].result);
+    const maxLen = Math.max(leftMerged.length, rightMerged.length);
+    const lines: string[] = [];
+    for (let i = 0; i < maxLen; i++) {
+      const sel = mergeSelections.get(i);
+      const seg = sel === 'right' ? rightMerged[i] : leftMerged[i]; // default to left
+      if (seg) lines.push(`[${seg.speaker_label}] (${formatTime(seg.start)}-${formatTime(seg.end)})\n${seg.text}`);
+    }
+    return lines.join('\n\n');
+  }, [showMerge, entries, diffPair, mergeSelections]);
 
   const exportAsJSON = () => {
     const data = { entries, comparisons, exportedAt: new Date().toISOString() };
@@ -888,6 +1174,53 @@ const DiarizationComparePage = () => {
           )}
         </div>
         <div className="flex items-center gap-1.5">
+          {/* Enhancement 5: Search bar */}
+          <div className="relative">
+            <Search className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+            <Input
+              placeholder="חיפוש..."
+              className="h-7 w-36 text-xs pr-7"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+            />
+          </div>
+          <Separator orientation="vertical" className="h-5 mx-1" />
+
+          {/* Enhancement 1: Sync scroll toggle */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={syncScrollEnabled ? 'default' : 'outline'}
+                  size="sm"
+                  className="text-xs h-7 gap-1"
+                  onClick={() => setSyncScrollEnabled(!syncScrollEnabled)}
+                >
+                  <ArrowLeftRight className="w-3.5 h-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{syncScrollEnabled ? 'גלילה מסונכרנת: פעיל' : 'גלילה מסונכרנת: כבוי'}</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          {/* Enhancement 8: Merge toggle */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={showMerge ? 'default' : 'outline'}
+                  size="sm"
+                  className="text-xs h-7 gap-1"
+                  onClick={() => setShowMerge(!showMerge)}
+                >
+                  <Merge className="w-3.5 h-3.5" />
+                  מיזוג
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>בחר את הקטעים הטובים מכל מנוע</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
           {/* Pair selector for >2 engines */}
           {entries.length > 2 && comparisons.map((c, i) => (
             <Button
@@ -962,6 +1295,19 @@ const DiarizationComparePage = () => {
             idx={diffPair[0]}
             currentTime={currentTime}
             onSeek={handleSeek}
+            searchQuery={searchQuery}
+            highlightedSegIdx={highlightedSegIdx}
+            onHighlightSeg={setHighlightedSegIdx}
+            otherEntry={entries[diffPair[1]]}
+            speakerMap={speakerMap}
+            onPlaySegment={handlePlaySegment}
+            mergeSelections={mergeSelections}
+            onToggleMerge={handleToggleMerge}
+            side="left"
+            showMerge={showMerge}
+            scrollRef={leftScrollRef}
+            onScroll={handleLeftScroll}
+            dmp={dmp}
           />
         </div>
         <div className="flex-1 min-w-0 overflow-hidden">
@@ -970,9 +1316,42 @@ const DiarizationComparePage = () => {
             idx={diffPair[1]}
             currentTime={currentTime}
             onSeek={handleSeek}
+            searchQuery={searchQuery}
+            highlightedSegIdx={highlightedSegIdx}
+            onHighlightSeg={setHighlightedSegIdx}
+            otherEntry={entries[diffPair[0]]}
+            speakerMap={speakerMap}
+            onPlaySegment={handlePlaySegment}
+            mergeSelections={mergeSelections}
+            onToggleMerge={handleToggleMerge}
+            side="right"
+            showMerge={showMerge}
+            scrollRef={rightScrollRef}
+            onScroll={handleRightScroll}
+            dmp={dmp}
           />
         </div>
       </div>
+
+      {/* ═══ Merge Panel (Enhancement 8) ═══ */}
+      {showMerge && mergeSelections.size > 0 && (
+        <div className="shrink-0 border-t bg-green-50 dark:bg-green-950/20 max-h-[30vh] overflow-y-auto">
+          <div className="p-4">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <Merge className="w-4 h-4 text-green-600" />
+                <span className="font-bold text-sm">תמלול ממוזג</span>
+                <Badge variant="outline" className="text-[10px]">{mergeSelections.size} קטעים נבחרו</Badge>
+              </div>
+              <Button size="sm" className="h-7 text-xs gap-1" onClick={() => navigator.clipboard.writeText(mergedTranscript)}>
+                <Copy className="w-3 h-3" />
+                העתק
+              </Button>
+            </div>
+            <pre className="text-sm leading-relaxed whitespace-pre-wrap text-foreground/90 max-h-40 overflow-y-auto">{mergedTranscript}</pre>
+          </div>
+        </div>
+      )}
 
       {/* ═══ Analysis Panel (collapsible) ═══ */}
       {showAnalysis && (
