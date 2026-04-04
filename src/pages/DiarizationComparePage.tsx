@@ -1169,8 +1169,8 @@ const DiarizationComparePage = () => {
 
       if (engine === 'browser') {
         // Run browser-based diarization
-        const hfToken = cloudKeys.huggingface_key || '';
-        const browserResult = await diarizeInBrowser(audioEntry.blob, hfToken, undefined, () => {});
+        const file = new File([audioEntry.blob], audioEntry.name || 'audio.webm', { type: audioEntry.blob.type });
+        const browserResult = await diarizeInBrowser(file, () => {});
         const newEntry: CompareEntry = {
           label: 'דפדפן',
           result: {
