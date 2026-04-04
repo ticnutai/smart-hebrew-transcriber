@@ -407,20 +407,20 @@ export type Database = {
       user_api_keys: {
         Row: {
           assemblyai_key: string | null
-          assemblyai_keys_pool: string[] | null
+          assemblyai_keys_pool: Json | null
           claude_key: string | null
           created_at: string
           deepgram_key: string | null
-          deepgram_keys_pool: string[] | null
+          deepgram_keys_pool: Json | null
           google_key: string | null
-          google_keys_pool: string[] | null
+          google_keys_pool: Json | null
           groq_key: string | null
-          groq_keys_pool: string[] | null
+          groq_keys_pool: Json | null
           huggingface_key: string | null
           id: string
           ollama_base_url: string | null
           openai_key: string | null
-          openai_keys_pool: string[] | null
+          openai_keys_pool: Json | null
           updated_at: string
           user_identifier: string
           whisper_api_key: string | null
@@ -428,20 +428,20 @@ export type Database = {
         }
         Insert: {
           assemblyai_key?: string | null
-          assemblyai_keys_pool?: string[] | null
+          assemblyai_keys_pool?: Json | null
           claude_key?: string | null
           created_at?: string
           deepgram_key?: string | null
-          deepgram_keys_pool?: string[] | null
+          deepgram_keys_pool?: Json | null
           google_key?: string | null
-          google_keys_pool?: string[] | null
+          google_keys_pool?: Json | null
           groq_key?: string | null
-          groq_keys_pool?: string[] | null
+          groq_keys_pool?: Json | null
           huggingface_key?: string | null
           id?: string
           ollama_base_url?: string | null
           openai_key?: string | null
-          openai_keys_pool?: string[] | null
+          openai_keys_pool?: Json | null
           updated_at?: string
           user_identifier: string
           whisper_api_key?: string | null
@@ -449,20 +449,20 @@ export type Database = {
         }
         Update: {
           assemblyai_key?: string | null
-          assemblyai_keys_pool?: string[] | null
+          assemblyai_keys_pool?: Json | null
           claude_key?: string | null
           created_at?: string
           deepgram_key?: string | null
-          deepgram_keys_pool?: string[] | null
+          deepgram_keys_pool?: Json | null
           google_key?: string | null
-          google_keys_pool?: string[] | null
+          google_keys_pool?: Json | null
           groq_key?: string | null
-          groq_keys_pool?: string[] | null
+          groq_keys_pool?: Json | null
           huggingface_key?: string | null
           id?: string
           ollama_base_url?: string | null
           openai_key?: string | null
-          openai_keys_pool?: string[] | null
+          openai_keys_pool?: Json | null
           updated_at?: string
           user_identifier?: string
           whisper_api_key?: string | null
