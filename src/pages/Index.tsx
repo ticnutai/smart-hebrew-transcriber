@@ -30,6 +30,7 @@ import { KeyboardShortcutsDialog } from "@/components/KeyboardShortcutsDialog";
 import { addNotification } from "@/hooks/useNotifications";
 import { getApiKey } from "@/lib/keyCrypto";
 import { applyLearnedCorrections } from "@/utils/correctionLearning";
+import { addRecentFile } from "@/components/RecentFiles";
 
 // Lazy-loaded heavy components
 const LiveTranscriber = lazy(() => import("@/components/LiveTranscriber").then(m => ({ default: m.LiveTranscriber })));
@@ -162,6 +163,29 @@ const Index = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state, prefsLoaded]);
 
+  // Clipboard audio paste — Ctrl+V with audio/video blob
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      if (!e.clipboardData?.items) return;
+      for (const item of Array.from(e.clipboardData.items)) {
+        if (item.type.startsWith('audio/') || item.type.startsWith('video/')) {
+          e.preventDefault();
+          const blob = item.getAsFile();
+          if (blob) {
+            const ext = item.type.split('/')[1] || 'wav';
+            const file = new File([blob], `pasted-audio.${ext}`, { type: item.type });
+            toast({ title: "🎤 אודיו הודבק מהלוח", description: file.name });
+            handleFileSelect(file);
+          }
+          return;
+        }
+      }
+    };
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Auto-process persistent queue when server comes up
   useEffect(() => {
     if (!serverConnected || engine !== 'local-server') return;
@@ -251,6 +275,13 @@ const Index = () => {
     }
     const saved = await saveTranscript(finalText, engineUsed, undefined, audioFile || currentFileRef.current || undefined, timings || null, folder);
     lastSavedTranscriptIdRef.current = saved?.id || null;
+    addRecentFile({
+      fileName: currentFileRef.current?.name || audioFile?.name || 'הקלטה',
+      engine: engineUsed,
+      wordCount: finalText.split(/\s+/).filter(Boolean).length,
+      charCount: finalText.length,
+      preview: finalText.slice(0, 120),
+    });
     addNotification({ type: 'success', title: 'תמלול הושלם', description: `מנוע: ${engineUsed} — ${finalText.split(/\s+/).length} מילים` });
   };
 

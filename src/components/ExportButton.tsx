@@ -7,7 +7,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Download, FileText, File, Loader2, Braces } from "lucide-react";
+import { Download, FileText, File, Loader2, Braces, Archive } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 
 
@@ -227,6 +227,58 @@ export const ExportButton = ({ text, title = "תמלול", disabled, wordTimings
     toast({ title: "VTT הורד בהצלחה" });
   };
 
+  const exportAllAsZip = async () => {
+    setIsExporting(true);
+    try {
+      const [{ default: JSZip }, { saveAs }] = await Promise.all([
+        import("jszip"),
+        import("file-saver"),
+      ]);
+      const zip = new JSZip();
+      const ts = Date.now();
+      const baseName = title;
+
+      // TXT
+      zip.file(`${baseName}.txt`, text);
+
+      // JSON
+      const jsonData = {
+        title, text,
+        exportedAt: new Date().toISOString(),
+        wordCount: text.split(/\s+/).filter(Boolean).length,
+        charCount: text.length,
+        ...(wordTimings && wordTimings.length > 0 ? {
+          wordTimings: wordTimings.map(w => ({ word: w.word, start: w.start, end: w.end })),
+          audioDuration: wordTimings[wordTimings.length - 1]?.end,
+        } : {}),
+      };
+      zip.file(`${baseName}.json`, JSON.stringify(jsonData, null, 2));
+
+      // SRT & VTT (only if word timings exist)
+      const segments = buildSubtitleSegments();
+      if (segments.length > 0) {
+        const srt = segments.map((seg, i) =>
+          `${i + 1}\n${formatTimeSRT(seg.start)} --> ${formatTimeSRT(seg.end)}\n${seg.text}\n`
+        ).join('\n');
+        zip.file(`${baseName}.srt`, srt);
+
+        const vtt = 'WEBVTT\n\n' + segments.map((seg, i) =>
+          `${i + 1}\n${formatTimeVTT(seg.start)} --> ${formatTimeVTT(seg.end)}\n${seg.text}\n`
+        ).join('\n');
+        zip.file(`${baseName}.vtt`, vtt);
+      }
+
+      const blob = await zip.generateAsync({ type: "blob" });
+      saveAs(blob, `${baseName}-${ts}.zip`);
+      toast({ title: "ZIP הורד בהצלחה", description: "כל הפורמטים בקובץ אחד" });
+    } catch (error) {
+      console.error("ZIP export error:", error);
+      toast({ title: "שגיאה בייצוא ZIP", variant: "destructive" });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   return (
     <DropdownMenu dir="rtl">
       <DropdownMenuTrigger asChild>
@@ -269,6 +321,11 @@ export const ExportButton = ({ text, title = "תמלול", disabled, wordTimings
             </DropdownMenuItem>
           </>
         )}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={exportAllAsZip}>
+          <Archive className="w-4 h-4 ml-2" />
+          ייצוא הכול (ZIP)
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

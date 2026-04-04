@@ -1,5 +1,6 @@
 import { useState, useEffect, ReactNode } from "react";
 import { ConnectionStatusBanner } from "./ConnectionStatusBanner";
+import { PWAInstallBanner } from "./PWAInstallBanner";
 
 const SIDEBAR_WIDTH = 260;
 
@@ -44,6 +45,7 @@ const AppLayout = ({ children }: { children: ReactNode }) => {
       style={{ marginRight: showMargin ? SIDEBAR_WIDTH : 0 }}
     >
       <ConnectionStatusBanner serverConnected={serverConnected} />
+      <PWAInstallBanner />
       {children}
     </div>
   );

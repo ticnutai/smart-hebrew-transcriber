@@ -4,6 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useCloudTranscripts } from "@/hooks/useCloudTranscripts";
 import { debugLog } from "@/lib/debugLogger";
 import { FolderManager } from "@/components/FolderManager";
+import { RecentFilesWidget } from "@/components/RecentFiles";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -277,6 +278,9 @@ const Dashboard = () => {
             onGetAudioUrl={getAudioUrl}
           />
         )}
+
+        {/* Recent Local Files (localStorage-based, works without auth) */}
+        <RecentFilesWidget />
 
         {/* Empty state for non-authenticated */}
         {!isAuthenticated && (
