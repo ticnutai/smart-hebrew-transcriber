@@ -965,6 +965,10 @@ const DiarizationComparePage = () => {
   const playerRef = useRef<SyncAudioPlayerRef>(null);
   const dmp = useMemo(() => new DiffMatchPatch(), []);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [audioFileName, setAudioFileName] = useState<string>('');
+  const [selectedEngine, setSelectedEngine] = useState<string>('assemblyai');
+  const [isRunningEngine, setIsRunningEngine] = useState(false);
+  const { cloudKeys } = useCloudApiKeys();
 
   // New enhancement state
   const [searchQuery, setSearchQuery] = useState('');
