@@ -22,6 +22,8 @@ import { diarizeInBrowser } from "@/utils/browserDiarization";
 import { useCloudApiKeys } from "@/hooks/useCloudApiKeys";
 import DiffMatchPatch from "diff-match-patch";
 import type { SyncAudioPlayerRef } from "@/components/SyncAudioPlayer";
+import { db } from "@/lib/localDb";
+import { toast } from "@/hooks/use-toast";
 
 const SyncAudioPlayer = lazy(() => import("@/components/SyncAudioPlayer").then(m => ({ default: m.SyncAudioPlayer })));
 
