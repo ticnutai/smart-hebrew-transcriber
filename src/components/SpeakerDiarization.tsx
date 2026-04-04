@@ -1,8 +1,9 @@
 import { useState, useRef, useMemo, useEffect, useCallback, lazy, Suspense } from "react";
+import { useNavigate } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
-import { Users, Upload, Loader2, Copy, Download, BarChart3, Clock, MessageSquare, Mic, Pencil, Check, X, Subtitles, Cloud, Server, Save, FolderOpen, Search, Merge, Globe, ArrowLeftRight, FileText, Play, Square, Pause, Tag, RefreshCw, Zap, Music, Sparkles, BookmarkPlus, Share2, FileDown, AlertTriangle } from "lucide-react";
+import { Users, Upload, Loader2, Copy, Download, BarChart3, Clock, MessageSquare, Mic, Pencil, Check, X, Subtitles, Cloud, Server, Save, FolderOpen, Search, Merge, Globe, ArrowLeftRight, FileText, Play, Square, Pause, Tag, RefreshCw, Zap, Music, Sparkles, BookmarkPlus, Share2, FileDown, AlertTriangle, Maximize2 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -160,6 +161,7 @@ interface SpeakerDiarizationProps {
 }
 
 export const SpeakerDiarization = ({ serverUrl = "/whisper", initialAudioBlob, initialAudioName, initialText }: SpeakerDiarizationProps) => {
+  const navigate = useNavigate();
   const [result, setResult] = useState<DiarizationResult | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [minGap, setMinGap] = useState(1.5);
@@ -1888,6 +1890,12 @@ export const SpeakerDiarization = ({ serverUrl = "/whisper", initialAudioBlob, i
             )}
 
             <DiarizationCompare entries={compareEntries} />
+            {compareEntries.length >= 2 && (
+              <Button variant="default" size="sm" className="mt-2 text-xs gap-1.5" onClick={() => navigate('/diarization/compare', { state: { entries: compareEntries } })}>
+                <Maximize2 className="w-3.5 h-3.5" />
+                פתח השוואה מלאה
+              </Button>
+            )}
             {compareEntries.length > 0 && (
               <Button variant="ghost" size="sm" className="mt-2 text-xs text-destructive" onClick={() => setCompareEntries([])}>
                 <X className="w-3 h-3 ml-1" />נקה השוואה
