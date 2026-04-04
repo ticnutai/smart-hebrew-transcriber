@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { debugLog } from '@/lib/debugLogger';
 import { getApiKey } from '@/lib/keyCrypto';
+import { normalizeServerUrl, getServerUrl, DEFAULT_SERVER_URL } from '@/lib/serverConfig';
 
 export interface WordTiming {
   word: string;
@@ -60,25 +61,6 @@ interface ServerStatus {
   model_loading_id: string | null;
   model_ready: boolean;
 }
-
-const DEFAULT_SERVER_URL = '/whisper';
-
-const normalizeServerUrl = (raw: string | null): string => {
-  const v = (raw || '').trim();
-  if (!v) return DEFAULT_SERVER_URL;
-
-  // In local dev on :4000, force legacy localhost:3000 values through Vite proxy.
-  if (typeof window !== 'undefined') {
-    const isLocalPage = ['localhost', '127.0.0.1'].includes(window.location.hostname);
-    const isPort4000 = window.location.port === '4000';
-    const isLegacy3000 = v.includes('localhost:3000') || v.includes('127.0.0.1:3000');
-    if (isLocalPage && isPort4000 && isLegacy3000) {
-      return DEFAULT_SERVER_URL;
-    }
-  }
-
-  return v;
-};
 
 /** Key used to persist partial transcription in localStorage */
 const PARTIAL_STORAGE_KEY = 'transcription_partial';

@@ -42,9 +42,11 @@ interface PresetInfo {
   description: string;
 }
 
+import { getServerUrl } from "@/lib/serverConfig";
+
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const SERVER = "http://localhost:3000";
+const SERVER = getServerUrl();
 
 const PRESETS: PresetInfo[] = [
   {

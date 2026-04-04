@@ -223,6 +223,7 @@ export default function VideoToMp3() {
   const [ffmpegReady, setFfmpegReady] = useState(false);
   const [promptJob, setPromptJob] = useState<ConversionJob | null>(null);
   const [saveAndTranscribeBusyId, setSaveAndTranscribeBusyId] = useState<string | null>(null);
+  const [autoTranscribe, setAutoTranscribe] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
 
@@ -274,11 +275,18 @@ export default function VideoToMp3() {
       });
 
       if (updatedJob.status === "done") {
+        if (autoTranscribe) {
+          const mp3File = toMp3File(updatedJob);
+          if (mp3File) {
+            navigate("/transcribe", { state: { file: mp3File } });
+            return;
+          }
+        }
         setPromptJob(updatedJob);
       }
     });
     return unsub;
-  }, []);
+  }, [autoTranscribe, toMp3File, navigate]);
 
   // Cleanup blob URLs on unmount
   useEffect(() => {
@@ -471,6 +479,20 @@ export default function VideoToMp3() {
             )}
           </Badge>
         </div>
+      </div>
+
+      {/* Auto-transcribe toggle */}
+      <div className="flex items-center gap-2">
+        <label className="flex items-center gap-2 cursor-pointer text-sm">
+          <input
+            type="checkbox"
+            checked={autoTranscribe}
+            onChange={(e) => setAutoTranscribe(e.target.checked)}
+            className="rounded border-muted-foreground/40"
+          />
+          <Zap className="w-3.5 h-3.5 text-amber-500" />
+          המר ותמלל אוטומטית — בסיום ההמרה עובר ישירות לתמלול
+        </label>
       </div>
 
       {/* Drop Zone */}

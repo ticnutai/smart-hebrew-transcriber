@@ -12,6 +12,7 @@ import {
   AlertTriangle, Pause, Play, Save, FolderOpen, FolderPlus, Download
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import { getServerUrl } from "@/lib/serverConfig";
 
 type LiveMode = "browser" | "cuda";
 
@@ -207,12 +208,7 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
   }, []);
 
   // ─── CUDA Whisper Live Mode ───
-  const getBaseUrl = () => {
-    const configured = (localStorage.getItem('whisper_server_url') || '').trim();
-    const isLegacy = configured.includes('localhost:3000') || configured.includes('127.0.0.1:3000');
-    if (!configured || isLegacy) return '/whisper';
-    return configured;
-  };
+  const getBaseUrl = () => getServerUrl();
 
   const sendChunk = useCallback(async (blob: Blob) => {
     if (blob.size < LIVE_MIN_BLOB_BYTES || processingRef.current) return;

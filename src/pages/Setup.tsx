@@ -26,10 +26,8 @@ import {
   FileAudio,
 } from "lucide-react";
 
-const configuredWhisperUrl = (localStorage.getItem('whisper_server_url') || '').trim();
-const SERVER_URL = (configuredWhisperUrl.includes('localhost:3000') || configuredWhisperUrl.includes('127.0.0.1:3000'))
-  ? '/whisper'
-  : (configuredWhisperUrl || '/whisper');
+import { getServerUrl } from "@/lib/serverConfig";
+const SERVER_URL = getServerUrl();
 
 interface ScanResult {
   system: {

@@ -42,7 +42,7 @@ export const ConnectionStatusBanner = ({ serverConnected, serverUrl }: Connectio
     return (
       <div className="sticky top-0 z-50 flex items-center justify-center gap-2 bg-destructive/90 text-destructive-foreground px-4 py-2 text-sm backdrop-blur-sm" dir="rtl">
         <WifiOff className="w-4 h-4 animate-pulse" />
-        <span>אין חיבור לאינטרנט — תמלול לא זמין</span>
+        <span>אין חיבור לאינטרנט — תמלול מקומי בלבד (ענן לא זמין)</span>
         <button
           onClick={() => window.location.reload()}
           className="mr-2 flex items-center gap-1 rounded-md border border-destructive-foreground/30 px-2 py-0.5 text-xs hover:bg-destructive-foreground/10 transition"
