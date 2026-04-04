@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
-import { Users, Upload, Loader2, Copy, Download, BarChart3, Clock, MessageSquare, Mic, Pencil, Check, X, Subtitles, Cloud, Server, Save, FolderOpen, Search, Merge, Globe, ArrowLeftRight, FileText, Play, Square, Pause, Tag, RefreshCw, Zap, Music, Sparkles, BookmarkPlus, Share2, FileDown, AlertTriangle, Maximize2 } from "lucide-react";
+import { Users, Upload, Loader2, Copy, Download, BarChart3, Clock, MessageSquare, Mic, Pencil, Check, X, Subtitles, Cloud, Server, Save, FolderOpen, Search, Merge, Globe, ArrowLeftRight, FileText, Play, Square, Pause, Tag, RefreshCw, Zap, Music, Sparkles, BookmarkPlus, Share2, FileDown, AlertTriangle, Maximize2, GitCompareArrows } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
