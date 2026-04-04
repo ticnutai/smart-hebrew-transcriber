@@ -1937,6 +1937,7 @@ export const SpeakerDiarization = ({ serverUrl = "/whisper", initialAudioBlob, i
             )}
           </TabsContent>
         </Tabs>
+        </div>
       )}
 
       <p className="text-xs text-muted-foreground mt-3">
