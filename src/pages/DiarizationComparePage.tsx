@@ -1152,18 +1152,190 @@ const DiarizationComparePage = () => {
 
   const handlePrint = () => window.print();
 
+  const handleRunSecondEngine = useCallback(async (engine: string) => {
+    setIsRunningEngine(true);
+    try {
+      // Recover audio from Dexie
+      const audioEntry = await db.audioBlobs.get("last_audio");
+      if (!audioEntry?.blob) {
+        toast({ title: "לא נמצא קובץ אודיו", description: "חזור לדף זיהוי דוברים והעלה קובץ מחדש", variant: "destructive" });
+        setIsRunningEngine(false);
+        return;
+      }
+
+      const engineLabels: Record<string, string> = {
+        assemblyai: 'AssemblyAI', deepgram: 'Deepgram', openai: 'OpenAI', browser: 'דפדפן',
+      };
+
+      if (engine === 'browser') {
+        // Run browser-based diarization
+        const hfToken = cloudKeys.huggingface_key || '';
+        const browserResult = await diarizeInBrowser(audioEntry.blob, hfToken, undefined, () => {});
+        const newEntry: CompareEntry = {
+          label: 'דפדפן',
+          result: {
+            text: browserResult.segments.map(s => s.text).join(' '),
+            segments: browserResult.segments as DiarizedSegment[],
+            speakers: browserResult.speakers,
+            speaker_count: browserResult.speaker_count,
+            duration: browserResult.duration,
+            processing_time: browserResult.processing_time || 0,
+            diarization_method: 'Browser (pyannote)',
+          },
+        };
+        setEntries(prev => {
+          const next = [...prev, newEntry];
+          localStorage.setItem('diarization_compare_entries', JSON.stringify(next));
+          return next;
+        });
+        toast({ title: `זיהוי דוברים הושלם`, description: `${engineLabels[engine]} — ${newEntry.result.speaker_count} דוברים` });
+      } else {
+        // Cloud engine via edge function
+        const apiKeyMap: Record<string, string> = {
+          assemblyai: cloudKeys.assemblyai_key || '',
+          deepgram: cloudKeys.deepgram_key || '',
+          openai: cloudKeys.openai_key || '',
+        };
+        const apiKey = apiKeyMap[engine];
+        if (!apiKey) {
+          toast({ title: `חסר מפתח API`, description: `הגדר מפתח ${engineLabels[engine]} בהגדרות`, variant: "destructive" });
+          setIsRunningEngine(false);
+          return;
+        }
+
+        const formData = new FormData();
+        formData.append('file', audioEntry.blob, audioEntry.name || 'audio.webm');
+        formData.append('engine', engine);
+        formData.append('apiKey', apiKey);
+        formData.append('language', 'he');
+
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData?.session?.access_token || '';
+
+        const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/diarize-cloud`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+          },
+          body: formData,
+        });
+
+        if (!resp.ok) throw new Error(await resp.text());
+        const cloudResult = await resp.json();
+
+        const newEntry: CompareEntry = {
+          label: engineLabels[engine] || engine,
+          result: cloudResult,
+        };
+        setEntries(prev => {
+          const next = [...prev, newEntry];
+          localStorage.setItem('diarization_compare_entries', JSON.stringify(next));
+          return next;
+        });
+        toast({ title: `זיהוי דוברים הושלם`, description: `${engineLabels[engine]} — ${cloudResult.speaker_count} דוברים` });
+      }
+    } catch (err) {
+      toast({ title: "שגיאה בזיהוי דוברים", description: err instanceof Error ? err.message : "שגיאה", variant: "destructive" });
+    } finally {
+      setIsRunningEngine(false);
+    }
+  }, [cloudKeys]);
+
   if (entries.length < 2) {
+    const hasOneEntry = entries.length === 1;
+    const firstEntry = entries[0];
+    const existingLabel = firstEntry?.label?.toLowerCase() || '';
+
+    const engines = [
+      { value: 'assemblyai', label: 'AssemblyAI', icon: Cloud, hasKey: !!cloudKeys.assemblyai_key },
+      { value: 'deepgram', label: 'Deepgram', icon: Cloud, hasKey: !!cloudKeys.deepgram_key },
+      { value: 'openai', label: 'OpenAI', icon: Cloud, hasKey: !!cloudKeys.openai_key },
+      { value: 'browser', label: 'דפדפן (pyannote)', icon: Globe, hasKey: true },
+    ].filter(eng => !existingLabel.includes(eng.value) && !existingLabel.includes(eng.label.toLowerCase()));
+
     return (
-      <div className="container max-w-4xl mx-auto py-12 px-4 text-center" dir="rtl">
-        <ArrowLeftRight className="w-16 h-16 mx-auto mb-4 text-muted-foreground opacity-40" />
-        <h2 className="text-xl font-bold mb-2">אין נתוני השוואה</h2>
-        <p className="text-muted-foreground mb-6">
-          כדי להשתמש בעמוד זה, הרץ זיהוי דוברים עם לפחות 2 מנועים שונים ולחץ "פתח השוואה מלאה"
-        </p>
-        <Button onClick={() => navigate('/diarization')} className="gap-2">
-          <Users className="w-4 h-4" />
-          לדף זיהוי דוברים
-        </Button>
+      <div className="container max-w-4xl mx-auto py-8 px-4" dir="rtl">
+        <div className="text-center mb-8">
+          <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-4">
+            <GitCompareArrows className="w-8 h-8 text-primary" />
+          </div>
+          <h2 className="text-xl font-bold mb-2">השוואת מנועי זיהוי דוברים</h2>
+          <p className="text-muted-foreground">
+            {hasOneEntry
+              ? `תוצאה אחת קיימת (${firstEntry.label}) — בחר מנוע נוסף להרצה והשוואה`
+              : 'הרץ זיהוי דוברים עם 2 מנועים שונים ולחץ "פתח השוואה מלאה"'}
+          </p>
+        </div>
+
+        {hasOneEntry && (
+          <div className="space-y-6">
+            {/* Existing result summary */}
+            <Card className="p-4 border-primary/20 bg-primary/5">
+              <div className="flex items-center gap-3 mb-3">
+                <Badge variant="default" className="text-xs">{firstEntry.label}</Badge>
+                <span className="text-sm text-muted-foreground">
+                  {firstEntry.result.speaker_count} דוברים · {firstEntry.result.segments.length} קטעים · {formatDuration(firstEntry.result.duration)}
+                </span>
+              </div>
+              <div className="border rounded-lg p-3 bg-background max-h-[200px] overflow-y-auto text-sm leading-relaxed">
+                {firstEntry.result.segments.slice(0, 10).map((seg, i) => (
+                  <div key={i} className="flex gap-2 mb-1">
+                    <span className="font-medium text-xs shrink-0" style={{ color: BAR_COLORS[firstEntry.result.speakers.indexOf(seg.speaker_label) % BAR_COLORS.length] }}>
+                      {seg.speaker_label}:
+                    </span>
+                    <span className="text-xs text-muted-foreground">{seg.text}</span>
+                  </div>
+                ))}
+                {firstEntry.result.segments.length > 10 && (
+                  <p className="text-xs text-muted-foreground mt-2">... ועוד {firstEntry.result.segments.length - 10} קטעים</p>
+                )}
+              </div>
+            </Card>
+
+            {/* Engine picker */}
+            <Card className="p-4">
+              <Label className="text-sm font-semibold flex items-center gap-2 mb-3">
+                <Zap className="w-4 h-4 text-primary" />
+                בחר מנוע נוסף להשוואה
+              </Label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {engines.map(eng => (
+                  <Button
+                    key={eng.value}
+                    variant="outline"
+                    className="h-auto py-3 flex flex-col items-center gap-1.5 relative"
+                    disabled={isRunningEngine || !eng.hasKey}
+                    onClick={() => handleRunSecondEngine(eng.value)}
+                  >
+                    {isRunningEngine && selectedEngine === eng.value ? (
+                      <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                    ) : (
+                      <eng.icon className="w-5 h-5 text-primary" />
+                    )}
+                    <span className="text-xs font-medium">{eng.label}</span>
+                    {!eng.hasKey && <span className="text-[9px] text-destructive">חסר מפתח</span>}
+                  </Button>
+                ))}
+              </div>
+              {isRunningEngine && (
+                <div className="flex items-center gap-2 mt-3 text-sm text-muted-foreground">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  מריץ זיהוי דוברים...
+                </div>
+              )}
+            </Card>
+          </div>
+        )}
+
+        {!hasOneEntry && (
+          <div className="text-center">
+            <Button onClick={() => navigate('/diarization')} className="gap-2">
+              <Users className="w-4 h-4" />
+              לדף זיהוי דוברים
+            </Button>
+          </div>
+        )}
       </div>
     );
   }
