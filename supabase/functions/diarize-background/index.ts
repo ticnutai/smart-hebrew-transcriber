@@ -38,16 +38,34 @@ async function processAssemblyAI(jobId: string, apiKey: string, filePath: string
     
     // Start transcription with diarization
     await updateJob(jobId, { progress: 25 });
-    const txResp = await fetch('https://api.assemblyai.com/v2/transcript', {
+    const transcriptPayload: Record<string, unknown> = {
+      audio_url: upload_url,
+      speaker_labels: true,
+      speech_models: ['universal-2'],
+    };
+    if (language !== 'auto') {
+      transcriptPayload.language_code = language;
+    }
+
+    let txResp = await fetch('https://api.assemblyai.com/v2/transcript', {
       method: 'POST',
       headers: { authorization: apiKey, 'content-type': 'application/json' },
-      body: JSON.stringify({
-        audio_url: upload_url,
-        language_code: language === 'auto' ? null : language,
-        speaker_labels: true,
-      }),
+      body: JSON.stringify(transcriptPayload),
     });
-    if (!txResp.ok) throw new Error(`Transcription request failed: ${await txResp.text()}`);
+
+    if (!txResp.ok) {
+      const firstErrorText = await txResp.text();
+      if (firstErrorText.includes('speech_models')) {
+        transcriptPayload.speech_models = ['universal-3-pro'];
+        txResp = await fetch('https://api.assemblyai.com/v2/transcript', {
+          method: 'POST',
+          headers: { authorization: apiKey, 'content-type': 'application/json' },
+          body: JSON.stringify(transcriptPayload),
+        });
+      }
+      if (!txResp.ok) throw new Error(`Transcription request failed: ${await txResp.text()}`);
+    }
+
     const txData = await txResp.json();
     transcriptId = txData.id;
     

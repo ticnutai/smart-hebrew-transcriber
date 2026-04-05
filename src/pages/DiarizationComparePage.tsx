@@ -733,7 +733,7 @@ interface EngineColumnProps {
   onToggleMerge: (segIdx: number, side: 'left' | 'right') => void;
   side: 'left' | 'right';
   showMerge: boolean;
-  scrollRef: React.RefObject<HTMLDivElement | null>;
+  scrollRef: React.RefObject<HTMLDivElement>;
   onScroll: (e: React.UIEvent<HTMLDivElement>) => void;
   dmp: DiffMatchPatch;
 }
@@ -1165,6 +1165,7 @@ const DiarizationComparePage = () => {
 
       const engineLabels: Record<string, string> = {
         assemblyai: 'AssemblyAI', deepgram: 'Deepgram', openai: 'OpenAI', browser: 'דפדפן',
+        local: 'מקומי', whisperx: 'WhisperX',
       };
 
       if (engine === 'browser') {
@@ -1189,6 +1190,46 @@ const DiarizationComparePage = () => {
           return next;
         });
         toast({ title: `זיהוי דוברים הושלם`, description: `${engineLabels[engine]} — ${newEntry.result.speaker_count} דוברים` });
+      } else if (engine === 'local' || engine === 'whisperx') {
+        // Local server engine (silence-gap/pyannote or WhisperX)
+        const formData = new FormData();
+        const file = new File([audioEntry.blob], audioEntry.name || 'audio.webm', { type: audioEntry.blob.type || 'audio/webm' });
+        formData.append('file', file);
+        formData.append('min_gap', '1.5');
+
+        const hfToken = cloudKeys.huggingface_key || '';
+        if (hfToken.trim()) formData.append('hf_token', hfToken.trim());
+
+        if (engine === 'local') {
+          formData.append('diarization_engine', hfToken.trim() ? 'pyannote' : 'silence-gap');
+          if (hfToken.trim()) {
+            formData.append('pyannote_model', 'pyannote/speaker-diarization-community-1');
+          }
+        }
+
+        if (engine === 'whisperx') {
+          formData.append('use_whisperx', '1');
+          formData.append('diarization_engine', 'whisperx');
+          if (hfToken.trim()) {
+            formData.append('pyannote_model', 'pyannote/speaker-diarization-community-1');
+          }
+        }
+
+        const serverUrl = (cloudKeys.whisper_server_url || '/whisper').trim().replace(/\/$/, '');
+        const resp = await fetch(`${serverUrl}/diarize`, { method: 'POST', body: formData });
+        if (!resp.ok) throw new Error(await resp.text());
+        const localResult = await resp.json();
+
+        const newEntry: CompareEntry = {
+          label: engineLabels[engine] || engine,
+          result: localResult,
+        };
+        setEntries(prev => {
+          const next = [...prev, newEntry];
+          localStorage.setItem('diarization_compare_entries', JSON.stringify(next));
+          return next;
+        });
+        toast({ title: `זיהוי דוברים הושלם`, description: `${engineLabels[engine]} — ${localResult.speaker_count} דוברים` });
       } else {
         // Cloud engine via edge function
         const apiKeyMap: Record<string, string> = {
@@ -1248,6 +1289,8 @@ const DiarizationComparePage = () => {
     const existingLabel = firstEntry?.label?.toLowerCase() || '';
 
     const engines = [
+      { value: 'local', label: 'מקומי', icon: Server, hasKey: true },
+      { value: 'whisperx', label: 'WhisperX', icon: Mic, hasKey: true },
       { value: 'assemblyai', label: 'AssemblyAI', icon: Cloud, hasKey: !!cloudKeys.assemblyai_key },
       { value: 'deepgram', label: 'Deepgram', icon: Cloud, hasKey: !!cloudKeys.deepgram_key },
       { value: 'openai', label: 'OpenAI', icon: Cloud, hasKey: !!cloudKeys.openai_key },
