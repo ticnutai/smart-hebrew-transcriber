@@ -885,7 +885,7 @@ function EngineColumn({
       </div>
 
       {/* Transcript segments — flowing continuously */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3" onScroll={onScroll}>
+      <div ref={scrollRef as React.RefObject<HTMLDivElement>} className="flex-1 overflow-y-auto p-4 space-y-3" onScroll={onScroll}>
         {merged.map((seg, i) => {
           const spIdx = entry.result.speakers.indexOf(seg.speaker_label);
           const isActive = i === activeIdx;

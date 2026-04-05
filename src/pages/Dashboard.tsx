@@ -184,7 +184,7 @@ const Dashboard = () => {
                         {recentViewMode === 'cards' ? <LayoutGrid className="w-4 h-4" /> : recentViewMode === 'table' ? <Table2 className="w-4 h-4" /> : recentViewMode === 'rectangles' ? <RectangleHorizontal className="w-4 h-4" /> : <Grid3X3 className="w-4 h-4" />}
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent dir="rtl" align="start">
+                    <DropdownMenuContent align="start">
                       <DropdownMenuLabel>תצוגה</DropdownMenuLabel>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem className={recentViewMode === 'cards' ? 'bg-accent' : ''} onClick={() => setRecentViewMode('cards')}>

@@ -31,14 +31,14 @@ const PREF_KEYS = [
 ];
 
 export async function createBackup(): Promise<BackupData> {
-  debugLog("backup", "Creating full backup...");
+  debugLog.info("backup", "Creating full backup...");
 
   // 1. Transcripts from IndexedDB
   let transcripts: Array<Record<string, unknown>> = [];
   try {
-    transcripts = await db.transcripts.toArray();
+    transcripts = (await db.transcripts.toArray()) as unknown as Array<Record<string, unknown>>;
   } catch {
-    debugLog("backup", "No IndexedDB transcripts found");
+    debugLog.info("backup", "No IndexedDB transcripts found");
   }
 
   // 2. Vocabulary
@@ -71,7 +71,7 @@ export async function createBackup(): Promise<BackupData> {
     preferences,
   };
 
-  debugLog("backup", `Backup created: ${transcripts.length} transcripts, ${vocabulary.length} vocab, ${correctionRules.length} rules`);
+  debugLog.info("backup", `Backup created: ${transcripts.length} transcripts, ${vocabulary.length} vocab, ${correctionRules.length} rules`);
   return backup;
 }
 
@@ -106,7 +106,7 @@ export async function restoreBackup(file: File): Promise<{ transcripts: number; 
       await db.transcripts.bulkPut(data.transcripts as any);
       transcriptsRestored = data.transcripts.length;
     } catch (err) {
-      debugLog("backup", "Error restoring transcripts:", err);
+      debugLog.error("backup", "Error restoring transcripts:", err);
     }
   }
 
@@ -153,6 +153,6 @@ export async function restoreBackup(file: File): Promise<{ transcripts: number; 
     }
   }
 
-  debugLog("backup", `Restore complete: ${transcriptsRestored} transcripts, ${vocabRestored} vocab, ${rulesRestored} rules`);
+  debugLog.info("backup", `Restore complete: ${transcriptsRestored} transcripts, ${vocabRestored} vocab, ${rulesRestored} rules`);
   return { transcripts: transcriptsRestored, vocabulary: vocabRestored, rules: rulesRestored };
 }
