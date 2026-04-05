@@ -153,6 +153,6 @@ export async function restoreBackup(file: File): Promise<{ transcripts: number; 
     }
   }
 
-  debugLog("backup", `Restore complete: ${transcriptsRestored} transcripts, ${vocabRestored} vocab, ${rulesRestored} rules`);
+  debugLog.info("backup", `Restore complete: ${transcriptsRestored} transcripts, ${vocabRestored} vocab, ${rulesRestored} rules`);
   return { transcripts: transcriptsRestored, vocabulary: vocabRestored, rules: rulesRestored };
 }
