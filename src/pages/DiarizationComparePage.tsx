@@ -1450,6 +1450,28 @@ const DiarizationComparePage = () => {
               {c.a} ↔ {c.b}
             </Button>
           ))}
+
+          {/* Add engine button */}
+          {(() => {
+            const avail = getAvailableEngines();
+            if (avail.length === 0) return null;
+            return (
+              <Select value="" onValueChange={(engine) => handleAddEngine(engine)}>
+                <SelectTrigger className="h-7 w-auto text-xs gap-1 border-primary/30">
+                  {isRunningEngine ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+                  הוסף מנוע
+                </SelectTrigger>
+                <SelectContent>
+                  {avail.map(eng => (
+                    <SelectItem key={eng.value} value={eng.value} disabled={!eng.hasKey}>
+                      {eng.label} {!eng.hasKey && '(חסר מפתח)'}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            );
+          })()}
+
           <Separator orientation="vertical" className="h-5 mx-1" />
           <Button variant={showAnalysis ? 'default' : 'outline'} size="sm" className="text-xs h-7 gap-1" onClick={() => setShowAnalysis(!showAnalysis)}>
             <BarChart3 className="w-3.5 h-3.5" />
