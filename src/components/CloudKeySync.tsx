@@ -37,11 +37,11 @@ const CloudKeySync = () => {
           if (data.ollama_base_url) await setEncryptedKey('ollama_base_url', data.ollama_base_url);
 
           // Pool keys
-          if (data.openai_keys_pool?.length) localStorage.setItem('openai_api_keys_pool', JSON.stringify(data.openai_keys_pool));
-          if (data.google_keys_pool?.length) localStorage.setItem('google_api_keys_pool', JSON.stringify(data.google_keys_pool));
-          if (data.groq_keys_pool?.length) localStorage.setItem('groq_api_keys_pool', JSON.stringify(data.groq_keys_pool));
-          if (data.assemblyai_keys_pool?.length) localStorage.setItem('assemblyai_api_keys_pool', JSON.stringify(data.assemblyai_keys_pool));
-          if (data.deepgram_keys_pool?.length) localStorage.setItem('deepgram_api_keys_pool', JSON.stringify(data.deepgram_keys_pool));
+          if (Array.isArray(data.openai_keys_pool) && data.openai_keys_pool.length) localStorage.setItem('openai_api_keys_pool', JSON.stringify(data.openai_keys_pool));
+          if (Array.isArray(data.google_keys_pool) && data.google_keys_pool.length) localStorage.setItem('google_api_keys_pool', JSON.stringify(data.google_keys_pool));
+          if (Array.isArray(data.groq_keys_pool) && data.groq_keys_pool.length) localStorage.setItem('groq_api_keys_pool', JSON.stringify(data.groq_keys_pool));
+          if (Array.isArray(data.assemblyai_keys_pool) && data.assemblyai_keys_pool.length) localStorage.setItem('assemblyai_api_keys_pool', JSON.stringify(data.assemblyai_keys_pool));
+          if (Array.isArray(data.deepgram_keys_pool) && data.deepgram_keys_pool.length) localStorage.setItem('deepgram_api_keys_pool', JSON.stringify(data.deepgram_keys_pool));
 
           console.log('[CloudKeySync] API keys synced from cloud (encrypted) ✓');
         }

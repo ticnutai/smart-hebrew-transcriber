@@ -472,7 +472,7 @@ const TextEditor = () => {
     const duplicateTitle = `${current.title || 'תמלול'} (עותק)`;
     const { data: inserted, error: insertError } = await supabase
       .from('transcripts')
-      .insert({
+      .insert([{
         user_id: current.user_id,
         text: editedText,
         edited_text: editedText,
@@ -484,8 +484,8 @@ const TextEditor = () => {
         category: current.category || '',
         is_favorite: current.is_favorite || false,
         audio_file_path: current.audio_file_path,
-        word_timings: syncedTimings || current.word_timings || null,
-      })
+        word_timings: (syncedTimings || current.word_timings || null) as any,
+      }])
       .select('id')
       .single();
 

@@ -1429,7 +1429,7 @@ const Index = () => {
       setSearchOpen(prev => !prev);
     }
   }, [transcript, isLoading]);
-  const { showHelp, setShowHelp } = useKeyboardShortcuts(shortcutHandler);
+  const { showHelp, setShowHelp } = useKeyboardShortcuts(shortcutHandler as (action: string) => void);
 
   // Elapsed time counter — starts fresh each time a transcription begins
   const [elapsedSeconds, setElapsedSeconds] = useState(0);

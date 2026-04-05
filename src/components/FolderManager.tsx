@@ -272,7 +272,7 @@ export const FolderManager = ({ transcripts, onUpdate, onDelete, onGetAudioUrl }
                   {viewMode === 'cards' ? <LayoutGrid className="w-4 h-4" /> : viewMode === 'table' ? <Table2 className="w-4 h-4" /> : viewMode === 'rectangles' ? <RectangleHorizontal className="w-4 h-4" /> : <Grid3X3 className="w-4 h-4" />}
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent dir="rtl" align="start">
+              <DropdownMenuContent align="start">
                 <DropdownMenuLabel>תצוגה</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem className={viewMode === 'cards' ? 'bg-accent' : ''} onClick={() => setViewMode('cards')}>
@@ -355,7 +355,7 @@ export const FolderManager = ({ transcripts, onUpdate, onDelete, onGetAudioUrl }
                 {selectedCategory ? CATEGORIES.find(c => c.value === selectedCategory)?.label : 'קטגוריות'}
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent dir="rtl" align="start">
+            <DropdownMenuContent align="start">
               <DropdownMenuLabel>קטגוריות</DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem className={!selectedCategory ? 'bg-accent' : ''} onClick={() => setSelectedCategory(null)}>
