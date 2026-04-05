@@ -38,7 +38,7 @@ export async function createBackup(): Promise<BackupData> {
   try {
     transcripts = await db.transcripts.toArray();
   } catch {
-    debugLog("backup", "No IndexedDB transcripts found");
+    debugLog.info("backup", "No IndexedDB transcripts found");
   }
 
   // 2. Vocabulary
