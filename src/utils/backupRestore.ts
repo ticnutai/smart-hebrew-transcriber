@@ -31,7 +31,7 @@ const PREF_KEYS = [
 ];
 
 export async function createBackup(): Promise<BackupData> {
-  debugLog("backup", "Creating full backup...");
+  debugLog.info("backup", "Creating full backup...");
 
   // 1. Transcripts from IndexedDB
   let transcripts: Array<Record<string, unknown>> = [];
