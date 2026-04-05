@@ -406,7 +406,7 @@ export const OllamaManager = () => {
                   {pullPercent > 0 && <span className="font-medium">{pullPercent}%</span>}
                 </div>
                 {pullPercent > 0 && <Progress value={pullPercent} />}
-                <Button variant="ghost" size="sm" onClick={cancelPull} className="text-xs text-destructive">
+                <Button variant="ghost" size="sm" onClick={() => cancelPull()} className="text-xs text-destructive">
                   <XCircle className="w-3 h-3 ml-1" />
                   בטל את כל ההורדות
                 </Button>
