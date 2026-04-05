@@ -4,6 +4,8 @@ import { toast } from '@/hooks/use-toast';
 import { diarizeInBrowser, type DiarizationProgress } from '@/utils/browserDiarization';
 import { db, isDbAvailable } from '@/lib/localDb';
 
+/* eslint-disable react-refresh/only-export-components */
+
 // ─── Types ───
 
 export type DiarizationMode = 'local' | 'assemblyai' | 'deepgram' | 'openai' | 'browser' | 'whisperx';
@@ -51,6 +53,42 @@ interface QueueConfig {
   expectedSpeakers: number;
   cloudApiKey: string;
   autoSaveToCloud: boolean;
+}
+
+interface OpenAiWord {
+  word?: string;
+  start?: number;
+  end?: number;
+}
+
+interface OpenAiSegment {
+  text?: string;
+  start?: number;
+  end?: number;
+  words?: OpenAiWord[];
+}
+
+interface OpenAiTranscriptionResponse {
+  text?: string;
+  duration?: number;
+  segments?: OpenAiSegment[];
+}
+
+interface LooseInsertSingleResult {
+  data: { id?: string } | null;
+  error: unknown;
+}
+
+interface LooseDiarizationInsertQuery {
+  insert: (payload: unknown) => {
+    select: (columns: string) => {
+      single: () => Promise<LooseInsertSingleResult>;
+    };
+  };
+}
+
+interface LooseSupabaseClient {
+  from: (table: string) => LooseDiarizationInsertQuery;
 }
 
 interface DiarizationQueueContextValue {
@@ -254,7 +292,8 @@ export function DiarizationQueueProvider({ children }: { children: React.ReactNo
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return null;
-      const { data, error } = await (supabase as any).from('diarization_results').insert({
+      const looseSupabase = supabase as unknown as LooseSupabaseClient;
+      const { data, error } = await looseSupabase.from('diarization_results').insert({
         user_id: user.id,
         file_name: fileName,
         segments: result.segments,
@@ -362,11 +401,12 @@ export function DiarizationQueueProvider({ children }: { children: React.ReactNo
           throw new Error(err.error?.message || `HTTP ${resp.status}`);
         }
         const data = await resp.json();
+        const openAiData = data as OpenAiTranscriptionResponse;
         const processingTime = (Date.now() - startTime) / 1000;
-        const segments: DiarizedSegment[] = (data.segments || []).map((seg: any, i: number) => ({
+        const segments: DiarizedSegment[] = (openAiData.segments || []).map((seg, i: number) => ({
           text: seg.text?.trim() || "", start: seg.start || 0, end: seg.end || 0,
           speaker: `Speaker ${i % 2 + 1}`, speaker_label: `דובר ${i % 2 + 1}`,
-          words: seg.words?.map((w: any) => ({ word: w.word, start: w.start, end: w.end, probability: 1 })),
+          words: seg.words?.map((w) => ({ word: w.word || '', start: w.start || 0, end: w.end || 0, probability: 1 })),
         }));
         let currentSpeaker = 1;
         for (let i = 1; i < segments.length; i++) {
@@ -377,9 +417,9 @@ export function DiarizationQueueProvider({ children }: { children: React.ReactNo
         }
         const speakers = [...new Set(segments.map(s => s.speaker_label))];
         result = {
-          text: data.text || "", segments, speakers,
+          text: openAiData.text || "", segments, speakers,
           speaker_count: speakers.length,
-          duration: segments.length > 0 ? segments[segments.length - 1].end : data.duration || 0,
+          duration: segments.length > 0 ? segments[segments.length - 1].end : openAiData.duration || 0,
           processing_time: Math.round(processingTime * 10) / 10,
           diarization_method: "OpenAI Whisper + gap-detection",
         };
