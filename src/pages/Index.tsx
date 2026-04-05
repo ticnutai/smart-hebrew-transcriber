@@ -25,6 +25,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useCloudPreferences } from "@/hooks/useCloudPreferences";
 import { isVideoFile, extractAudioFromVideo, VIDEO_NEEDS_EXTRACTION, MAX_VIDEO_SIZE_MB, MAX_AUDIO_SIZE_MB } from "@/lib/videoUtils";
 import { compressAudio, needsCompression, formatFileSize, CLOUD_API_LIMIT } from "@/lib/audioCompression";
+import { extractAudioSegment, probeAudioDurationSec } from "@/lib/audioSegment";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { KeyboardShortcutsDialog } from "@/components/KeyboardShortcutsDialog";
 import { addNotification } from "@/hooks/useNotifications";
@@ -82,6 +83,9 @@ const Index = () => {
   const [lastStats, setLastStats] = useState<TranscriptionStats | null>(null);
   const [copied, setCopied] = useState(false);
   const [diarize, setDiarize] = useState(false);
+  const [rangeEnabled, setRangeEnabled] = useState(false);
+  const [rangeStartSec, setRangeStartSec] = useState("0");
+  const [rangeEndSec, setRangeEndSec] = useState("");
 
   // Save reference to last uploaded file for resume functionality
   const lastFileRef = useRef<File | null>(null);
@@ -434,6 +438,11 @@ const Index = () => {
     localStorage.setItem(providerSingleKeyStorage[provider], pool[index]);
   };
 
+  const parseRangeValue = (raw: string): number => {
+    const value = Number(raw);
+    return Number.isFinite(value) && value >= 0 ? value : 0;
+  };
+
   const handleFileSelect = async (file: File) => {
     currentFileRef.current = file;
     lastFileRef.current = file;
@@ -456,7 +465,7 @@ const Index = () => {
 
     // Preserve media URL for playback
     if (audioUrl) URL.revokeObjectURL(audioUrl);
-    const url = URL.createObjectURL(file);
+    let url = URL.createObjectURL(file);
     setAudioUrl(url);
 
     // Persist audio blob to IndexedDB (Dexie) for text-editor recovery
@@ -487,11 +496,13 @@ const Index = () => {
 
     // Step 1: If video file and engine requires audio-only → extract audio
     let fileToTranscribe = file;
-    if (isVideo && VIDEO_NEEDS_EXTRACTION.has(engine)) {
+    if (isVideo && (VIDEO_NEEDS_EXTRACTION.has(engine) || rangeEnabled)) {
       debugLog.info('Video', `מחלץ אודיו מוידאו: ${file.name} (${formatFileSize(file.size)})`);
       toast({
         title: "🎬 מחלץ אודיו מוידאו...",
-        description: `${engine === 'google' ? 'Google Speech-to-Text' : engine} דורש קובץ אודיו — מחלץ אוטומטית`,
+        description: rangeEnabled
+          ? "חיתוך טווח דורש מסלול אודיו מדויק — מחלץ אודיו אוטומטית"
+          : `${engine === 'google' ? 'Google Speech-to-Text' : engine} דורש קובץ אודיו — מחלץ אוטומטית`,
       });
       try {
         fileToTranscribe = await extractAudioFromVideo(file, (p) => {
@@ -512,7 +523,39 @@ const Index = () => {
       toast({ title: "🎬 וידאו זוהה", description: `${engine} מעבד וידאו ישירות — מחלץ אודיו בצד השרת` });
     }
 
-    // Step 2: Auto-compress if file too large for cloud APIs (>25MB)
+    // Step 2: Optional user-selected range trimming
+    if (rangeEnabled) {
+      try {
+        const durationSec = await probeAudioDurationSec(fileToTranscribe);
+        const startSec = Math.min(parseRangeValue(rangeStartSec), Math.max(0, durationSec - 0.2));
+        const requestedEndSec = rangeEndSec.trim() === '' ? durationSec : parseRangeValue(rangeEndSec);
+        const endSec = Math.min(Math.max(requestedEndSec, startSec + 0.2), durationSec);
+
+        if (endSec - startSec < 0.2) {
+          throw new Error('טווח החיתוך קצר מדי. יש לבחור לפחות 0.2 שניות.');
+        }
+
+        if (startSec > 0 || endSec < durationSec - 0.05) {
+          setUploadProgress(10);
+          toast({
+            title: "✂️ חיתוך אודיו",
+            description: `מעבד טווח ${startSec.toFixed(1)}s - ${endSec.toFixed(1)}s`,
+          });
+          fileToTranscribe = await extractAudioSegment(fileToTranscribe, startSec, endSec);
+          debugLog.info('Trim', `Audio trimmed to range ${startSec.toFixed(2)}-${endSec.toFixed(2)} (${fileToTranscribe.name})`);
+        }
+      } catch (err) {
+        debugLog.error('Trim', 'שגיאה בחיתוך טווח', err);
+        toast({
+          title: "שגיאה בחיתוך אודיו",
+          description: err instanceof Error ? err.message : "לא ניתן לחתוך את האודיו",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
+    // Step 3: Auto-compress if file too large for cloud APIs (>25MB)
     // Skip compression for local-server (no limit) and local (ONNX)
     const isCloudEngine = !['local-server', 'local'].includes(engine);
     if (isCloudEngine && needsCompression(fileToTranscribe)) {
@@ -550,6 +593,26 @@ const Index = () => {
           variant: "destructive",
         });
         return;
+      }
+    }
+
+    // Keep media URL and file references aligned with the exact file being processed.
+    if (fileToTranscribe !== file) {
+      URL.revokeObjectURL(url);
+      url = URL.createObjectURL(fileToTranscribe);
+      setAudioUrl(url);
+      currentFileRef.current = fileToTranscribe;
+      lastFileRef.current = fileToTranscribe;
+      try {
+        await db.audioBlobs.put({
+          id: 'last_audio',
+          blob: fileToTranscribe,
+          type: fileToTranscribe.type,
+          name: fileToTranscribe.name,
+          saved_at: Date.now(),
+        });
+      } catch {
+        // Ignore IndexedDB write errors.
       }
     }
 
@@ -1671,6 +1734,48 @@ const Index = () => {
             </label>
           </div>
         )}
+
+        <div className="rounded-lg border border-border/60 bg-muted/20 p-3" dir="rtl">
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={rangeEnabled}
+                onChange={(e) => setRangeEnabled(e.target.checked)}
+                className="rounded border-gray-300"
+              />
+              <span>חיתוך אודיו לפני עיבוד</span>
+            </label>
+            <span className="text-xs text-muted-foreground">מומלץ לקבצים ארוכים ולבדיקה נקודתית</span>
+          </div>
+          {rangeEnabled && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <label className="text-xs text-muted-foreground flex flex-col gap-1">
+                התחלה (שניות)
+                <input
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  value={rangeStartSec}
+                  onChange={(e) => setRangeStartSec(e.target.value)}
+                  className="h-9 rounded-md border bg-background px-3 text-sm"
+                />
+              </label>
+              <label className="text-xs text-muted-foreground flex flex-col gap-1">
+                סוף (שניות, ריק = עד הסוף)
+                <input
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  value={rangeEndSec}
+                  onChange={(e) => setRangeEndSec(e.target.value)}
+                  placeholder="למשל 120"
+                  className="h-9 rounded-md border bg-background px-3 text-sm"
+                />
+              </label>
+            </div>
+          )}
+        </div>
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <FileUploader 

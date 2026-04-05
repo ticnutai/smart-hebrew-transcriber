@@ -20,6 +20,8 @@ import { useCloudApiKeys } from "@/hooks/useCloudApiKeys";
 import { DiarizationCompare } from "@/components/DiarizationCompare";
 import { useDiarizationJobs } from "@/hooks/useDiarizationJobs";
 import { useDiarizationQueue, type QueueJob } from "@/contexts/DiarizationQueueContext";
+import { isVideoFile, extractAudioFromVideo } from "@/lib/videoUtils";
+import { extractAudioSegment, probeAudioDurationSec } from "@/lib/audioSegment";
 import type { SyncAudioPlayerRef, WordTiming } from "@/components/SyncAudioPlayer";
 import { DiarizationNotes } from "@/components/DiarizationNotes";
 import { DiarizationAI } from "@/components/DiarizationAI";
@@ -174,6 +176,9 @@ export const SpeakerDiarization = ({ serverUrl = "/whisper", initialAudioBlob, i
   const [editingName, setEditingName] = useState("");
   const [mode, setMode] = useState<DiarizationMode>('browser');
   const [cloudApiKey, setCloudApiKey] = useState("");
+  const [rangeEnabled, setRangeEnabled] = useState(false);
+  const [rangeStartSec, setRangeStartSec] = useState("0");
+  const [rangeEndSec, setRangeEndSec] = useState("");
   const [autoMerge, setAutoMerge] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [savedList, setSavedList] = useState<SavedDiarization[]>([]);
@@ -208,6 +213,35 @@ export const SpeakerDiarization = ({ serverUrl = "/whisper", initialAudioBlob, i
   const [overlaps, setOverlaps] = useState<OverlapRegion[]>([]);
   const [editingBoundary, setEditingBoundary] = useState<{ segIdx: number; edge: 'start' | 'end' } | null>(null);
   const [editingBoundaryValue, setEditingBoundaryValue] = useState("");
+
+  const prepareFileWithOptionalRange = useCallback(async (sourceFile: File): Promise<File> => {
+    const parseRangeValue = (raw: string): number => {
+      const value = Number(raw);
+      return Number.isFinite(value) && value >= 0 ? value : 0;
+    };
+
+    if (!rangeEnabled) return sourceFile;
+
+    let workingFile = sourceFile;
+    if (isVideoFile(workingFile)) {
+      workingFile = await extractAudioFromVideo(workingFile);
+    }
+
+    const durationSec = await probeAudioDurationSec(workingFile);
+    const startSec = Math.min(parseRangeValue(rangeStartSec), Math.max(0, durationSec - 0.2));
+    const requestedEndSec = rangeEndSec.trim() === '' ? durationSec : parseRangeValue(rangeEndSec);
+    const endSec = Math.min(Math.max(requestedEndSec, startSec + 0.2), durationSec);
+
+    if (endSec - startSec < 0.2) {
+      throw new Error('טווח החיתוך קצר מדי. יש לבחור לפחות 0.2 שניות.');
+    }
+
+    if (startSec <= 0 && endSec >= durationSec - 0.05) {
+      return workingFile;
+    }
+
+    return extractAudioSegment(workingFile, startSec, endSec);
+  }, [rangeEnabled, rangeStartSec, rangeEndSec]);
 
   const { keys: cloudKeys, saveKeys: saveCloudKeys, isLoaded: keysLoaded } = useCloudApiKeys();
   const { jobs: bgJobs, startBackgroundJob, retryJob } = useDiarizationJobs();
@@ -556,27 +590,41 @@ export const SpeakerDiarization = ({ serverUrl = "/whisper", initialAudioBlob, i
     setIsProcessing(true);
     setResult(null);
     setActiveSpeakerFilter(null);
-    setCurrentFileName(file.name);
     setBrowserProgress(null);
     setPlayingSegIdx(null);
     setSpeakerRoles({});
     segEndRef.current = null;
 
-    // Keep reference to file for re-runs & comparisons
-    preloadedFileRef.current = file;
+    let preparedFile = file;
+    try {
+      preparedFile = await prepareFileWithOptionalRange(file);
+    } catch (prepareErr) {
+      setIsProcessing(false);
+      toast({
+        title: "שגיאה בחיתוך אודיו",
+        description: prepareErr instanceof Error ? prepareErr.message : "Unknown error",
+        variant: "destructive",
+      });
+      return;
+    }
 
-    const url = URL.createObjectURL(file);
+    setCurrentFileName(preparedFile.name);
+
+    // Keep reference to file for re-runs & comparisons
+    preloadedFileRef.current = preparedFile;
+
+    const url = URL.createObjectURL(preparedFile);
     setAudioUrl(url);
 
     try {
       if (mode === 'browser') {
-        const data = await diarizeInBrowser(file, (p) => setBrowserProgress(p), expectedSpeakers || undefined);
+        const data = await diarizeInBrowser(preparedFile, (p) => setBrowserProgress(p), expectedSpeakers || undefined);
         setResult({ text: data.segments.map(s => s.text).join(" "), ...data });
         setBrowserProgress(null);
         toast({ title: "זיהוי דוברים הושלם", description: `${data.speaker_count} דוברים זוהו (בדפדפן) — ${data.processing_time} שניות` });
       } else if (mode === 'local' || mode === 'whisperx') {
         const formData = new FormData();
-        formData.append("file", file);
+        formData.append("file", preparedFile);
         formData.append("min_gap", minGap.toString());
         if (hfToken.trim()) formData.append("hf_token", hfToken.trim());
         if (mode === 'local') {
@@ -634,7 +682,7 @@ export const SpeakerDiarization = ({ serverUrl = "/whisper", initialAudioBlob, i
                 // Save partial progress
                 try {
                   localStorage.setItem('diarize_partial_segments', JSON.stringify(collectedSegments));
-                  localStorage.setItem('diarize_partial_file', file.name);
+                  localStorage.setItem('diarize_partial_file', preparedFile.name);
                 } catch { /* quota */ }
               } else if (event.type === 'done') {
                 finalResult = event as DiarizationResult;
@@ -661,7 +709,7 @@ export const SpeakerDiarization = ({ serverUrl = "/whisper", initialAudioBlob, i
       } else if (mode === 'openai') {
         if (!cloudApiKey.trim()) throw new Error("נדרש מפתח API של OpenAI");
         const formData = new FormData();
-        formData.append("file", file);
+        formData.append("file", preparedFile);
         formData.append("model", "whisper-1");
         formData.append("language", "he");
         formData.append("response_format", "verbose_json");
@@ -703,7 +751,7 @@ export const SpeakerDiarization = ({ serverUrl = "/whisper", initialAudioBlob, i
       } else {
         if (!cloudApiKey.trim()) throw new Error(`נדרש מפתח API של ${mode === 'assemblyai' ? 'AssemblyAI' : 'Deepgram'}`);
         const formData = new FormData();
-        formData.append("file", file);
+        formData.append("file", preparedFile);
         formData.append("engine", mode);
         formData.append("apiKey", cloudApiKey.trim());
         formData.append("language", "he");
@@ -729,30 +777,61 @@ export const SpeakerDiarization = ({ serverUrl = "/whisper", initialAudioBlob, i
       toast({ title: "עיבוד ברקע נתמך רק ב-AssemblyAI ו-Deepgram", variant: "destructive" });
       return;
     }
-    await startBackgroundJob(file, mode);
+    try {
+      const prepared = await prepareFileWithOptionalRange(file);
+      await startBackgroundJob(prepared, mode);
+    } catch (err) {
+      toast({
+        title: "שגיאה בחיתוך אודיו",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+      return;
+    }
     setShowBgJobs(true);
   };
 
   // ──── Queue: Send to Background Queue (parallel, survives navigation) ────
-  const handleQueueFile = (file: File) => {
+  const handleQueueFile = async (file: File) => {
     if (!queue) {
       toast({ title: 'מערכת התור לא זמינה', variant: 'destructive' });
       return;
     }
-    queue.enqueue(file, mode, { serverUrl, minGap, hfToken, pyannoteModel, expectedSpeakers, cloudApiKey, autoSaveToCloud: true });
+    try {
+      const prepared = await prepareFileWithOptionalRange(file);
+      queue.enqueue(prepared, mode, { serverUrl, minGap, hfToken, pyannoteModel, expectedSpeakers, cloudApiKey, autoSaveToCloud: true });
+    } catch (err) {
+      toast({
+        title: "שגיאה בחיתוך אודיו",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    }
   };
 
-  const handleQueueMultipleFiles = (files: File[]) => {
+  const handleQueueMultipleFiles = async (files: File[]) => {
     if (!queue) {
       toast({ title: 'מערכת התור לא זמינה', variant: 'destructive' });
       return;
     }
-    queue.enqueueMultiple(files, mode, { serverUrl, minGap, hfToken, pyannoteModel, expectedSpeakers, cloudApiKey, autoSaveToCloud: true });
+    try {
+      const preparedFiles: File[] = [];
+      for (const file of files) {
+        preparedFiles.push(await prepareFileWithOptionalRange(file));
+      }
+      queue.enqueueMultiple(preparedFiles, mode, { serverUrl, minGap, hfToken, pyannoteModel, expectedSpeakers, cloudApiKey, autoSaveToCloud: true });
+    } catch (err) {
+      toast({
+        title: "שגיאה בחיתוך אודיו",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleMultiFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []).filter(f => f.type.startsWith('audio/') || f.type.startsWith('video/'));
-    if (files.length > 0) handleQueueMultipleFiles(files);
+    if (files.length > 0) void handleQueueMultipleFiles(files);
     e.target.value = "";
   };
 
@@ -767,7 +846,7 @@ export const SpeakerDiarization = ({ serverUrl = "/whisper", initialAudioBlob, i
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) handleDiarize(file);
+    if (file) void handleDiarize(file);
     e.target.value = "";
   };
 
@@ -779,9 +858,9 @@ export const SpeakerDiarization = ({ serverUrl = "/whisper", initialAudioBlob, i
     const files = Array.from(e.dataTransfer.files || []);
     const validFiles = files.filter(f => f.type.startsWith('audio/') || f.type.startsWith('video/'));
     if (validFiles.length > 1 && queue) {
-      handleQueueMultipleFiles(validFiles);
+      void handleQueueMultipleFiles(validFiles);
     } else if (validFiles.length === 1) {
-      handleDiarize(validFiles[0]);
+      void handleDiarize(validFiles[0]);
     } else if (files.length > 0) {
       toast({ title: "סוג קובץ לא נתמך", description: "יש להעלות קובץ אודיו או וידאו", variant: "destructive" });
     }
@@ -1106,6 +1185,25 @@ export const SpeakerDiarization = ({ serverUrl = "/whisper", initialAudioBlob, i
           </div>
         )}
 
+        <div className="rounded-lg border border-border/60 bg-muted/20 p-2.5 space-y-2">
+          <div className="flex items-center gap-2">
+            <Switch id="range-enabled" checked={rangeEnabled} onCheckedChange={setRangeEnabled} />
+            <Label htmlFor="range-enabled" className="text-sm cursor-pointer">חיתוך אודיו לפני זיהוי דוברים</Label>
+          </div>
+          {rangeEnabled && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div>
+                <Label className="text-xs text-muted-foreground">התחלה (שניות)</Label>
+                <Input type="number" min={0} step={0.1} value={rangeStartSec} onChange={(e) => setRangeStartSec(e.target.value)} className="h-8 text-sm" />
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">סוף (שניות, ריק = עד הסוף)</Label>
+                <Input type="number" min={0} step={0.1} value={rangeEndSec} onChange={(e) => setRangeEndSec(e.target.value)} placeholder="למשל 120" className="h-8 text-sm" />
+              </div>
+            </div>
+          )}
+        </div>
+
         {(mode === 'local' || mode === 'whisperx') && (
           <>
             <div className="flex items-center gap-4">
@@ -1187,7 +1285,7 @@ export const SpeakerDiarization = ({ serverUrl = "/whisper", initialAudioBlob, i
             <Button size="sm" className="gap-1.5 mt-1" onClick={(e) => {
               e.stopPropagation();
               autoMergeApplied.current = false;
-              if (preloadedFileRef.current) handleDiarize(preloadedFileRef.current);
+              if (preloadedFileRef.current) void handleDiarize(preloadedFileRef.current);
             }}>
               <Users className="w-4 h-4" />
               זהה דוברים
@@ -1218,7 +1316,7 @@ export const SpeakerDiarization = ({ serverUrl = "/whisper", initialAudioBlob, i
                 const input = document.createElement('input');
                 input.type = 'file';
                 input.accept = 'audio/*,video/*';
-                input.onchange = (ev: any) => { const f = ev.target.files?.[0]; if (f) handleBackgroundDiarize(f); };
+                input.onchange = (ev: any) => { const f = ev.target.files?.[0]; if (f) void handleBackgroundDiarize(f); };
                 input.click();
               }}>
                 <Zap className="w-3.5 h-3.5" />
@@ -1241,7 +1339,7 @@ export const SpeakerDiarization = ({ serverUrl = "/whisper", initialAudioBlob, i
                   const input = document.createElement('input');
                   input.type = 'file';
                   input.accept = 'audio/*,video/*';
-                  input.onchange = (ev: any) => { const f = ev.target.files?.[0]; if (f) handleQueueFile(f); };
+                  input.onchange = (ev: any) => { const f = ev.target.files?.[0]; if (f) void handleQueueFile(f); };
                   input.click();
                 }}>
                   <Zap className="w-3.5 h-3.5" />
