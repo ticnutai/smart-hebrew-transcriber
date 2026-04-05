@@ -106,7 +106,7 @@ export async function restoreBackup(file: File): Promise<{ transcripts: number; 
       await db.transcripts.bulkPut(data.transcripts as any);
       transcriptsRestored = data.transcripts.length;
     } catch (err) {
-      debugLog("backup", "Error restoring transcripts:", err);
+      debugLog.error("backup", "Error restoring transcripts:", err);
     }
   }
 
