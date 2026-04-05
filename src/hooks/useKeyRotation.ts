@@ -3,7 +3,16 @@
  */
 
 import { useCallback } from "react";
-import { getApiKey, getApiKeyPool } from "@/lib/keyCrypto";
+import { getApiKey } from "@/lib/keyCrypto";
+
+function getApiKeyPool(storageKey: string): string[] {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((k: unknown) => typeof k === 'string' && k.trim()) : [];
+  } catch { return []; }
+}
 
 export type CloudProvider = 'openai' | 'groq' | 'google' | 'assemblyai' | 'deepgram';
 

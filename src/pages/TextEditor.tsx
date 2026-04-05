@@ -485,7 +485,7 @@ const TextEditor = () => {
         is_favorite: current.is_favorite || false,
         audio_file_path: current.audio_file_path,
         word_timings: syncedTimings || current.word_timings || null,
-      })
+      }])
       .select('id')
       .single();
 

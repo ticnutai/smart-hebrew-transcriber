@@ -36,7 +36,7 @@ export async function createBackup(): Promise<BackupData> {
   // 1. Transcripts from IndexedDB
   let transcripts: Array<Record<string, unknown>> = [];
   try {
-    transcripts = await db.transcripts.toArray();
+    transcripts = (await db.transcripts.toArray()) as unknown as Array<Record<string, unknown>>;
   } catch {
     debugLog.info("backup", "No IndexedDB transcripts found");
   }
