@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useCallback, useRef, useEff
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 import { diarizeInBrowser, type DiarizationProgress } from '@/utils/browserDiarization';
+import { db, isDbAvailable } from '@/lib/localDb';
 
 // ─── Types ───
 
@@ -73,6 +74,7 @@ const DiarizationQueueContext = createContext<DiarizationQueueContextValue | nul
 
 const STORAGE_KEY = 'diarization_queue_jobs';
 const STORAGE_CONFIG_KEY = 'diarization_queue_config';
+const JOB_FILE_PREFIX = 'dq_file_';
 
 function generateId(): string {
   return `dj_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -83,12 +85,30 @@ function loadPersistedJobs(): QueueJob[] {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
     const jobs: QueueJob[] = JSON.parse(raw);
-    // Jobs that were processing when the page closed are now in error state (resumable)
+    // Keep jobs resumable after refresh/restart.
     return jobs.map(j => j.status === 'processing' || j.status === 'queued'
-      ? { ...j, status: 'error' as JobStatus, error: 'הופסק — ניתן לנסות שוב', progress: 0, progressStage: '' }
+      ? { ...j, status: 'queued' as JobStatus, error: null, progressStage: 'שוחזר אחרי רענון — ממתין להמשך' }
       : j
     ).filter(j => Date.now() - j.createdAt < 7 * 24 * 3600 * 1000); // keep 7 days
   } catch { return []; }
+}
+
+function loadPersistedConfig(): { maxConcurrent: number } {
+  try {
+    const raw = localStorage.getItem(STORAGE_CONFIG_KEY);
+    if (!raw) return { maxConcurrent: 2 };
+    const parsed = JSON.parse(raw) as { maxConcurrent?: number };
+    const maxConcurrent = Number(parsed.maxConcurrent ?? 2);
+    return { maxConcurrent: Number.isFinite(maxConcurrent) ? Math.min(4, Math.max(1, maxConcurrent)) : 2 };
+  } catch {
+    return { maxConcurrent: 2 };
+  }
+}
+
+function persistConfig(config: { maxConcurrent: number }) {
+  try {
+    localStorage.setItem(STORAGE_CONFIG_KEY, JSON.stringify(config));
+  } catch { /* ignore */ }
 }
 
 function persistJobs(jobs: QueueJob[]) {
@@ -108,14 +128,50 @@ function persistJobs(jobs: QueueJob[]) {
 
 export function DiarizationQueueProvider({ children }: { children: React.ReactNode }) {
   const [jobs, setJobs] = useState<QueueJob[]>(loadPersistedJobs);
-  const [maxConcurrent, setMaxConcurrent] = useState(2);
+  const [maxConcurrent, setMaxConcurrent] = useState(loadPersistedConfig().maxConcurrent);
   const jobFilesRef = useRef<Map<string, File>>(new Map());
   const jobConfigsRef = useRef<Map<string, QueueConfig>>(new Map());
   const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
+  const executeJobRef = useRef<(jobId: string) => void>(() => {});
   const processingRef = useRef(false);
+  const restoredRef = useRef(false);
 
   // Persist jobs to localStorage on change
   useEffect(() => { persistJobs(jobs); }, [jobs]);
+  useEffect(() => { persistConfig({ maxConcurrent }); }, [maxConcurrent]);
+
+  const persistJobFile = useCallback(async (jobId: string, file: File) => {
+    if (!(await isDbAvailable())) return;
+    try {
+      await db.audioBlobs.put({
+        id: `${JOB_FILE_PREFIX}${jobId}`,
+        blob: file,
+        type: file.type,
+        name: file.name,
+        saved_at: Date.now(),
+      });
+    } catch {
+      // ignore persistence failures; queue still works in-memory
+    }
+  }, []);
+
+  const removeJobFile = useCallback(async (jobId: string) => {
+    if (!(await isDbAvailable())) return;
+    try {
+      await db.audioBlobs.delete(`${JOB_FILE_PREFIX}${jobId}`);
+    } catch { /* ignore */ }
+  }, []);
+
+  const restoreJobFile = useCallback(async (jobId: string): Promise<File | null> => {
+    if (!(await isDbAvailable())) return null;
+    try {
+      const rec = await db.audioBlobs.get(`${JOB_FILE_PREFIX}${jobId}`);
+      if (!rec) return null;
+      return new File([rec.blob], rec.name || `job-${jobId}.audio`, { type: rec.type || rec.blob.type || 'audio/wav' });
+    } catch {
+      return null;
+    }
+  }, []);
 
   // ─── Core: Process Queue ───
 
@@ -145,7 +201,7 @@ export function DiarizationQueueProvider({ children }: { children: React.ReactNo
           // Mark as processing
           setJobs(prev => prev.map(j => j.id === job.id ? { ...j, status: 'processing' as JobStatus, progress: 0, progressStage: 'מתחיל...' } : j));
           // Launch processing (fire-and-forget, each manages its own state)
-          executeJob(job.id);
+          executeJobRef.current(job.id);
         }
         // Wait before checking again
         await new Promise(r => setTimeout(r, 200));
@@ -153,8 +209,42 @@ export function DiarizationQueueProvider({ children }: { children: React.ReactNo
     } finally {
       processingRef.current = false;
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [maxConcurrent]);
+
+  // Rehydrate queued job files after refresh and continue automatically.
+  useEffect(() => {
+    if (restoredRef.current) return;
+    restoredRef.current = true;
+
+    const restore = async () => {
+      const resumable = jobs.filter(j => j.status === 'queued');
+      if (resumable.length === 0) return;
+
+      const missing: string[] = [];
+      for (const job of resumable) {
+        const restored = await restoreJobFile(job.id);
+        if (restored) {
+          jobFilesRef.current.set(job.id, restored);
+        } else {
+          missing.push(job.id);
+        }
+      }
+
+      if (missing.length > 0) {
+        setJobs(prev => prev.map(j => missing.includes(j.id)
+          ? { ...j, status: 'error' as JobStatus, error: 'קובץ מקור לא נמצא לשחזור — יש להעלות מחדש', progress: 0, progressStage: '' }
+          : j));
+      }
+
+      const restoredCount = resumable.length - missing.length;
+      if (restoredCount > 0) {
+        setTimeout(() => processQueue(), 80);
+        toast({ title: 'שוחזר עיבוד רקע', description: `${restoredCount} משימות הוחזרו וימשיכו אוטומטית` });
+      }
+    };
+
+    void restore();
+  }, [restoreJobFile, processQueue, jobs]);
 
   const updateJob = useCallback((jobId: string, updates: Partial<QueueJob>) => {
     setJobs(prev => prev.map(j => j.id === jobId ? { ...j, ...updates } : j));
@@ -187,7 +277,6 @@ export function DiarizationQueueProvider({ children }: { children: React.ReactNo
   // ─── Execute a Single Job ───
 
   const executeJob = useCallback(async (jobId: string) => {
-    const file = jobFilesRef.current.get(jobId);
     const config = jobConfigsRef.current.get(jobId) || {} as QueueConfig;
 
     let currentJob: QueueJob | undefined;
@@ -195,7 +284,18 @@ export function DiarizationQueueProvider({ children }: { children: React.ReactNo
     await new Promise(r => setTimeout(r, 10));
     setJobs(prev => { currentJob = prev.find(j => j.id === jobId); return prev; });
 
-    if (!currentJob || !file) {
+    if (!currentJob) {
+      updateJob(jobId, { status: 'error', error: 'משימה לא נמצאה' });
+      return;
+    }
+
+    let file = jobFilesRef.current.get(jobId) || null;
+    if (!file) {
+      file = await restoreJobFile(jobId);
+      if (file) jobFilesRef.current.set(jobId, file);
+    }
+
+    if (!file) {
       updateJob(jobId, { status: 'error', error: 'קובץ לא נמצא — יש להעלות מחדש' });
       return;
     }
@@ -306,6 +406,7 @@ export function DiarizationQueueProvider({ children }: { children: React.ReactNo
 
       // ─── Job Completed Successfully ───
       updateJob(jobId, { status: 'completed', progress: 100, progressStage: 'הושלם!', result, completedAt: Date.now() });
+      void removeJobFile(jobId);
 
       // Auto-save to cloud
       if (config.autoSaveToCloud !== false) {
@@ -331,8 +432,13 @@ export function DiarizationQueueProvider({ children }: { children: React.ReactNo
       // Trigger queue processing for next jobs
       setTimeout(() => processQueue(), 100);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [updateJob, autoSaveToCloud, processQueue]);
+  }, [updateJob, autoSaveToCloud, processQueue, restoreJobFile, removeJobFile]);
+
+  useEffect(() => {
+    executeJobRef.current = (jobId: string) => {
+      void executeJob(jobId);
+    };
+  }, [executeJob]);
 
   // ─── Public API ───
 
@@ -353,6 +459,7 @@ export function DiarizationQueueProvider({ children }: { children: React.ReactNo
       audioUrl: null,
     };
     jobFilesRef.current.set(id, file);
+    void persistJobFile(id, file);
     jobConfigsRef.current.set(id, {
       serverUrl: config.serverUrl || '/whisper',
       minGap: config.minGap ?? 1.5,
@@ -365,7 +472,7 @@ export function DiarizationQueueProvider({ children }: { children: React.ReactNo
     setJobs(prev => [job, ...prev]);
     setTimeout(() => processQueue(), 50);
     return id;
-  }, [processQueue]);
+  }, [processQueue, persistJobFile]);
 
   const enqueueMultiple = useCallback((files: File[], mode: DiarizationMode, config: Partial<QueueConfig> = {}): string[] => {
     const ids: string[] = [];
@@ -374,6 +481,7 @@ export function DiarizationQueueProvider({ children }: { children: React.ReactNo
       const id = generateId();
       ids.push(id);
       jobFilesRef.current.set(id, file);
+      void persistJobFile(id, file);
       jobConfigsRef.current.set(id, {
         serverUrl: config.serverUrl || '/whisper',
         minGap: config.minGap ?? 1.5,
@@ -402,7 +510,7 @@ export function DiarizationQueueProvider({ children }: { children: React.ReactNo
     toast({ title: `📋 ${files.length} קבצים נוספו לתור`, description: `מנוע: ${mode}` });
     setTimeout(() => processQueue(), 50);
     return ids;
-  }, [processQueue]);
+  }, [processQueue, persistJobFile]);
 
   const cancelJob = useCallback((jobId: string) => {
     const controller = abortControllersRef.current.get(jobId);
@@ -426,8 +534,9 @@ export function DiarizationQueueProvider({ children }: { children: React.ReactNo
     jobFilesRef.current.delete(jobId);
     jobConfigsRef.current.delete(jobId);
     abortControllersRef.current.delete(jobId);
+    void removeJobFile(jobId);
     setJobs(prev => prev.filter(j => j.id !== jobId));
-  }, []);
+  }, [removeJobFile]);
 
   const clearCompleted = useCallback(() => {
     setJobs(prev => {
@@ -436,10 +545,11 @@ export function DiarizationQueueProvider({ children }: { children: React.ReactNo
         jobFilesRef.current.delete(j.id);
         jobConfigsRef.current.delete(j.id);
         if (j.audioUrl) URL.revokeObjectURL(j.audioUrl);
+        void removeJobFile(j.id);
       });
       return prev.filter(j => j.status !== 'completed');
     });
-  }, []);
+  }, [removeJobFile]);
 
   const getJob = useCallback((jobId: string) => jobs.find(j => j.id === jobId), [jobs]);
 
