@@ -45,8 +45,15 @@ import {
   Save,
   RefreshCw,
   Cpu,
+  Scissors,
+  Pencil,
+  CheckSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { extractAudioSegment, probeAudioDurationSec } from "@/lib/audioSegment";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -66,6 +73,16 @@ function formatDuration(ms: number): string {
 
 const ACCEPTED_MIME =
   "video/*,audio/*,.mkv,.avi,.mov,.webm,.flv,.wmv,.m4v,.3gp,.ogv,.ts,.mts,.m2ts,.vob,.mpg,.mpeg,.m4a,.wav,.ogg,.flac,.aac,.wma,.opus,.amr";
+
+interface CutFileItem {
+  id: string;
+  file: File;
+  fileName: string;
+  sourceName: string;
+  createdAt: number;
+  startSec: number;
+  endSec: number;
+}
 
 // ─── Status Badge ────────────────────────────────────────────────────────────
 
@@ -95,12 +112,14 @@ function JobCard({
   onTranscribe,
   onSaveAndTranscribe,
   onRetry,
+  onCut,
 }: {
   job: ConversionJob;
   onRemove: (id: string) => void;
   onTranscribe: (job: ConversionJob) => void;
   onSaveAndTranscribe: (job: ConversionJob) => void;
   onRetry: (job: ConversionJob) => void;
+  onCut: (job: ConversionJob) => void;
 }) {
   const elapsed =
     job.startedAt && job.finishedAt
@@ -178,6 +197,15 @@ function JobCard({
                 >
                   <Mic className="w-4 h-4" />
                 </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-8 w-8"
+                  title="חתוך קובץ"
+                  onClick={() => onCut(job)}
+                >
+                  <Scissors className="w-4 h-4" />
+                </Button>
                 <Button size="icon" variant="ghost" className="h-8 w-8" asChild>
                   <a href={job.outputUrl} download={outputFilename}>
                     <Download className="w-4 h-4" />
@@ -224,7 +252,19 @@ export default function VideoToMp3() {
   const [promptJob, setPromptJob] = useState<ConversionJob | null>(null);
   const [saveAndTranscribeBusyId, setSaveAndTranscribeBusyId] = useState<string | null>(null);
   const [autoTranscribe, setAutoTranscribe] = useState(false);
+  const [activeTab, setActiveTab] = useState<"convert" | "cut">("convert");
+  const [cutSourceFile, setCutSourceFile] = useState<File | null>(null);
+  const [cutSourceLabel, setCutSourceLabel] = useState("");
+  const [cutStartSec, setCutStartSec] = useState("0");
+  const [cutEndSec, setCutEndSec] = useState("");
+  const [cutDurationSec, setCutDurationSec] = useState<number | null>(null);
+  const [isCutting, setIsCutting] = useState(false);
+  const [cutFiles, setCutFiles] = useState<CutFileItem[]>([]);
+  const [selectedCutIds, setSelectedCutIds] = useState<string[]>([]);
+  const [editingCutId, setEditingCutId] = useState<string | null>(null);
+  const [editingCutName, setEditingCutName] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cutFileInputRef = useRef<HTMLInputElement>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
 
   const toMp3File = useCallback((job: ConversionJob): File | null => {
@@ -418,6 +458,94 @@ export default function VideoToMp3() {
     setJobs((prev) => prev.map((j) => (j.id === updatedJob.id ? updatedJob : j)));
   }, []);
 
+  const handleSelectCutSource = useCallback(async (file: File, sourceName?: string) => {
+    setCutSourceFile(file);
+    setCutSourceLabel(sourceName || file.name);
+    try {
+      const duration = await probeAudioDurationSec(file);
+      setCutDurationSec(duration);
+      setCutStartSec("0");
+      setCutEndSec(duration.toFixed(2));
+    } catch {
+      setCutDurationSec(null);
+      setCutEndSec("");
+      toast({ title: "לא ניתן לטעון משך קובץ", description: "בחר קובץ אודיו תקין", variant: "destructive" });
+    }
+  }, []);
+
+  const handleCutFromConverted = useCallback((job: ConversionJob) => {
+    const mp3File = toMp3File(job);
+    if (!mp3File) return;
+    void handleSelectCutSource(mp3File, `${job.fileName} (מומר)`);
+    setActiveTab("cut");
+  }, [handleSelectCutSource, toMp3File]);
+
+  const handleRunCut = useCallback(async () => {
+    if (!cutSourceFile) {
+      toast({ title: "לא נבחר מקור", description: "בחר קובץ לחיתוך", variant: "destructive" });
+      return;
+    }
+    const start = Number(cutStartSec);
+    const end = Number(cutEndSec);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start) {
+      toast({ title: "טווח חיתוך לא תקין", description: "יש לוודא התחלה/סיום תקינים", variant: "destructive" });
+      return;
+    }
+
+    setIsCutting(true);
+    try {
+      const segmentFile = await extractAudioSegment(cutSourceFile, start, end);
+      const newItem: CutFileItem = {
+        id: `cut_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        file: segmentFile,
+        fileName: segmentFile.name,
+        sourceName: cutSourceLabel || cutSourceFile.name,
+        createdAt: Date.now(),
+        startSec: start,
+        endSec: end,
+      };
+      setCutFiles(prev => [newItem, ...prev]);
+      toast({ title: "החיתוך הושלם", description: `${segmentFile.name} נוסף לרשימה` });
+    } catch (err) {
+      toast({ title: "שגיאה בחיתוך", description: err instanceof Error ? err.message : "Unknown error", variant: "destructive" });
+    } finally {
+      setIsCutting(false);
+    }
+  }, [cutEndSec, cutSourceFile, cutSourceLabel, cutStartSec]);
+
+  const handleSaveCutFile = useCallback((item: CutFileItem) => {
+    const url = URL.createObjectURL(item.file);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = item.fileName;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, []);
+
+  const handleDeleteCutFile = useCallback((id: string) => {
+    setCutFiles(prev => prev.filter(item => item.id !== id));
+    setSelectedCutIds(prev => prev.filter(x => x !== id));
+  }, []);
+
+  const handleToggleCutSelection = useCallback((id: string) => {
+    setSelectedCutIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  }, []);
+
+  const handleDeleteSelectedCuts = useCallback(() => {
+    if (selectedCutIds.length === 0) return;
+    setCutFiles(prev => prev.filter(item => !selectedCutIds.includes(item.id)));
+    setSelectedCutIds([]);
+    toast({ title: "נמחקו קטעים", description: `${selectedCutIds.length} קטעים נמחקו` });
+  }, [selectedCutIds]);
+
+  const handleSaveCutRename = useCallback((id: string) => {
+    const nextName = editingCutName.trim();
+    if (!nextName) return;
+    setCutFiles(prev => prev.map(item => item.id === id ? { ...item, fileName: nextName } : item));
+    setEditingCutId(null);
+    setEditingCutName("");
+  }, [editingCutName]);
+
   // Drag & Drop handlers
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -452,6 +580,7 @@ export default function VideoToMp3() {
     queued: jobs.filter((j) => j.status === "queued").length,
     errors: jobs.filter((j) => j.status === "error").length,
   };
+  const doneJobs = jobs.filter((j) => j.status === "done" && !!j.outputBlob);
 
   return (
     <div className="container max-w-4xl mx-auto py-6 px-4 space-y-6" dir="rtl">
@@ -481,132 +610,293 @@ export default function VideoToMp3() {
         </div>
       </div>
 
-      {/* Auto-transcribe toggle */}
-      <div className="flex items-center gap-2">
-        <label className="flex items-center gap-2 cursor-pointer text-sm">
-          <input
-            type="checkbox"
-            checked={autoTranscribe}
-            onChange={(e) => setAutoTranscribe(e.target.checked)}
-            className="rounded border-muted-foreground/40"
-          />
-          <Zap className="w-3.5 h-3.5 text-amber-500" />
-          המר ותמלל אוטומטית — בסיום ההמרה עובר ישירות לתמלול
-        </label>
-      </div>
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "convert" | "cut")} className="space-y-4">
+        <TabsList className="grid w-full grid-cols-2 max-w-[360px]">
+          <TabsTrigger value="convert" className="gap-1.5">
+            <Music className="w-4 h-4" />
+            המרה
+          </TabsTrigger>
+          <TabsTrigger value="cut" className="gap-1.5">
+            <Scissors className="w-4 h-4" />
+            חיתוך קבצים
+          </TabsTrigger>
+        </TabsList>
 
-      {/* Drop Zone */}
-      <div
-        ref={dropZoneRef}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-        onClick={() => fileInputRef.current?.click()}
-        className={cn(
-          "border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-all duration-200",
-          isDragging
-            ? "border-primary bg-primary/5 scale-[1.01]"
-            : "border-muted-foreground/25 hover:border-primary/50 hover:bg-muted/30"
-        )}
-      >
-        <Upload className={cn("w-10 h-10 mx-auto mb-3", isDragging ? "text-primary" : "text-muted-foreground")} />
-        <p className="font-medium text-lg">
-          {isDragging ? "שחרר כאן..." : "גרור קבצים לכאן או לחץ לבחירה"}
-        </p>
-        <p className="text-sm text-muted-foreground mt-1">
-          MP4, MKV, AVI, MOV, WebM, FLV, WAV, FLAC, OGG ועוד
-        </p>
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          accept={ACCEPTED_MIME}
-          className="hidden"
-          onChange={(e) => {
-            if (e.target.files) addFiles(e.target.files);
-            e.target.value = "";
-          }}
-        />
-      </div>
-
-      {/* Stats & Actions */}
-      {jobs.length > 0 && (
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center gap-3 text-sm">
-            <span className="text-muted-foreground">
-              {stats.done}/{stats.total} הושלמו
-            </span>
-            {stats.active > 0 && (
-              <Badge variant="default" className="gap-1">
-                <Loader2 className="w-3 h-3 animate-spin" />
-                {stats.active} פעילים
-              </Badge>
-            )}
-            {stats.queued > 0 && (
-              <Badge variant="outline">{stats.queued} בתור</Badge>
-            )}
-            {stats.errors > 0 && (
-              <Badge variant="destructive">{stats.errors} שגיאות</Badge>
-            )}
-          </div>
+        <TabsContent value="convert" className="space-y-6">
+          {/* Auto-transcribe toggle */}
           <div className="flex items-center gap-2">
-            {stats.done > 1 && (
-              <Button variant="outline" size="sm" onClick={handleDownloadAll} className="gap-1">
-                <FolderDown className="w-4 h-4" />
-                הורד הכל ({stats.done})
-              </Button>
-            )}
-            {(stats.done > 0 || stats.errors > 0) && (
-              <Button variant="ghost" size="sm" onClick={handleClearDone} className="gap-1 text-muted-foreground">
-                <Trash2 className="w-4 h-4" />
-                נקה מושלמים
-              </Button>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Job List */}
-      {jobs.length > 0 && (
-        <ScrollArea className="max-h-[calc(100vh-420px)]">
-          <div className="space-y-2 pb-2">
-            {jobs.map((job) => (
-              <JobCard
-                key={job.id}
-                job={job}
-                onRemove={handleRemove}
-                onTranscribe={setPromptJob}
-                onSaveAndTranscribe={(j) => void handleSaveAndTranscribe(j)}
-                onRetry={handleRetry}
+            <label className="flex items-center gap-2 cursor-pointer text-sm">
+              <input
+                type="checkbox"
+                checked={autoTranscribe}
+                onChange={(e) => setAutoTranscribe(e.target.checked)}
+                className="rounded border-muted-foreground/40"
               />
-            ))}
+              <Zap className="w-3.5 h-3.5 text-amber-500" />
+              המר ותמלל אוטומטית — בסיום ההמרה עובר ישירות לתמלול
+            </label>
           </div>
-        </ScrollArea>
-      )}
 
-      {/* Empty State */}
-      {jobs.length === 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base text-center text-muted-foreground">
-              אין קבצים בתור
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="text-center pb-6">
-            <div className="flex justify-center gap-2 flex-wrap text-xs">
-              {["MP4", "MKV", "AVI", "MOV", "WebM", "FLV", "WAV", "FLAC", "OGG", "M4A", "WMV", "3GP"].map((ext) => (
-                <Badge key={ext} variant="outline" className="text-xs">
-                  {ext}
-                </Badge>
-              ))}
-              <Badge variant="outline" className="text-xs">+עוד</Badge>
-            </div>
-            <p className="text-xs text-muted-foreground mt-3">
-              ⚡ ההמרה רצה לגמרי בדפדפן שלך באמצעות FFmpeg WebAssembly — הקבצים לא עוזבים את המחשב
+          {/* Drop Zone */}
+          <div
+            ref={dropZoneRef}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            onClick={() => fileInputRef.current?.click()}
+            className={cn(
+              "border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-all duration-200",
+              isDragging
+                ? "border-primary bg-primary/5 scale-[1.01]"
+                : "border-muted-foreground/25 hover:border-primary/50 hover:bg-muted/30"
+            )}
+          >
+            <Upload className={cn("w-10 h-10 mx-auto mb-3", isDragging ? "text-primary" : "text-muted-foreground")} />
+            <p className="font-medium text-lg">
+              {isDragging ? "שחרר כאן..." : "גרור קבצים לכאן או לחץ לבחירה"}
             </p>
-          </CardContent>
-        </Card>
-      )}
+            <p className="text-sm text-muted-foreground mt-1">
+              MP4, MKV, AVI, MOV, WebM, FLV, WAV, FLAC, OGG ועוד
+            </p>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept={ACCEPTED_MIME}
+              className="hidden"
+              onChange={(e) => {
+                if (e.target.files) addFiles(e.target.files);
+                e.target.value = "";
+              }}
+            />
+          </div>
+
+          {/* Stats & Actions */}
+          {jobs.length > 0 && (
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-3 text-sm">
+                <span className="text-muted-foreground">
+                  {stats.done}/{stats.total} הושלמו
+                </span>
+                {stats.active > 0 && (
+                  <Badge variant="default" className="gap-1">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    {stats.active} פעילים
+                  </Badge>
+                )}
+                {stats.queued > 0 && (
+                  <Badge variant="outline">{stats.queued} בתור</Badge>
+                )}
+                {stats.errors > 0 && (
+                  <Badge variant="destructive">{stats.errors} שגיאות</Badge>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {stats.done > 1 && (
+                  <Button variant="outline" size="sm" onClick={handleDownloadAll} className="gap-1">
+                    <FolderDown className="w-4 h-4" />
+                    הורד הכל ({stats.done})
+                  </Button>
+                )}
+                {(stats.done > 0 || stats.errors > 0) && (
+                  <Button variant="ghost" size="sm" onClick={handleClearDone} className="gap-1 text-muted-foreground">
+                    <Trash2 className="w-4 h-4" />
+                    נקה מושלמים
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Job List */}
+          {jobs.length > 0 && (
+            <ScrollArea className="max-h-[calc(100vh-420px)]">
+              <div className="space-y-2 pb-2">
+                {jobs.map((job) => (
+                  <JobCard
+                    key={job.id}
+                    job={job}
+                    onRemove={handleRemove}
+                    onTranscribe={setPromptJob}
+                    onSaveAndTranscribe={(j) => void handleSaveAndTranscribe(j)}
+                    onRetry={handleRetry}
+                    onCut={handleCutFromConverted}
+                  />
+                ))}
+              </div>
+            </ScrollArea>
+          )}
+
+          {/* Empty State */}
+          {jobs.length === 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base text-center text-muted-foreground">
+                  אין קבצים בתור
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="text-center pb-6">
+                <div className="flex justify-center gap-2 flex-wrap text-xs">
+                  {["MP4", "MKV", "AVI", "MOV", "WebM", "FLV", "WAV", "FLAC", "OGG", "M4A", "WMV", "3GP"].map((ext) => (
+                    <Badge key={ext} variant="outline" className="text-xs">
+                      {ext}
+                    </Badge>
+                  ))}
+                  <Badge variant="outline" className="text-xs">+עוד</Badge>
+                </div>
+                <p className="text-xs text-muted-foreground mt-3">
+                  ⚡ ההמרה רצה לגמרי בדפדפן שלך באמצעות FFmpeg WebAssembly — הקבצים לא עוזבים את המחשב
+                </p>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        <TabsContent value="cut" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Scissors className="w-4 h-4 text-primary" />
+                מערכת חיתוך קבצים
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1"
+                  onClick={() => cutFileInputRef.current?.click()}
+                >
+                  <Upload className="w-4 h-4" />
+                  בחר קובץ לחיתוך
+                </Button>
+                <input
+                  ref={cutFileInputRef}
+                  type="file"
+                  accept="audio/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void handleSelectCutSource(f);
+                    e.target.value = "";
+                  }}
+                />
+                {doneJobs.length > 0 && (
+                  <span className="text-xs text-muted-foreground">או בחר מתוך קבצים שהומרו:</span>
+                )}
+                {doneJobs.slice(0, 6).map(job => (
+                  <Button key={job.id} variant="ghost" size="sm" className="text-xs h-7" onClick={() => handleCutFromConverted(job)}>
+                    {job.fileName.replace(/\.[^/.]+$/, "")}
+                  </Button>
+                ))}
+              </div>
+
+              {cutSourceFile && (
+                <div className="border rounded-lg p-3 space-y-3 bg-muted/20">
+                  <div className="text-sm">
+                    מקור נבחר: <span className="font-medium">{cutSourceLabel}</span>
+                    {cutDurationSec !== null && <span className="text-muted-foreground"> • משך {cutDurationSec.toFixed(2)} שנ׳</span>}
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <Label className="text-xs">התחלה (שניות)</Label>
+                      <Input type="number" min={0} step="0.1" value={cutStartSec} onChange={(e) => setCutStartSec(e.target.value)} className="h-8" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">סיום (שניות)</Label>
+                      <Input type="number" min={0} step="0.1" value={cutEndSec} onChange={(e) => setCutEndSec(e.target.value)} className="h-8" />
+                    </div>
+                  </div>
+                  <Button size="sm" className="gap-1" disabled={isCutting} onClick={() => void handleRunCut()}>
+                    {isCutting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Scissors className="w-4 h-4" />}
+                    חתוך קובץ
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center justify-between">
+                <span>קבצים שנחתכו ({cutFiles.length})</span>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="gap-1">
+                    <CheckSquare className="w-3 h-3" />
+                    נבחרו {selectedCutIds.length}
+                  </Badge>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    className="h-7 text-xs gap-1"
+                    disabled={selectedCutIds.length === 0}
+                    onClick={handleDeleteSelectedCuts}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    מחק נבחרים
+                  </Button>
+                </div>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {cutFiles.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-6">עדיין אין קבצים חתוכים.</p>
+              ) : (
+                <div className="space-y-2">
+                  {cutFiles.map(item => (
+                    <div key={item.id} className="border rounded-lg p-2.5 flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedCutIds.includes(item.id)}
+                        onChange={() => handleToggleCutSelection(item.id)}
+                        className="rounded border-muted-foreground/40"
+                      />
+                      <div className="flex-1 min-w-0">
+                        {editingCutId === item.id ? (
+                          <div className="flex items-center gap-1.5">
+                            <Input value={editingCutName} onChange={(e) => setEditingCutName(e.target.value)} className="h-7 text-xs" />
+                            <Button size="sm" className="h-7 text-xs" onClick={() => handleSaveCutRename(item.id)}>
+                              שמור
+                            </Button>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="text-sm font-medium truncate">{item.fileName}</div>
+                            <div className="text-[11px] text-muted-foreground truncate">
+                              מקור: {item.sourceName} • {item.startSec.toFixed(2)}s-{item.endSec.toFixed(2)}s • {formatBytes(item.file.size)}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button size="icon" variant="ghost" className="h-8 w-8" title="שמור" onClick={() => handleSaveCutFile(item)}>
+                          <Save className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8"
+                          title="ערוך שם"
+                          onClick={() => {
+                            setEditingCutId(item.id);
+                            setEditingCutName(item.fileName);
+                          }}
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                        <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" title="מחק" onClick={() => handleDeleteCutFile(item.id)}>
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
       {/* Post-conversion prompt dialog */}
       <Dialog open={!!promptJob} onOpenChange={(open) => !open && setPromptJob(null)}>

@@ -27,6 +27,7 @@ interface DiarizationResult {
 interface CompareEntry {
   label: string;
   result: DiarizationResult;
+  speakerNames?: Record<string, string>;
 }
 
 interface DiarizationCompareProps {
@@ -131,6 +132,10 @@ export const DiarizationCompare = ({ entries }: DiarizationCompareProps) => {
 
   const dmp = useMemo(() => new DiffMatchPatch(), []);
 
+  const resolveSpeakerLabel = (entry: CompareEntry, speakerLabel: string) => {
+    return entry.speakerNames?.[speakerLabel] || speakerLabel;
+  };
+
   const comparisons = useMemo(() => {
     if (entries.length < 2) return [];
     const results: Array<{ a: string; b: string; aIdx: number; bIdx: number; agreement: number }> = [];
@@ -164,9 +169,9 @@ export const DiarizationCompare = ({ entries }: DiarizationCompareProps) => {
   };
 
   /** Get merged full text for diff purposes */
-  const getMergedText = (result: DiarizationResult): string => {
-    return getMergedSegments(result)
-      .map(s => `[${s.speaker_label}] ${s.text}`)
+  const getMergedText = (entry: CompareEntry): string => {
+    return getMergedSegments(entry.result)
+      .map(s => `[${resolveSpeakerLabel(entry, s.speaker_label)}] ${s.text}`)
       .join('\n');
   };
 
@@ -176,8 +181,8 @@ export const DiarizationCompare = ({ entries }: DiarizationCompareProps) => {
     const [ai, bi] = diffPair;
     if (!entries[ai] || !entries[bi]) return null;
 
-    const textA = getMergedText(entries[ai].result);
-    const textB = getMergedText(entries[bi].result);
+    const textA = getMergedText(entries[ai]);
+    const textB = getMergedText(entries[bi]);
 
     const diffs = dmp.diff_main(textA, textB);
     dmp.diff_cleanupSemantic(diffs);
@@ -311,7 +316,7 @@ export const DiarizationCompare = ({ entries }: DiarizationCompareProps) => {
               <div className="sticky top-0 bg-card pb-2 z-10 flex items-center justify-between">
                 <Badge variant="outline" className="text-xs">{entries[diffPair[0]]?.label}</Badge>
                 <Button variant="ghost" size="sm" className="h-6 text-xs gap-1" onClick={() => {
-                  navigator.clipboard.writeText(getMergedText(entries[diffPair[0]].result));
+                  navigator.clipboard.writeText(getMergedText(entries[diffPair[0]]));
                 }}>
                   <Copy className="w-3 h-3" />העתק
                 </Button>
@@ -326,7 +331,7 @@ export const DiarizationCompare = ({ entries }: DiarizationCompareProps) => {
               <div className="sticky top-0 bg-card pb-2 z-10 flex items-center justify-between">
                 <Badge variant="outline" className="text-xs">{entries[diffPair[1]]?.label}</Badge>
                 <Button variant="ghost" size="sm" className="h-6 text-xs gap-1" onClick={() => {
-                  navigator.clipboard.writeText(getMergedText(entries[diffPair[1]].result));
+                  navigator.clipboard.writeText(getMergedText(entries[diffPair[1]]));
                 }}>
                   <Copy className="w-3 h-3" />העתק
                 </Button>
@@ -447,7 +452,7 @@ export const DiarizationCompare = ({ entries }: DiarizationCompareProps) => {
                     תמלול נקי — {entry.label}
                   </h4>
                   <Button variant="ghost" size="sm" className="text-xs gap-1" onClick={() => {
-                    const text = merged.map(s => `[${s.speaker_label}] (${formatTime(s.start)}-${formatTime(s.end)})\n${s.text}`).join('\n\n');
+                    const text = merged.map(s => `[${resolveSpeakerLabel(entry, s.speaker_label)}] (${formatTime(s.start)}-${formatTime(s.end)})\n${s.text}`).join('\n\n');
                     navigator.clipboard.writeText(text);
                   }}>
                     <Copy className="w-3.5 h-3.5" />העתק
@@ -459,7 +464,7 @@ export const DiarizationCompare = ({ entries }: DiarizationCompareProps) => {
                     <div key={i} className="space-y-1">
                       <div className="flex items-center gap-2">
                         <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: BAR_COLORS[spIdx % BAR_COLORS.length] }} />
-                        <span className="text-xs font-semibold">{seg.speaker_label}</span>
+                        <span className="text-xs font-semibold">{resolveSpeakerLabel(entry, seg.speaker_label)}</span>
                         <span className="text-[10px] text-muted-foreground">{formatTime(seg.start)} – {formatTime(seg.end)}</span>
                       </div>
                       <p className="text-sm leading-relaxed pr-5">{seg.text}</p>

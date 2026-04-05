@@ -3,9 +3,10 @@ import { useNavigate } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
-import { Users, Upload, Loader2, Copy, Download, BarChart3, Clock, MessageSquare, Mic, Pencil, Check, X, Subtitles, Cloud, Server, Save, FolderOpen, Search, Merge, Globe, ArrowLeftRight, FileText, Play, Square, Pause, Tag, RefreshCw, Zap, Music, Sparkles, BookmarkPlus, Share2, FileDown, AlertTriangle, Maximize2, GitCompareArrows } from "lucide-react";
+import { Users, Upload, Loader2, Copy, Download, BarChart3, Clock, MessageSquare, Mic, Pencil, Check, X, Subtitles, Cloud, Server, Save, FolderOpen, Search, Merge, Globe, ArrowLeftRight, FileText, Play, Square, Pause, Tag, RefreshCw, Zap, Music, Sparkles, BookmarkPlus, Share2, FileDown, AlertTriangle, Maximize2, GitCompareArrows, Trash2 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -162,6 +163,21 @@ interface SpeakerDiarizationProps {
   initialText?: string;
 }
 
+type CloudTranscriptItem = {
+  id: string;
+  title: string;
+  text: string;
+  created_at: string;
+  audio_file_path: string | null;
+  engine?: string | null;
+};
+
+type CompareEntry = {
+  label: string;
+  result: DiarizationResult;
+  speakerNames?: Record<string, string>;
+};
+
 export const SpeakerDiarization = ({ serverUrl = "/whisper", initialAudioBlob, initialAudioName, initialText }: SpeakerDiarizationProps) => {
   const navigate = useNavigate();
   const [result, setResult] = useState<DiarizationResult | null>(null);
@@ -188,10 +204,11 @@ export const SpeakerDiarization = ({ serverUrl = "/whisper", initialAudioBlob, i
   const [isDragging, setIsDragging] = useState(false);
   const [browserProgress, setBrowserProgress] = useState<DiarizationProgress | null>(null);
   const [expectedSpeakers, setExpectedSpeakers] = useState<number>(0);
-  const [compareEntries, setCompareEntries] = useState<Array<{ label: string; result: DiarizationResult }>>([]);
+  const [compareEntries, setCompareEntries] = useState<CompareEntry[]>([]);
   const [mergedText, setMergedText] = useState<string>("");
-  const [transcriptList, setTranscriptList] = useState<Array<{ id: string; title: string; text: string; created_at: string }>>([]);
+  const [transcriptList, setTranscriptList] = useState<CloudTranscriptItem[]>([]);
   const [isLoadingTranscripts, setIsLoadingTranscripts] = useState(false);
+  const [showCloudTranscriptPicker, setShowCloudTranscriptPicker] = useState(false);
   const [, setSelectedTranscriptId] = useState<string>("");
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [playingSegIdx, setPlayingSegIdx] = useState<number | null>(null);
@@ -213,6 +230,8 @@ export const SpeakerDiarization = ({ serverUrl = "/whisper", initialAudioBlob, i
   const [overlaps, setOverlaps] = useState<OverlapRegion[]>([]);
   const [editingBoundary, setEditingBoundary] = useState<{ segIdx: number; edge: 'start' | 'end' } | null>(null);
   const [editingBoundaryValue, setEditingBoundaryValue] = useState("");
+  const [editingSegmentIdx, setEditingSegmentIdx] = useState<number | null>(null);
+  const [editingSegmentText, setEditingSegmentText] = useState("");
 
   const prepareFileWithOptionalRange = useCallback(async (sourceFile: File): Promise<File> => {
     const parseRangeValue = (raw: string): number => {
@@ -438,6 +457,17 @@ export const SpeakerDiarization = ({ serverUrl = "/whisper", initialAudioBlob, i
     return segs;
   }, [result, activeSpeakerFilter, autoMerge, searchQuery]);
 
+  const editableTranscriptSegments = useMemo(() => {
+    if (!result) return [] as Array<{ seg: DiarizedSegment; segIdx: number }>;
+    let segs = result.segments.map((seg, segIdx) => ({ seg, segIdx }));
+    if (activeSpeakerFilter) segs = segs.filter(({ seg }) => seg.speaker_label === activeSpeakerFilter);
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      segs = segs.filter(({ seg }) => seg.text.toLowerCase().includes(q));
+    }
+    return segs;
+  }, [result, activeSpeakerFilter, searchQuery]);
+
   // ──── Audio Player (via SyncAudioPlayer ref) ────
   const handlePlayerTimeUpdate = useCallback((time: number) => {
     setCurrentTime(time);
@@ -479,17 +509,24 @@ export const SpeakerDiarization = ({ serverUrl = "/whisper", initialAudioBlob, i
     setOverlaps(detectOverlaps(sorted));
   }, [result]);
 
+  useEffect(() => {
+    setEditingSegmentIdx(null);
+    setEditingSegmentText("");
+  }, [result?.segments.length]);
+
   // Auto-add to compare when a compare-run finishes
   useEffect(() => {
     if (!result || !compareRunRef.current) return;
     const label = compareRunRef.current;
     compareRunRef.current = null;
     setCompareEntries(prev => {
-      if (prev.some(e => e.label === label)) return prev.map(e => e.label === label ? { ...e, result } : e);
-      return [...prev, { label, result }];
+      if (prev.some(e => e.label === label)) {
+        return prev.map(e => e.label === label ? { ...e, result, speakerNames: { ...speakerNames } } : e);
+      }
+      return [...prev, { label, result, speakerNames: { ...speakerNames } }];
     });
     toast({ title: "נוסף להשוואה", description: `${label} — ${result.speaker_count} דוברים` });
-  }, [result]);
+  }, [result, speakerNames]);
 
   // Keyboard shortcuts for speaker navigation
   useEffect(() => {
@@ -529,9 +566,12 @@ export const SpeakerDiarization = ({ serverUrl = "/whisper", initialAudioBlob, i
   // Update segments (auto-punctuation, boundary edits)
   const handleSegmentsUpdate = useCallback((updatedSegments: DiarizedSegment[]) => {
     if (!result) return;
+    const speakers = Array.from(new Set(updatedSegments.map(s => s.speaker_label)));
     setResult({
       ...result,
       segments: updatedSegments,
+      speakers,
+      speaker_count: speakers.length,
       text: updatedSegments.map(s => s.text).join(' '),
     });
   }, [result]);
@@ -551,6 +591,87 @@ export const SpeakerDiarization = ({ serverUrl = "/whisper", initialAudioBlob, i
     setEditingBoundary(null);
     setEditingBoundaryValue("");
   }, [editingBoundary, editingBoundaryValue, result, handleSegmentsUpdate]);
+
+  const updateSegmentSpeaker = useCallback((segIdx: number, nextSpeakerLabel: string) => {
+    if (!result || !nextSpeakerLabel) return;
+    const current = result.segments[segIdx];
+    if (!current || current.speaker_label === nextSpeakerLabel) return;
+
+    const updated = [...result.segments];
+    updated[segIdx] = {
+      ...updated[segIdx],
+      speaker_label: nextSpeakerLabel,
+      speaker: nextSpeakerLabel,
+    };
+
+    handleSegmentsUpdate(updated);
+  }, [result, handleSegmentsUpdate]);
+
+  const startEditingSegmentText = useCallback((segIdx: number) => {
+    if (!result) return;
+    const seg = result.segments[segIdx];
+    if (!seg) return;
+    setEditingSegmentIdx(segIdx);
+    setEditingSegmentText(seg.text);
+  }, [result]);
+
+  const saveSegmentTextEdit = useCallback(() => {
+    if (!result || editingSegmentIdx === null) return;
+    const trimmed = editingSegmentText.trim();
+    if (!trimmed) return;
+    const updated = [...result.segments];
+    updated[editingSegmentIdx] = { ...updated[editingSegmentIdx], text: trimmed };
+    handleSegmentsUpdate(updated);
+    setEditingSegmentIdx(null);
+    setEditingSegmentText("");
+  }, [result, editingSegmentIdx, editingSegmentText, handleSegmentsUpdate]);
+
+  const splitSegment = useCallback((segIdx: number) => {
+    if (!result) return;
+    const seg = result.segments[segIdx];
+    if (!seg) return;
+    const duration = seg.end - seg.start;
+    const words = seg.text.trim().split(/\s+/).filter(Boolean);
+    if (duration < 0.4 || words.length < 2) {
+      toast({ title: "לא ניתן לפצל", description: "נדרש קטע ארוך יותר עם לפחות 2 מילים", variant: "destructive" });
+      return;
+    }
+
+    const pivot = Math.ceil(words.length / 2);
+    const leftText = words.slice(0, pivot).join(" ").trim();
+    const rightText = words.slice(pivot).join(" ").trim();
+    if (!leftText || !rightText) {
+      toast({ title: "לא ניתן לפצל", description: "לא נמצאה נקודת פיצול תקינה", variant: "destructive" });
+      return;
+    }
+
+    const mid = seg.start + duration / 2;
+    const first: DiarizedSegment = { ...seg, end: mid, text: leftText };
+    const second: DiarizedSegment = { ...seg, start: mid, text: rightText };
+    const updated = [...result.segments];
+    updated.splice(segIdx, 1, first, second);
+    handleSegmentsUpdate(updated);
+    toast({ title: "הקטע פוצל", description: `קטע #${segIdx + 1} חולק לשניים` });
+  }, [result, handleSegmentsUpdate]);
+
+  const mergeWithNextSegment = useCallback((segIdx: number) => {
+    if (!result) return;
+    if (segIdx < 0 || segIdx >= result.segments.length - 1) return;
+    const a = result.segments[segIdx];
+    const b = result.segments[segIdx + 1];
+    if (!a || !b) return;
+
+    const merged: DiarizedSegment = {
+      ...a,
+      end: Math.max(a.end, b.end),
+      text: `${a.text} ${b.text}`.trim(),
+      words: a.words && b.words ? [...a.words, ...b.words] : (a.words || b.words),
+    };
+    const updated = [...result.segments];
+    updated.splice(segIdx, 2, merged);
+    handleSegmentsUpdate(updated);
+    toast({ title: "הקטעים אוחדו", description: `קטעים #${segIdx + 1} ו-#${segIdx + 2} אוחדו` });
+  }, [result, handleSegmentsUpdate]);
 
   // New export functions
   const downloadAsVTT = () => {
@@ -910,9 +1031,80 @@ export const SpeakerDiarization = ({ serverUrl = "/whisper", initialAudioBlob, i
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { data } = await supabase.from('transcripts').select('id, title, text, created_at').eq('user_id', user.id).order('created_at', { ascending: false }).limit(50);
-      if (data) setTranscriptList(data.map(t => ({ id: t.id, title: t.title || '', text: t.text, created_at: t.created_at })));
+      const { data } = await supabase
+        .from('transcripts')
+        .select('id, title, text, created_at, audio_file_path, engine')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(50);
+      if (data) {
+        setTranscriptList(data.map(t => ({
+          id: t.id,
+          title: t.title || '',
+          text: t.text,
+          created_at: t.created_at,
+          audio_file_path: (t as any).audio_file_path || null,
+          engine: (t as any).engine || null,
+        })));
+      }
     } finally { setIsLoadingTranscripts(false); }
+  }, []);
+
+  const loadAudioFromCloudTranscript = useCallback(async (item: CloudTranscriptItem) => {
+    if (!item.audio_file_path) {
+      toast({ title: "אין אודיו לתמלול הזה", description: "לתמלול הזה נשמר רק טקסט ללא קובץ קול", variant: "destructive" });
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase.storage.from('permanent-audio').createSignedUrl(item.audio_file_path, 3600);
+      if (error || !data?.signedUrl) throw error || new Error('Missing signed URL');
+
+      const resp = await fetch(data.signedUrl);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const blob = await resp.blob();
+      const rawName = item.audio_file_path.split('/').pop() || `${item.title || 'cloud-audio'}.webm`;
+      const file = new File([blob], rawName, { type: blob.type || 'audio/webm' });
+
+      preloadedFileRef.current = file;
+      setAudioUrl(URL.createObjectURL(blob));
+      setCurrentFileName(file.name);
+      setShowCloudTranscriptPicker(false);
+      setShowSaved(false);
+
+      if (item.text?.trim()) {
+        setMergedText(item.text.trim());
+      }
+
+      toast({ title: "נטען מהענן", description: `${item.title || 'תמלול'} נטען לזיהוי דוברים` });
+    } catch (err) {
+      toast({ title: "שגיאה בטעינת אודיו", description: err instanceof Error ? err.message : 'Unknown error', variant: "destructive" });
+    }
+  }, []);
+
+  const clearCurrentDiarization = useCallback(() => {
+    setResult(null);
+    setActiveSpeakerFilter(null);
+    setSpeakerNames({});
+    setSpeakerRoles({});
+    setSegmentNotes([]);
+    setOverlaps([]);
+    setMergedText("");
+    setCompareEntries([]);
+    setEditingBoundary(null);
+    setEditingBoundaryValue("");
+    setEditingSegmentIdx(null);
+    setEditingSegmentText("");
+    setStreamingSegments([]);
+    setStreamProgress(null);
+    setPlayingSegIdx(null);
+    setCurrentTime(0);
+    setIsPlaying(false);
+    setAudioDuration(0);
+    setAudioUrl(null);
+    setCurrentFileName("");
+    preloadedFileRef.current = null;
+    toast({ title: "נוקה", description: "תוצאות זיהוי הדוברים נוקו" });
   }, []);
 
   const mergeWithTranscript = (transcriptText: string) => {
@@ -991,6 +1183,11 @@ export const SpeakerDiarization = ({ serverUrl = "/whisper", initialAudioBlob, i
                   </Button>
                 </TooltipTrigger><TooltipContent>שמור תוצאות לענן</TooltipContent></Tooltip>
                 <Tooltip><TooltipTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-8 text-xs px-2" onClick={clearCurrentDiarization}>
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                </TooltipTrigger><TooltipContent>נקה תוצאות נוכחיות</TooltipContent></Tooltip>
+                <Tooltip><TooltipTrigger asChild>
                   <Button variant="outline" size="sm" className="h-8 text-xs px-2" onClick={copyAsText}>
                     <Copy className="w-3.5 h-3.5" />
                   </Button>
@@ -1031,8 +1228,11 @@ export const SpeakerDiarization = ({ serverUrl = "/whisper", initialAudioBlob, i
                   if (!result) return;
                   const modeLabels: Record<string, string> = { browser: 'דפדפן', whisperx: 'WhisperX', assemblyai: 'AssemblyAI', deepgram: 'Deepgram', openai: 'OpenAI', local: 'מקומי' };
                   const label = modeLabels[mode] || mode;
-                  if (compareEntries.some(e => e.label === label)) setCompareEntries(prev => prev.map(e => e.label === label ? { ...e, result } : e));
-                  else setCompareEntries(prev => [...prev, { label, result }]);
+                  if (compareEntries.some(e => e.label === label)) {
+                    setCompareEntries(prev => prev.map(e => e.label === label ? { ...e, result, speakerNames: { ...speakerNames } } : e));
+                  } else {
+                    setCompareEntries(prev => [...prev, { label, result, speakerNames: { ...speakerNames } }]);
+                  }
                   toast({ title: "נוסף להשוואה", description: `${label} — ${result.speaker_count} דוברים` });
                 }}>
                 <ArrowLeftRight className="w-3.5 h-3.5" />
@@ -1347,6 +1547,62 @@ export const SpeakerDiarization = ({ serverUrl = "/whisper", initialAudioBlob, i
                   <Zap className="w-3.5 h-3.5" />
                   שלח לתור רקע
                 </Button>
+              </div>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs gap-1 mt-1"
+              onClick={async (e) => {
+                e.stopPropagation();
+                if (transcriptList.length === 0) await loadTranscriptsForMerge();
+                setShowCloudTranscriptPicker(v => !v);
+              }}
+            >
+              <Cloud className="w-3.5 h-3.5" />
+              בחר מתמלולים בענן
+            </Button>
+
+            {showCloudTranscriptPicker && (
+              <div className="w-full max-w-xl mt-2 border rounded-lg p-2 bg-background/90" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between mb-2">
+                  <Label className="text-xs font-semibold">תמלולים מהענן (עם אודיו)</Label>
+                  <Button variant="ghost" size="sm" className="h-6 text-[10px]" onClick={() => setShowCloudTranscriptPicker(false)}>
+                    סגור
+                  </Button>
+                </div>
+                {isLoadingTranscripts ? (
+                  <div className="text-xs text-muted-foreground py-2 flex items-center justify-center gap-1.5">
+                    <Loader2 className="w-3 h-3 animate-spin" />טוען תמלולים...
+                  </div>
+                ) : transcriptList.length === 0 ? (
+                  <div className="text-xs text-muted-foreground py-2">לא נמצאו תמלולים בענן.</div>
+                ) : (
+                  <div className="max-h-[220px] overflow-y-auto space-y-1.5">
+                    {transcriptList.map(item => {
+                      const hasAudio = !!item.audio_file_path;
+                      return (
+                        <div key={item.id} className="p-2 rounded border flex items-center justify-between gap-2">
+                          <div className="text-right flex-1 min-w-0">
+                            <div className="text-xs font-medium truncate">{item.title || 'ללא כותרת'}</div>
+                            <div className="text-[10px] text-muted-foreground truncate">
+                              {new Date(item.created_at).toLocaleDateString('he-IL')} · {item.engine || 'unknown'} · {hasAudio ? 'כולל אודיו' : 'ללא אודיו'}
+                            </div>
+                          </div>
+                          <Button
+                            size="sm"
+                            className="h-7 text-[10px]"
+                            variant={hasAudio ? 'default' : 'outline'}
+                            disabled={!hasAudio}
+                            onClick={() => void loadAudioFromCloudTranscript(item)}
+                          >
+                            טען לזיהוי
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1870,25 +2126,29 @@ export const SpeakerDiarization = ({ serverUrl = "/whisper", initialAudioBlob, i
               })}
             </div>
 
-            {searchQuery && <div className="text-xs text-muted-foreground mb-1">{displaySegments.length} תוצאות עבור "{searchQuery}"</div>}
+            {searchQuery && <div className="text-xs text-muted-foreground mb-1">{editableTranscriptSegments.length} תוצאות עבור "{searchQuery}"</div>}
+            <div className="text-[11px] text-muted-foreground mb-2">
+              עריכה ידנית: אפשר לשנות שיוך דובר, לערוך טקסט, לפצל קטע או לאחד עם הקטע הבא.
+            </div>
 
             <div className="space-y-1.5 max-h-[500px] overflow-y-auto">
-              {displaySegments.map((seg, i) => {
+              {editableTranscriptSegments.map(({ seg, segIdx }) => {
                 const colorIdx = speakerIndex[seg.speaker_label] ?? 0;
-                const isActive = activeSegIdx === i;
+                const isActive = currentTime >= seg.start && currentTime <= seg.end;
+                const isTextEditing = editingSegmentIdx === segIdx;
                 const role = speakerRoles[seg.speaker_label];
                 const roleLabel = role ? SPEAKER_ROLE_OPTIONS.find(r => r.value === role)?.label : null;
                 return (
-                  <div key={i} className={`p-2.5 rounded-xl border text-sm transition-all ${
+                  <div key={segIdx} className={`p-2.5 rounded-xl border text-sm transition-all ${
                     isActive ? SPEAKER_COLORS[colorIdx % SPEAKER_COLORS.length] + " ring-2 ring-primary/40 shadow-sm" : SPEAKER_COLORS[colorIdx % SPEAKER_COLORS.length]
                   }`}>
                     <div className="flex items-center gap-2 mb-1">
                       {audioUrl && (
-                        <button onClick={e => { e.stopPropagation(); playSegment(i, seg.start, seg.end); }}
+                        <button onClick={e => { e.stopPropagation(); playSegment(segIdx, seg.start, seg.end); }}
                           className={`w-7 h-7 flex items-center justify-center rounded-full transition-all ${
-                            playingSegIdx === i ? "bg-primary text-primary-foreground shadow-md" : "bg-muted hover:bg-primary/20 text-muted-foreground hover:text-foreground"
+                            playingSegIdx === segIdx ? "bg-primary text-primary-foreground shadow-md" : "bg-muted hover:bg-primary/20 text-muted-foreground hover:text-foreground"
                           }`}>
-                          {playingSegIdx === i ? <Square className="w-3 h-3" /> : <Play className="w-3 h-3" />}
+                          {playingSegIdx === segIdx ? <Square className="w-3 h-3" /> : <Play className="w-3 h-3" />}
                         </button>
                       )}
                       <span className={`w-2.5 h-2.5 rounded-full ${SPEAKER_BADGE_COLORS[colorIdx % SPEAKER_BADGE_COLORS.length]}`} />
@@ -1897,7 +2157,94 @@ export const SpeakerDiarization = ({ serverUrl = "/whisper", initialAudioBlob, i
                       <span className="text-xs text-muted-foreground">{formatTime(seg.start)} – {formatTime(seg.end)}</span>
                       <span className="text-[10px] text-muted-foreground mr-auto">{formatDuration(seg.end - seg.start)}</span>
                     </div>
-                    <p className="text-right leading-relaxed">{highlightText(seg.text)}</p>
+                    <div className="mb-1.5 flex items-center gap-2">
+                      <span className="text-[11px] text-muted-foreground">שיוך דובר:</span>
+                      <Select value={seg.speaker_label} onValueChange={(value) => updateSegmentSpeaker(segIdx, value)}>
+                        <SelectTrigger className="h-7 w-[150px] text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {result.speakers.map(sp => (
+                            <SelectItem key={sp} value={sp} className="text-xs">{getSpeakerName(sp)}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => {
+                          setEditingBoundary({ segIdx, edge: 'start' });
+                          setEditingBoundaryValue(seg.start.toFixed(2));
+                        }}
+                      >
+                        ערוך זמן
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => startEditingSegmentText(segIdx)}
+                      >
+                        ערוך טקסט
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => splitSegment(segIdx)}
+                      >
+                        פצל
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        disabled={segIdx >= result.segments.length - 1}
+                        onClick={() => mergeWithNextSegment(segIdx)}
+                      >
+                        אחד עם הבא
+                      </Button>
+                    </div>
+                    {isTextEditing ? (
+                      <div className="space-y-2">
+                        <Textarea
+                          value={editingSegmentText}
+                          onChange={e => setEditingSegmentText(e.target.value)}
+                          className="min-h-[80px] text-sm"
+                          dir="rtl"
+                          onKeyDown={e => {
+                            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                              e.preventDefault();
+                              saveSegmentTextEdit();
+                            }
+                            if (e.key === 'Escape') {
+                              setEditingSegmentIdx(null);
+                              setEditingSegmentText("");
+                            }
+                          }}
+                        />
+                        <div className="flex items-center gap-2">
+                          <Button size="sm" className="h-7 text-xs" onClick={saveSegmentTextEdit}>
+                            <Check className="w-3 h-3 ml-1" />שמור טקסט
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-xs"
+                            onClick={() => {
+                              setEditingSegmentIdx(null);
+                              setEditingSegmentText("");
+                            }}
+                          >
+                            <X className="w-3 h-3 ml-1" />ביטול
+                          </Button>
+                          <span className="text-[10px] text-muted-foreground">Ctrl+Enter לשמירה</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-right leading-relaxed">{highlightText(seg.text)}</p>
+                    )}
                   </div>
                 );
               })}

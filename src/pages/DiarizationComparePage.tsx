@@ -47,6 +47,7 @@ interface DiarizationResult {
 interface CompareEntry {
   label: string;
   result: DiarizationResult;
+  speakerNames?: Record<string, string>;
 }
 
 type EngineQualityProfile = 'fast' | 'accurate';
@@ -202,10 +203,14 @@ function getMergedSegments(result: DiarizationResult): DiarizedSegment[] {
   return merged;
 }
 
-function getMergedText(result: DiarizationResult): string {
-  return getMergedSegments(result)
-    .map(s => `[${s.speaker_label}] ${s.text}`)
+function getMergedText(entry: CompareEntry): string {
+  return getMergedSegments(entry.result)
+    .map(s => `[${resolveSpeakerLabel(entry, s.speaker_label)}] ${s.text}`)
     .join('\n');
+}
+
+function resolveSpeakerLabel(entry: CompareEntry, speakerLabel: string): string {
+  return entry.speakerNames?.[speakerLabel] || speakerLabel;
 }
 
 function delay(ms: number): Promise<void> {
@@ -302,7 +307,7 @@ function formatVttTime(sec: number): string {
 function exportSRT(entry: CompareEntry) {
   const segs = getMergedSegments(entry.result);
   const lines = segs.map((seg, i) =>
-    `${i + 1}\n${formatSrtTime(seg.start)} --> ${formatSrtTime(seg.end)}\n[${seg.speaker_label}] ${seg.text}\n`
+    `${i + 1}\n${formatSrtTime(seg.start)} --> ${formatSrtTime(seg.end)}\n[${resolveSpeakerLabel(entry, seg.speaker_label)}] ${seg.text}\n`
   );
   const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
   const url = URL.createObjectURL(blob);
@@ -315,7 +320,7 @@ function exportVTT(entry: CompareEntry) {
   const segs = getMergedSegments(entry.result);
   const lines = [`WEBVTT\n`];
   segs.forEach((seg, i) => {
-    lines.push(`${i + 1}\n${formatVttTime(seg.start)} --> ${formatVttTime(seg.end)}\n<v ${seg.speaker_label}>${seg.text}\n`);
+    lines.push(`${i + 1}\n${formatVttTime(seg.start)} --> ${formatVttTime(seg.end)}\n<v ${resolveSpeakerLabel(entry, seg.speaker_label)}>${seg.text}\n`);
   });
   const blob = new Blob([lines.join('\n')], { type: 'text/vtt;charset=utf-8' });
   const url = URL.createObjectURL(blob);
@@ -415,8 +420,8 @@ function SideBySideDiff({ entries, diffPair, dmp }: {
 }) {
   const diffResult = useMemo(() => {
     if (!entries[diffPair[0]] || !entries[diffPair[1]]) return null;
-    const textA = getMergedText(entries[diffPair[0]].result);
-    const textB = getMergedText(entries[diffPair[1]].result);
+    const textA = getMergedText(entries[diffPair[0]]);
+    const textB = getMergedText(entries[diffPair[1]]);
     const diffs = dmp.diff_main(textA, textB);
     dmp.diff_cleanupSemantic(diffs);
 
@@ -478,7 +483,7 @@ function SideBySideDiff({ entries, diffPair, dmp }: {
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => {
-                        navigator.clipboard.writeText(getMergedText(entry.result));
+                        navigator.clipboard.writeText(getMergedText(entry));
                       }}>
                         <Copy className="w-3 h-3" />
                       </Button>
@@ -737,7 +742,7 @@ function TranscriptComparison({ entries, diffPair }: {
             onClick={() => setSpeakerFilter(sp === speakerFilter ? null : sp)}
           >
             <span className="w-2 h-2 rounded-full" style={{ backgroundColor: BAR_COLORS[i % BAR_COLORS.length] }} />
-            {sp}
+            {resolveSpeakerLabel(entryA, sp)}
           </Button>
         ))}
       </div>
@@ -754,7 +759,7 @@ function TranscriptComparison({ entries, diffPair }: {
                   <span className="text-xs text-muted-foreground">{segs.length} פסקאות</span>
                 </div>
                 <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => {
-                  const text = segs.map(s => `[${s.speaker_label}] (${formatTime(s.start)}-${formatTime(s.end)})\n${s.text}`).join('\n\n');
+                  const text = segs.map(s => `[${resolveSpeakerLabel(entry, s.speaker_label)}] (${formatTime(s.start)}-${formatTime(s.end)})\n${s.text}`).join('\n\n');
                   navigator.clipboard.writeText(text);
                 }}>
                   <Copy className="w-3 h-3 mr-1" />העתק
@@ -768,7 +773,7 @@ function TranscriptComparison({ entries, diffPair }: {
                       <div key={i} className="space-y-1">
                         <div className="flex items-center gap-2">
                           <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: BAR_COLORS[spIdx % BAR_COLORS.length] }} />
-                          <span className="text-xs font-semibold">{seg.speaker_label}</span>
+                          <span className="text-xs font-semibold">{resolveSpeakerLabel(entry, seg.speaker_label)}</span>
                           <span className="text-[10px] text-muted-foreground">{formatTime(seg.start)} – {formatTime(seg.end)}</span>
                         </div>
                         <p className="text-sm leading-relaxed pr-5">{seg.text}</p>
@@ -926,7 +931,7 @@ function EngineColumn({
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => {
-                    const text = merged.map(s => `[${s.speaker_label}] (${formatTime(s.start)}-${formatTime(s.end)})\n${s.text}`).join('\n\n');
+                    const text = merged.map(s => `[${resolveSpeakerLabel(entry, s.speaker_label)}] (${formatTime(s.start)}-${formatTime(s.end)})\n${s.text}`).join('\n\n');
                     navigator.clipboard.writeText(text);
                   }}>
                     <Copy className="w-3 h-3" />
@@ -1027,6 +1032,7 @@ function EngineColumn({
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3" onScroll={onScroll}>
         {merged.map((seg, i) => {
           const spIdx = entry.result.speakers.indexOf(seg.speaker_label);
+          const displaySpeaker = resolveSpeakerLabel(entry, seg.speaker_label);
           const isActive = i === activeIdx;
           const isCrossHighlighted = highlightedSegIdx !== null && highlightedSegIdx === i;
           const isSelected = mergeSelections.get(i) === side;
@@ -1060,7 +1066,7 @@ function EngineColumn({
             >
               <div className="flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: BAR_COLORS[spIdx % BAR_COLORS.length] }} />
-                <span className="text-xs font-semibold">{seg.speaker_label}</span>
+                <span className="text-xs font-semibold">{displaySpeaker}</span>
                 <span className="text-[10px] text-muted-foreground">{formatTime(seg.start)} – {formatTime(seg.end)}</span>
                 {/* Play segment button (Enhancement 6) */}
                 <Button
@@ -1083,7 +1089,10 @@ function EngineColumn({
                   </Button>
                 )}
               </div>
-              <p className="text-sm leading-relaxed pr-5">{renderedText}</p>
+              <p className="text-sm leading-relaxed pr-5">
+                <span className="font-semibold">[{displaySpeaker}] </span>
+                {renderedText}
+              </p>
             </div>
           );
         })}
@@ -1408,7 +1417,8 @@ const DiarizationComparePage = () => {
     for (let i = 0; i < maxLen; i++) {
       const sel = mergeSelections.get(i);
       const seg = sel === 'right' ? rightMerged[i] : leftMerged[i]; // default to left
-      if (seg) lines.push(`[${seg.speaker_label}] (${formatTime(seg.start)}-${formatTime(seg.end)})\n${seg.text}`);
+      const entry = sel === 'right' ? entries[diffPair[1]] : entries[diffPair[0]];
+      if (seg) lines.push(`[${resolveSpeakerLabel(entry, seg.speaker_label)}] (${formatTime(seg.start)}-${formatTime(seg.end)})\n${seg.text}`);
     }
     return lines.join('\n\n');
   }, [showMerge, entries, diffPair, mergeSelections]);
@@ -1433,7 +1443,7 @@ const DiarizationComparePage = () => {
       text += `דוברים: ${entry.result.speaker_count} | קטעים: ${entry.result.segments.length} | עיבוד: ${entry.result.processing_time}s\n\n`;
       const merged = getMergedSegments(entry.result);
       for (const seg of merged) {
-        text += `[${seg.speaker_label}] (${formatTime(seg.start)}-${formatTime(seg.end)})\n${seg.text}\n\n`;
+        text += `[${resolveSpeakerLabel(entry, seg.speaker_label)}] (${formatTime(seg.start)}-${formatTime(seg.end)})\n${seg.text}\n\n`;
       }
       text += '\n';
     }
