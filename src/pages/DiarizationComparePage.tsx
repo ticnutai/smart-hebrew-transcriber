@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useCallback, useEffect, lazy, Suspense } from "react";
+import { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -18,14 +18,11 @@ import {
   Loader2, Cloud, Globe, Mic, Server, Zap,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { diarizeInBrowser } from "@/utils/browserDiarization";
 import { useCloudApiKeys } from "@/hooks/useCloudApiKeys";
 import DiffMatchPatch from "diff-match-patch";
-import type { SyncAudioPlayerRef } from "@/components/SyncAudioPlayer";
 import { db } from "@/lib/localDb";
 import { toast } from "@/hooks/use-toast";
-
-const SyncAudioPlayer = lazy(() => import("@/components/SyncAudioPlayer").then(m => ({ default: m.SyncAudioPlayer })));
+import { useDiarizationQueue, type DiarizationMode as QueueDiarizationMode } from "@/contexts/DiarizationQueueContext";
 
 /* ═══════════════════════ Types ═══════════════════════ */
 
@@ -52,6 +49,39 @@ interface CompareEntry {
   result: DiarizationResult;
 }
 
+type EngineQualityProfile = 'fast' | 'accurate';
+
+interface LooseInsertResult {
+  error: unknown;
+}
+
+interface LooseDiarizationInsertQuery {
+  insert: (payload: unknown) => Promise<LooseInsertResult>;
+}
+
+interface LooseUserPreferencesRow {
+  compare_settings_json?: unknown;
+  draft_text?: string | null;
+}
+
+interface LooseMaybeSingleResult<T> {
+  data: T | null;
+  error: unknown;
+}
+
+interface LooseUserPreferencesQuery {
+  select: (columns: string) => {
+    eq: (column: string, value: string) => {
+      maybeSingle: () => Promise<LooseMaybeSingleResult<LooseUserPreferencesRow>>;
+    };
+  };
+  upsert: (payload: unknown, options?: unknown) => Promise<LooseInsertResult>;
+}
+
+interface LooseSupabaseClient {
+  from: (table: string) => LooseDiarizationInsertQuery | LooseUserPreferencesQuery;
+}
+
 /* ═══════════════════════ Constants ═══════════════════════ */
 
 const BAR_COLORS = [
@@ -66,6 +96,18 @@ const ENGINE_COLORS: Record<string, string> = {
   "Deepgram": "#f97316",
   "OpenAI": "#ec4899",
   "דפדפן": "#06b6d4",
+};
+
+const COMPARE_SETTINGS_STORAGE_KEY = 'diarization_compare_settings_v1';
+const COMPARE_SETTINGS_CLOUD_PREFIX = 'compare_settings_v1::';
+
+const ENGINE_LABELS: Record<string, string> = {
+  assemblyai: 'AssemblyAI',
+  deepgram: 'Deepgram',
+  openai: 'OpenAI',
+  browser: 'דפדפן',
+  local: 'מקומי',
+  whisperx: 'WhisperX',
 };
 
 /* ═══════════════════════ Utility Functions ═══════════════════════ */
@@ -164,6 +206,33 @@ function getMergedText(result: DiarizationResult): string {
   return getMergedSegments(result)
     .map(s => `[${s.speaker_label}] ${s.text}`)
     .join('\n');
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseCompareSettingsFromDraft(raw: string | null | undefined): {
+  qualityByEngine?: Record<'local' | 'whisperx', EngineQualityProfile>;
+  syncPlaybackEnabled?: boolean;
+} | null {
+  if (!raw || !raw.startsWith(COMPARE_SETTINGS_CLOUD_PREFIX)) return null;
+  try {
+    return JSON.parse(raw.slice(COMPARE_SETTINGS_CLOUD_PREFIX.length));
+  } catch {
+    return null;
+  }
+}
+
+function parseCompareSettingsFromJson(raw: unknown): {
+  qualityByEngine?: Record<'local' | 'whisperx', EngineQualityProfile>;
+  syncPlaybackEnabled?: boolean;
+} | null {
+  if (!raw || typeof raw !== 'object') return null;
+  return raw as {
+    qualityByEngine?: Record<'local' | 'whisperx', EngineQualityProfile>;
+    syncPlaybackEnabled?: boolean;
+  };
 }
 
 /* ═══════════════════════ Speaker Mapping ═══════════════════════ */
@@ -723,6 +792,7 @@ interface EngineColumnProps {
   idx: number;
   currentTime: number;
   onSeek: (time: number) => void;
+  audioUrl: string | null;
   searchQuery: string;
   highlightedSegIdx: number | null;
   onHighlightSeg: (idx: number | null) => void;
@@ -733,24 +803,82 @@ interface EngineColumnProps {
   onToggleMerge: (segIdx: number, side: 'left' | 'right') => void;
   side: 'left' | 'right';
   showMerge: boolean;
-  scrollRef: React.RefObject<HTMLDivElement>;
-  onScroll: (e: React.UIEvent<HTMLDivElement>) => void;
+  scrollRef?: React.RefObject<HTMLDivElement>;
+  onScroll?: (e: React.UIEvent<HTMLDivElement>) => void;
+  syncPlaybackEnabled: boolean;
+  onSyncSeekPlay?: (time: number, play?: boolean) => void;
+  onSyncPauseAll?: () => void;
+  onRegisterAudio?: (idx: number, el: HTMLAudioElement | null) => void;
   dmp: DiffMatchPatch;
 }
 
 function EngineColumn({
   entry, idx, currentTime, onSeek, searchQuery, highlightedSegIdx,
   onHighlightSeg, otherEntry, speakerMap, onPlaySegment,
-  mergeSelections, onToggleMerge, side, showMerge, scrollRef, onScroll, dmp,
+  audioUrl,
+  mergeSelections, onToggleMerge, side, showMerge, scrollRef, onScroll,
+  syncPlaybackEnabled, onSyncSeekPlay, onSyncPauseAll, onRegisterAudio,
+  dmp,
 }: EngineColumnProps) {
   const color = ENGINE_COLORS[entry.label] || '#888';
   const merged = useMemo(() => getMergedSegments(entry.result), [entry.result]);
   const otherMerged = useMemo(() => otherEntry ? getMergedSegments(otherEntry.result) : [], [otherEntry]);
   const dist = getSpeakerDistribution(entry.result);
   const totalWords = entry.result.segments.reduce((a, s) => a + s.text.split(/\s+/).filter(Boolean).length, 0);
+  const columnAudioRef = useRef<HTMLAudioElement | null>(null);
+  const segmentStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [columnTime, setColumnTime] = useState(0);
 
   // Find current segment for highlight
-  const activeIdx = merged.findIndex(s => currentTime >= s.start && currentTime < s.end);
+  const effectiveTime = audioUrl ? columnTime : currentTime;
+  const activeIdx = merged.findIndex(s => effectiveTime >= s.start && effectiveTime < s.end);
+
+  const seekToTime = useCallback((time: number) => {
+    if (syncPlaybackEnabled && onSyncSeekPlay) {
+      onSyncSeekPlay(Math.max(0, time), false);
+      return;
+    }
+    if (audioUrl && columnAudioRef.current) {
+      columnAudioRef.current.currentTime = Math.max(0, time);
+      setColumnTime(Math.max(0, time));
+      return;
+    }
+    onSeek(time);
+  }, [audioUrl, onSeek, onSyncSeekPlay, syncPlaybackEnabled]);
+
+  const playSegmentLocal = useCallback((start: number, end: number) => {
+    if (syncPlaybackEnabled && onSyncSeekPlay) {
+      onSyncSeekPlay(Math.max(0, start), true);
+      if (segmentStopTimerRef.current) clearTimeout(segmentStopTimerRef.current);
+      segmentStopTimerRef.current = setTimeout(() => {
+        if (onSyncPauseAll) onSyncPauseAll();
+      }, Math.max(0, end - start) * 1000);
+      return;
+    }
+    if (audioUrl && columnAudioRef.current) {
+      const audioEl = columnAudioRef.current;
+      audioEl.currentTime = Math.max(0, start);
+      setColumnTime(Math.max(0, start));
+      void audioEl.play();
+      if (segmentStopTimerRef.current) clearTimeout(segmentStopTimerRef.current);
+      segmentStopTimerRef.current = setTimeout(() => {
+        audioEl.pause();
+      }, Math.max(0, end - start) * 1000);
+      return;
+    }
+    onPlaySegment(start, end);
+  }, [audioUrl, onPlaySegment, onSyncPauseAll, onSyncSeekPlay, syncPlaybackEnabled]);
+
+  const handleAudioRef = useCallback((el: HTMLAudioElement | null) => {
+    columnAudioRef.current = el;
+    if (onRegisterAudio) onRegisterAudio(idx, el);
+  }, [idx, onRegisterAudio]);
+
+  useEffect(() => {
+    return () => {
+      if (segmentStopTimerRef.current) clearTimeout(segmentStopTimerRef.current);
+    };
+  }, []);
 
   // Word-level diff per segment (Enhancement 3)
   const segmentDiffs = useMemo(() => {
@@ -765,7 +893,7 @@ function EngineColumn({
   }, [merged, otherMerged, dmp, otherEntry]);
 
   return (
-    <div className="flex flex-col min-h-0">
+    <div className="flex flex-col min-h-0 h-full">
       {/* Engine header */}
       <div className="sticky top-0 z-10 bg-background border-b px-4 py-3" style={{ borderTopColor: color, borderTopWidth: '3px' }}>
         <div className="flex items-center justify-between mb-2">
@@ -855,7 +983,7 @@ function EngineColumn({
           onClick={e => {
             const rect = e.currentTarget.getBoundingClientRect();
             const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-            onSeek(pct * entry.result.duration);
+            seekToTime(pct * entry.result.duration);
           }}
         >
           {entry.result.segments.map((seg, si) => {
@@ -878,14 +1006,25 @@ function EngineColumn({
           {entry.result.duration > 0 && (
             <div
               className="absolute top-0 h-full w-0.5 bg-foreground/80 z-10"
-              style={{ left: `${(currentTime / entry.result.duration) * 100}%` }}
+              style={{ left: `${(effectiveTime / entry.result.duration) * 100}%` }}
             />
           )}
         </div>
+
+        {audioUrl && (
+          <audio
+            ref={handleAudioRef}
+            src={audioUrl}
+            controls
+            preload="metadata"
+            className="w-full mt-2 h-8"
+            onTimeUpdate={(e) => setColumnTime((e.currentTarget as HTMLAudioElement).currentTime)}
+          />
+        )}
       </div>
 
       {/* Transcript segments — flowing continuously */}
-      <div ref={scrollRef as React.RefObject<HTMLDivElement>} className="flex-1 overflow-y-auto p-4 space-y-3" onScroll={onScroll}>
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3" onScroll={onScroll}>
         {merged.map((seg, i) => {
           const spIdx = entry.result.speakers.indexOf(seg.speaker_label);
           const isActive = i === activeIdx;
@@ -915,7 +1054,7 @@ function EngineColumn({
                 ${!isActive && !isCrossHighlighted ? 'hover:bg-muted/50' : ''}
                 ${isSelected ? 'ring-2 ring-green-500' : ''}
               `}
-              onClick={() => onSeek(seg.start)}
+              onClick={() => seekToTime(seg.start)}
               onMouseEnter={() => onHighlightSeg(i)}
               onMouseLeave={() => onHighlightSeg(null)}
             >
@@ -928,7 +1067,7 @@ function EngineColumn({
                   variant="ghost"
                   size="sm"
                   className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                  onClick={e => { e.stopPropagation(); onPlaySegment(seg.start, seg.end); }}
+                  onClick={e => { e.stopPropagation(); playSegmentLocal(seg.start, seg.end); }}
                 >
                   <Play className="w-3 h-3" />
                 </Button>
@@ -964,13 +1103,17 @@ const DiarizationComparePage = () => {
   const [currentTime, setCurrentTime] = useState(0);
   const [showAnalysis, setShowAnalysis] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const playerRef = useRef<SyncAudioPlayerRef>(null);
   const dmp = useMemo(() => new DiffMatchPatch(), []);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [audioFileName, setAudioFileName] = useState<string>('');
-  const [selectedEngine, setSelectedEngine] = useState<string>('assemblyai');
-  const [isRunningEngine, setIsRunningEngine] = useState(false);
+  const [pendingEngineJobs, setPendingEngineJobs] = useState<Record<string, string>>({});
+  const [qualityByEngine, setQualityByEngine] = useState<Record<'local' | 'whisperx', EngineQualityProfile>>({
+    local: 'fast',
+    whisperx: 'fast',
+  });
+  const [syncPlaybackEnabled, setSyncPlaybackEnabled] = useState(false);
   const { keys: cloudKeys } = useCloudApiKeys();
+  const queue = useDiarizationQueue();
 
   // New enhancement state
   const [searchQuery, setSearchQuery] = useState('');
@@ -981,7 +1124,7 @@ const DiarizationComparePage = () => {
   const leftScrollRef = useRef<HTMLDivElement>(null);
   const rightScrollRef = useRef<HTMLDivElement>(null);
   const isScrolling = useRef(false);
-  const segmentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const audioRefs = useRef<Map<number, HTMLAudioElement>>(new Map());
 
   // Enhancement 4: Speaker mapping
   const speakerMap = useMemo(() => {
@@ -1054,22 +1197,173 @@ const DiarizationComparePage = () => {
 
   const handleSeek = useCallback((time: number) => {
     setCurrentTime(time);
-    playerRef.current?.seekTo(time);
-    playerRef.current?.play();
   }, []);
 
-  // Enhancement 6: Play individual segment
-  const handlePlaySegment = useCallback((start: number, end: number) => {
+  const handlePlaySegment = useCallback((start: number) => {
     setCurrentTime(start);
-    playerRef.current?.seekTo(start);
-    playerRef.current?.play();
-    // Stop at end of segment
-    if (segmentTimerRef.current) clearTimeout(segmentTimerRef.current);
-    const dur = (end - start) * 1000;
-    segmentTimerRef.current = setTimeout(() => {
-      playerRef.current?.pause();
-    }, dur);
   }, []);
+
+  const registerAudio = useCallback((idx: number, el: HTMLAudioElement | null) => {
+    if (!el) {
+      audioRefs.current.delete(idx);
+      return;
+    }
+    audioRefs.current.set(idx, el);
+  }, []);
+
+  const syncSeekPlay = useCallback((time: number, play = false) => {
+    setCurrentTime(time);
+    audioRefs.current.forEach((audioEl) => {
+      audioEl.currentTime = Math.max(0, time);
+      if (play) void audioEl.play();
+    });
+  }, []);
+
+  const pauseAll = useCallback(() => {
+    audioRefs.current.forEach((audioEl) => audioEl.pause());
+  }, []);
+
+  const playAll = useCallback(() => {
+    audioRefs.current.forEach((audioEl) => {
+      void audioEl.play();
+    });
+  }, []);
+
+  const runningEngines = useMemo(() => {
+    const active = new Set<string>();
+    for (const [engine, jobId] of Object.entries(pendingEngineJobs)) {
+      const job = queue.jobs.find(j => j.id === jobId);
+      if (job && (job.status === 'queued' || job.status === 'processing')) {
+        active.add(engine);
+      }
+    }
+    return active;
+  }, [pendingEngineJobs, queue.jobs]);
+
+  useEffect(() => {
+    if (Object.keys(pendingEngineJobs).length === 0) return;
+
+    const toRemove: string[] = [];
+    for (const [engine, jobId] of Object.entries(pendingEngineJobs)) {
+      const job = queue.jobs.find(j => j.id === jobId);
+      if (!job) continue;
+
+      if (job.status === 'completed' && job.result) {
+        const label = ENGINE_LABELS[engine] || engine;
+        const newEntry: CompareEntry = {
+          label,
+          result: job.result as unknown as DiarizationResult,
+        };
+        setEntries(prev => {
+          const exists = prev.some(e => e.label.toLowerCase() === label.toLowerCase());
+          const next = exists
+            ? prev.map(e => e.label.toLowerCase() === label.toLowerCase() ? newEntry : e)
+            : [...prev, newEntry];
+          localStorage.setItem('diarization_compare_entries', JSON.stringify(next));
+          return next;
+        });
+        toast({ title: 'זיהוי דוברים הושלם', description: `${label} מוכן ונשמר בענן` });
+        toRemove.push(engine);
+      }
+
+      if (job.status === 'error') {
+        toast({ title: 'שגיאה בזיהוי דוברים', description: `${ENGINE_LABELS[engine] || engine}: ${job.error || 'שגיאה'}`, variant: 'destructive' });
+        toRemove.push(engine);
+      }
+    }
+
+    if (toRemove.length > 0) {
+      setPendingEngineJobs(prev => {
+        const next = { ...prev };
+        for (const key of toRemove) delete next[key];
+        return next;
+      });
+    }
+  }, [pendingEngineJobs, queue.jobs]);
+
+  // Load compare settings from local storage first.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(COMPARE_SETTINGS_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as {
+        qualityByEngine?: Record<'local' | 'whisperx', EngineQualityProfile>;
+        syncPlaybackEnabled?: boolean;
+      };
+      if (parsed.qualityByEngine?.local && parsed.qualityByEngine?.whisperx) {
+        setQualityByEngine(parsed.qualityByEngine);
+      }
+      if (typeof parsed.syncPlaybackEnabled === 'boolean') {
+        setSyncPlaybackEnabled(parsed.syncPlaybackEnabled);
+      }
+    } catch {
+      // ignore malformed storage
+    }
+  }, []);
+
+  // Then sync compare settings from cloud (if available).
+  useEffect(() => {
+    const loadCompareSettingsFromCloud = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const looseSupabase = supabase as unknown as LooseSupabaseClient;
+      const prefsTable = looseSupabase.from('user_preferences') as LooseUserPreferencesQuery;
+      const { data, error } = await prefsTable
+        .select('compare_settings_json,draft_text')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (error || !data) return;
+
+      const parsed = parseCompareSettingsFromJson(data.compare_settings_json) || parseCompareSettingsFromDraft(data.draft_text || null);
+      if (!parsed) return;
+
+      if (parsed.qualityByEngine?.local && parsed.qualityByEngine?.whisperx) {
+        setQualityByEngine(parsed.qualityByEngine);
+      }
+      if (typeof parsed.syncPlaybackEnabled === 'boolean') {
+        setSyncPlaybackEnabled(parsed.syncPlaybackEnabled);
+      }
+    };
+
+    void loadCompareSettingsFromCloud();
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(COMPARE_SETTINGS_STORAGE_KEY, JSON.stringify({
+        qualityByEngine,
+        syncPlaybackEnabled,
+      }));
+    } catch {
+      // ignore storage write failures
+    }
+  }, [qualityByEngine, syncPlaybackEnabled]);
+
+  // Persist compare settings to cloud.
+  useEffect(() => {
+    const saveCompareSettingsToCloud = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const payload = {
+        qualityByEngine,
+        syncPlaybackEnabled,
+      };
+      const looseSupabase = supabase as unknown as LooseSupabaseClient;
+      const prefsTable = looseSupabase.from('user_preferences') as LooseUserPreferencesQuery;
+      const { error } = await prefsTable.upsert({
+        user_id: user.id,
+        compare_settings_json: payload,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'user_id' });
+
+      if (error) {
+        console.warn('Failed to persist compare settings to cloud', error);
+      }
+    };
+
+    void saveCompareSettingsToCloud();
+  }, [qualityByEngine, syncPlaybackEnabled]);
 
   // Enhancement 1: Synchronized scrolling
   const handleLeftScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
@@ -1156,122 +1450,79 @@ const DiarizationComparePage = () => {
 
   // Add engine handler — works for both 1-entry and 2+ entry states
   const handleAddEngine = useCallback(async (engine: string) => {
-    setIsRunningEngine(true);
-    setSelectedEngine(engine);
+    if (pendingEngineJobs[engine]) return;
     try {
-      const audioEntry = await db.audioBlobs.get("last_audio");
-      if (!audioEntry?.blob) {
-        toast({ title: "לא נמצא קובץ אודיו", description: "חזור לדף זיהוי דוברים והעלה קובץ מחדש", variant: "destructive" });
+      let sourceBlob: Blob | null = null;
+      let sourceName = audioFileName || 'audio.webm';
+
+      // Prefer the audio currently displayed in compare screen.
+      if (audioUrl) {
+        try {
+          const resp = await fetch(audioUrl);
+          if (resp.ok) {
+            sourceBlob = await resp.blob();
+          }
+        } catch {
+          // Ignore and fallback to local DB source.
+        }
+      }
+
+      // Fallback for refresh/new sessions.
+      if (!sourceBlob) {
+        const audioEntry = await db.audioBlobs.get("last_audio");
+        if (audioEntry?.blob) {
+          sourceBlob = audioEntry.blob;
+          sourceName = audioEntry.name || sourceName;
+        }
+      }
+
+      if (!sourceBlob) {
+        toast({ title: "לא נמצא קובץ אודיו", description: "טען מחדש את קובץ האודיו לפני הוספת מנוע", variant: "destructive" });
         return;
       }
-      const engineLabels: Record<string, string> = {
-        assemblyai: 'AssemblyAI', deepgram: 'Deepgram', openai: 'OpenAI', browser: 'דפדפן',
-        local: 'מקומי', whisperx: 'WhisperX',
+      const mode = engine as QueueDiarizationMode;
+      const apiKeyMap: Record<string, string> = {
+        assemblyai: cloudKeys.assemblyai_key || '',
+        deepgram: cloudKeys.deepgram_key || '',
+        openai: cloudKeys.openai_key || '',
       };
 
-      if (engine === 'browser') {
-        const file = new File([audioEntry.blob], audioEntry.name || 'audio.webm', { type: audioEntry.blob.type });
-        const browserResult = await diarizeInBrowser(file, () => {});
-        const newEntry: CompareEntry = {
-          label: 'דפדפן',
-          result: {
-            text: browserResult.segments.map(s => s.text).join(' '),
-            segments: browserResult.segments as DiarizedSegment[],
-            speakers: browserResult.speakers,
-            speaker_count: browserResult.speaker_count,
-            duration: browserResult.duration,
-            processing_time: browserResult.processing_time || 0,
-            diarization_method: 'Browser (pyannote)',
-          },
-        };
-        setEntries(prev => {
-          const next = [...prev, newEntry];
-          localStorage.setItem('diarization_compare_entries', JSON.stringify(next));
-          return next;
-        });
-        toast({ title: `זיהוי דוברים הושלם`, description: `${engineLabels[engine]} — ${newEntry.result.speaker_count} דוברים` });
-      } else if (engine === 'local' || engine === 'whisperx') {
-        // Local server engine (silence-gap/pyannote or WhisperX)
-        const formData = new FormData();
-        const file = new File([audioEntry.blob], audioEntry.name || 'audio.webm', { type: audioEntry.blob.type || 'audio/webm' });
-        formData.append('file', file);
-        formData.append('min_gap', '1.5');
-
-        const hfToken = cloudKeys.huggingface_key || '';
-        if (hfToken.trim()) formData.append('hf_token', hfToken.trim());
-
-        if (engine === 'local') {
-          formData.append('diarization_engine', hfToken.trim() ? 'pyannote' : 'silence-gap');
-          if (hfToken.trim()) {
-            formData.append('pyannote_model', 'pyannote/speaker-diarization-community-1');
-          }
-        }
-
-        if (engine === 'whisperx') {
-          formData.append('use_whisperx', '1');
-          formData.append('diarization_engine', 'whisperx');
-          if (hfToken.trim()) {
-            formData.append('pyannote_model', 'pyannote/speaker-diarization-community-1');
-          }
-        }
-
-        const serverUrl = (cloudKeys.whisper_server_url || '/whisper').trim().replace(/\/$/, '');
-        const resp = await fetch(`${serverUrl}/diarize`, { method: 'POST', body: formData });
-        if (!resp.ok) throw new Error(await resp.text());
-        const localResult = await resp.json();
-
-        const newEntry: CompareEntry = {
-          label: engineLabels[engine] || engine,
-          result: localResult,
-        };
-        setEntries(prev => {
-          const next = [...prev, newEntry];
-          localStorage.setItem('diarization_compare_entries', JSON.stringify(next));
-          return next;
-        });
-        toast({ title: `זיהוי דוברים הושלם`, description: `${engineLabels[engine]} — ${localResult.speaker_count} דוברים` });
-      } else {
-        const apiKeyMap: Record<string, string> = {
-          assemblyai: cloudKeys.assemblyai_key || '',
-          deepgram: cloudKeys.deepgram_key || '',
-          openai: cloudKeys.openai_key || '',
-        };
-        const apiKey = apiKeyMap[engine];
-        if (!apiKey) {
-          toast({ title: `חסר מפתח API`, description: `הגדר מפתח ${engineLabels[engine]} בהגדרות`, variant: "destructive" });
-          return;
-        }
-        const formData = new FormData();
-        formData.append('file', audioEntry.blob, audioEntry.name || 'audio.webm');
-        formData.append('engine', engine);
-        formData.append('apiKey', apiKey);
-        formData.append('language', 'he');
-        const { data: sessionData } = await supabase.auth.getSession();
-        const token = sessionData?.session?.access_token || '';
-        const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/diarize-cloud`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-          },
-          body: formData,
-        });
-        if (!resp.ok) throw new Error(await resp.text());
-        const cloudResult = await resp.json();
-        const newEntry: CompareEntry = { label: engineLabels[engine] || engine, result: cloudResult };
-        setEntries(prev => {
-          const next = [...prev, newEntry];
-          localStorage.setItem('diarization_compare_entries', JSON.stringify(next));
-          return next;
-        });
-        toast({ title: `זיהוי דוברים הושלם`, description: `${engineLabels[engine]} — ${cloudResult.speaker_count} דוברים` });
+      if ((engine === 'assemblyai' || engine === 'deepgram' || engine === 'openai') && !apiKeyMap[engine]) {
+        toast({ title: `חסר מפתח API`, description: `הגדר מפתח ${ENGINE_LABELS[engine]} בהגדרות`, variant: 'destructive' });
+        return;
       }
+
+      let hfToken = '';
+      if (engine === 'local' && qualityByEngine.local === 'accurate') {
+        hfToken = (cloudKeys.huggingface_key || '').trim();
+        if (!hfToken) {
+          toast({ title: 'אין HuggingFace Token', description: 'ממשיך במצב Fast (silence-gap)' });
+        }
+      }
+      if (engine === 'whisperx' && qualityByEngine.whisperx === 'accurate') {
+        hfToken = (cloudKeys.huggingface_key || '').trim();
+        if (!hfToken) {
+          toast({ title: 'אין HuggingFace Token', description: 'WhisperX יפעל ללא pyannote (Fast)' });
+        }
+      }
+
+      const file = new File([sourceBlob], sourceName, { type: sourceBlob.type || 'audio/webm' });
+      const jobId = queue.enqueue(file, mode, {
+        serverUrl: (cloudKeys.whisper_server_url || '/whisper').trim().replace(/\/$/, ''),
+        minGap: 1.5,
+        hfToken,
+        pyannoteModel: 'community-1',
+        expectedSpeakers: 0,
+        cloudApiKey: apiKeyMap[engine] || '',
+        autoSaveToCloud: true,
+      });
+
+      setPendingEngineJobs(prev => ({ ...prev, [engine]: jobId }));
+      toast({ title: 'נשלח לתור רקע', description: `${ENGINE_LABELS[engine] || engine} נוסף לתור` });
     } catch (err) {
       toast({ title: "שגיאה בזיהוי דוברים", description: err instanceof Error ? err.message : "שגיאה", variant: "destructive" });
-    } finally {
-      setIsRunningEngine(false);
     }
-  }, [cloudKeys]);
+  }, [audioFileName, audioUrl, cloudKeys, pendingEngineJobs, qualityByEngine, queue]);
 
   // Build available engines list (excluding already-present engines)
   const getAvailableEngines = useCallback(() => {
@@ -1311,33 +1562,16 @@ const DiarizationComparePage = () => {
           </Button>
         </div>
 
-        {/* Audio Player */}
-        {audioUrl && (
-          <div className="shrink-0 border-b px-4 py-2 bg-muted/20">
-            <Suspense fallback={<div className="h-16 rounded-lg animate-pulse bg-muted/30" />}>
-              <SyncAudioPlayer
-                ref={playerRef}
-                audioUrl={audioUrl}
-                wordTimings={[]}
-                onTimeUpdate={setCurrentTime}
-                compact
-                speakerSegments={firstEntry.result.segments.map(s => ({
-                  start: s.start, end: s.end, speaker: s.speaker_label,
-                })) || []}
-              />
-            </Suspense>
-          </div>
-        )}
-
         {/* Split: left = result, right = engine picker */}
         <div className="flex-1 min-h-0 flex">
           {/* Left: existing result */}
-          <div className="flex-1 min-w-0 border-l overflow-hidden">
+          <div className="flex-1 min-w-0 min-h-0 border-l overflow-hidden flex">
             <EngineColumn
               entry={firstEntry}
               idx={0}
               currentTime={currentTime}
               onSeek={handleSeek}
+              audioUrl={audioUrl}
               searchQuery=""
               highlightedSegIdx={null}
               onHighlightSeg={() => {}}
@@ -1350,6 +1584,10 @@ const DiarizationComparePage = () => {
               showMerge={false}
               scrollRef={leftScrollRef}
               onScroll={() => {}}
+              syncPlaybackEnabled={syncPlaybackEnabled}
+              onSyncSeekPlay={syncSeekPlay}
+              onSyncPauseAll={pauseAll}
+              onRegisterAudio={registerAudio}
               dmp={dmp}
             />
           </div>
@@ -1369,23 +1607,32 @@ const DiarizationComparePage = () => {
                   key={eng.value}
                   variant="outline"
                   className="h-auto py-4 flex flex-col items-center gap-2 relative hover:bg-primary/5 hover:border-primary/30"
-                  disabled={isRunningEngine || !eng.hasKey}
+                  disabled={!eng.hasKey || runningEngines.has(eng.value)}
                   onClick={() => handleAddEngine(eng.value)}
                 >
-                  {isRunningEngine && selectedEngine === eng.value ? (
+                  {runningEngines.has(eng.value) ? (
                     <Loader2 className="w-6 h-6 animate-spin text-primary" />
                   ) : (
                     <eng.icon className="w-6 h-6 text-primary" />
                   )}
                   <span className="text-sm font-medium">{eng.label}</span>
                   {!eng.hasKey && <span className="text-[9px] text-destructive">חסר מפתח</span>}
+                  {runningEngines.has(eng.value) && (() => {
+                    const jobId = pendingEngineJobs[eng.value];
+                    const job = queue.jobs.find(j => j.id === jobId);
+                    return (
+                      <span className="text-[9px] text-muted-foreground">
+                        {job?.progressStage || 'מעבד...'} {job && job.progress > 0 ? `(${Math.round(job.progress)}%)` : ''}
+                      </span>
+                    );
+                  })()}
                 </Button>
               ))}
             </div>
-            {isRunningEngine && (
+            {runningEngines.size > 0 && (
               <div className="flex items-center gap-2 mt-4 text-sm text-muted-foreground">
                 <Loader2 className="w-4 h-4 animate-spin" />
-                מריץ זיהוי דוברים...
+                מריץ זיהוי דוברים במקביל... ({runningEngines.size})
               </div>
             )}
           </div>
@@ -1463,6 +1710,37 @@ const DiarizationComparePage = () => {
             </Tooltip>
           </TooltipProvider>
 
+          {/* Sync playback controls */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={syncPlaybackEnabled ? 'default' : 'outline'}
+                  size="sm"
+                  className="text-xs h-7 gap-1"
+                  onClick={() => setSyncPlaybackEnabled(!syncPlaybackEnabled)}
+                >
+                  <Volume2 className="w-3.5 h-3.5" />
+                  סנכרון ניגון
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{syncPlaybackEnabled ? 'ניגון מסונכרן: פעיל' : 'נגנים עצמאיים: פעיל'}</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          {audioUrl && entries.length > 1 && (
+            <>
+              <Button variant="outline" size="sm" className="text-xs h-7 gap-1" onClick={playAll}>
+                <Play className="w-3.5 h-3.5" />
+                Play all
+              </Button>
+              <Button variant="outline" size="sm" className="text-xs h-7 gap-1" onClick={pauseAll}>
+                <Pause className="w-3.5 h-3.5" />
+                Pause all
+              </Button>
+            </>
+          )}
+
           {/* Enhancement 8: Merge toggle */}
           <TooltipProvider>
             <Tooltip>
@@ -1494,6 +1772,61 @@ const DiarizationComparePage = () => {
             </Button>
           ))}
 
+          {/* Local engine quality controls */}
+          <div className="flex items-center gap-1.5">
+            <Label className="text-[10px] text-muted-foreground">Local</Label>
+            <Button
+              variant={qualityByEngine.local === 'fast' ? 'default' : 'outline'}
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => setQualityByEngine(prev => ({ ...prev, local: 'fast' }))}
+            >
+              Fast
+            </Button>
+            <Button
+              variant={qualityByEngine.local === 'accurate' ? 'default' : 'outline'}
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => setQualityByEngine(prev => ({ ...prev, local: 'accurate' }))}
+            >
+              Accurate
+            </Button>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Label className="text-[10px] text-muted-foreground">WhisperX</Label>
+            <Button
+              variant={qualityByEngine.whisperx === 'fast' ? 'default' : 'outline'}
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => setQualityByEngine(prev => ({ ...prev, whisperx: 'fast' }))}
+            >
+              Fast
+            </Button>
+            <Button
+              variant={qualityByEngine.whisperx === 'accurate' ? 'default' : 'outline'}
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => setQualityByEngine(prev => ({ ...prev, whisperx: 'accurate' }))}
+            >
+              Accurate
+            </Button>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <Label className="text-[10px] text-muted-foreground">במקביל</Label>
+            {[1, 2, 3, 4].map(n => (
+              <Button
+                key={n}
+                variant={queue.maxConcurrent === n ? 'default' : 'outline'}
+                size="sm"
+                className="h-7 text-xs px-2"
+                onClick={() => queue.setMaxConcurrent(n)}
+              >
+                {n}
+              </Button>
+            ))}
+          </div>
+
           {/* Add engine button */}
           {(() => {
             const avail = getAvailableEngines();
@@ -1501,7 +1834,7 @@ const DiarizationComparePage = () => {
             return (
               <Select value="" onValueChange={(engine) => handleAddEngine(engine)}>
                 <SelectTrigger className="h-7 w-auto text-xs gap-1 border-primary/30">
-                  {isRunningEngine ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+                  {runningEngines.size > 0 ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
                   הוסף מנוע
                 </SelectTrigger>
                 <SelectContent>
@@ -1549,69 +1882,49 @@ const DiarizationComparePage = () => {
         </div>
       </div>
 
-      {/* ═══ Shared Audio Player ═══ */}
-      {audioUrl && (
-        <div className="shrink-0 border-b px-4 py-2 bg-muted/20">
-          <Suspense fallback={<div className="h-16 rounded-lg animate-pulse bg-muted/30" />}>
-            <SyncAudioPlayer
-              ref={playerRef}
-              audioUrl={audioUrl}
-              wordTimings={[]}
-              onTimeUpdate={setCurrentTime}
-              compact
-              speakerSegments={entries[diffPair[0]]?.result.segments.map(s => ({
-                start: s.start,
-                end: s.end,
-                speaker: s.speaker_label,
-              })) || []}
-            />
-          </Suspense>
-        </div>
-      )}
+      {/* ═══ Split-Screen: Dynamic Columns Per Engine ═══ */}
+      <div className="flex-1 min-h-0 overflow-x-auto">
+        <div
+          className="grid min-h-0 h-full items-stretch"
+          style={{ gridTemplateColumns: `repeat(${entries.length}, minmax(360px, 1fr))`, gridAutoRows: 'minmax(0, 1fr)' }}
+        >
+          {entries.map((entry, i) => {
+            const isLeftPair = i === diffPair[0];
+            const isRightPair = i === diffPair[1];
+            const side: 'left' | 'right' = isRightPair ? 'right' : 'left';
+            const otherEntry = isLeftPair ? entries[diffPair[1]] : isRightPair ? entries[diffPair[0]] : null;
+            const columnScrollRef = isLeftPair ? leftScrollRef : isRightPair ? rightScrollRef : undefined;
+            const columnOnScroll = isLeftPair ? handleLeftScroll : isRightPair ? handleRightScroll : undefined;
 
-      {/* ═══ Split-Screen: Two Engine Columns ═══ */}
-      <div className="flex-1 min-h-0 flex">
-        <div className="flex-1 min-w-0 border-l overflow-hidden">
-          <EngineColumn
-            entry={entries[diffPair[0]]}
-            idx={diffPair[0]}
-            currentTime={currentTime}
-            onSeek={handleSeek}
-            searchQuery={searchQuery}
-            highlightedSegIdx={highlightedSegIdx}
-            onHighlightSeg={setHighlightedSegIdx}
-            otherEntry={entries[diffPair[1]]}
-            speakerMap={speakerMap}
-            onPlaySegment={handlePlaySegment}
-            mergeSelections={mergeSelections}
-            onToggleMerge={handleToggleMerge}
-            side="left"
-            showMerge={showMerge}
-            scrollRef={leftScrollRef}
-            onScroll={handleLeftScroll}
-            dmp={dmp}
-          />
-        </div>
-        <div className="flex-1 min-w-0 overflow-hidden">
-          <EngineColumn
-            entry={entries[diffPair[1]]}
-            idx={diffPair[1]}
-            currentTime={currentTime}
-            onSeek={handleSeek}
-            searchQuery={searchQuery}
-            highlightedSegIdx={highlightedSegIdx}
-            onHighlightSeg={setHighlightedSegIdx}
-            otherEntry={entries[diffPair[0]]}
-            speakerMap={speakerMap}
-            onPlaySegment={handlePlaySegment}
-            mergeSelections={mergeSelections}
-            onToggleMerge={handleToggleMerge}
-            side="right"
-            showMerge={showMerge}
-            scrollRef={rightScrollRef}
-            onScroll={handleRightScroll}
-            dmp={dmp}
-          />
+            return (
+              <div key={`${entry.label}-${i}`} className={`min-w-0 min-h-0 overflow-hidden flex ${i > 0 ? 'border-l' : ''}`}>
+                <EngineColumn
+                  entry={entry}
+                  idx={i}
+                  currentTime={currentTime}
+                  onSeek={handleSeek}
+                  audioUrl={audioUrl}
+                  searchQuery={searchQuery}
+                  highlightedSegIdx={highlightedSegIdx}
+                  onHighlightSeg={setHighlightedSegIdx}
+                  otherEntry={otherEntry}
+                  speakerMap={speakerMap}
+                  onPlaySegment={handlePlaySegment}
+                  mergeSelections={mergeSelections}
+                  onToggleMerge={handleToggleMerge}
+                  side={side}
+                  showMerge={showMerge}
+                  scrollRef={columnScrollRef}
+                  onScroll={columnOnScroll}
+                  syncPlaybackEnabled={syncPlaybackEnabled}
+                  onSyncSeekPlay={syncSeekPlay}
+                  onSyncPauseAll={pauseAll}
+                  onRegisterAudio={registerAudio}
+                  dmp={dmp}
+                />
+              </div>
+            );
+          })}
         </div>
       </div>
 

@@ -1257,8 +1257,10 @@ export const SpeakerDiarization = ({ serverUrl = "/whisper", initialAudioBlob, i
             {(streamProgress || browserProgress) && (
               <Progress value={streamProgress?.percent ?? browserProgress?.percent ?? 0} className="w-full h-2.5" />
             )}
-            {streamProgress && (
-              <span className="text-[10px] text-muted-foreground">{streamProgress.percent}%</span>
+            {(streamProgress || browserProgress) && (
+              <span className="text-[10px] text-muted-foreground">
+                {Math.round(streamProgress?.percent ?? browserProgress?.percent ?? 0)}%
+              </span>
             )}
           </div>
         ) : preloadedFileRef.current && !result ? (

@@ -472,6 +472,7 @@ export type Database = {
       }
       user_preferences: {
         Row: {
+          compare_settings_json: Json | null
           created_at: string
           cuda_beam_size: number | null
           cuda_cloud_save: string | null
@@ -499,6 +500,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          compare_settings_json?: Json | null
           created_at?: string
           cuda_beam_size?: number | null
           cuda_cloud_save?: string | null
@@ -526,6 +528,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          compare_settings_json?: Json | null
           created_at?: string
           cuda_beam_size?: number | null
           cuda_cloud_save?: string | null

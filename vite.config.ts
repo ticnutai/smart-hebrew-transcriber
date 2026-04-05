@@ -41,7 +41,7 @@ function whisperServerLauncher(): Plugin {
           const scriptPath = path.join(projectRoot, 'server', 'transcribe_server.py');
 
           try {
-            serverProcess = spawn(pythonExe, [scriptPath, '--port', '4001'], {
+            serverProcess = spawn(pythonExe, [scriptPath, '--port', '3000'], {
               cwd: projectRoot,
               stdio: 'pipe',
               detached: false,
@@ -127,7 +127,7 @@ export default defineConfig(({ mode }) => {
     port: 4000,
     proxy: {
       '/whisper': {
-        target: 'http://127.0.0.1:4001',
+        target: 'http://127.0.0.1:3000',
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/whisper/, ''),
       },

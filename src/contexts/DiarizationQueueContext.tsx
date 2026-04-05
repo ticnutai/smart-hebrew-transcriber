@@ -363,21 +363,74 @@ export function DiarizationQueueProvider({ children }: { children: React.ReactNo
         const formData = new FormData();
         formData.append("file", file);
         formData.append("min_gap", (config.minGap || 1.5).toString());
-        if (config.hfToken?.trim()) formData.append("hf_token", config.hfToken.trim());
         if (mode === 'local') {
-          formData.append("model", config.pyannoteModel === '3.1' ? 'pyannote/speaker-diarization-3.1' : 'pyannote/speaker-diarization-community-1');
+          const localHf = config.hfToken?.trim() || '';
+          formData.append("diarization_engine", localHf ? "pyannote" : "silence-gap");
+          if (localHf) {
+            formData.append("hf_token", localHf);
+            formData.append("pyannote_model", config.pyannoteModel === '3.1' ? 'pyannote/speaker-diarization-3.1' : 'pyannote/speaker-diarization-community-1');
+          }
         }
         if (mode === 'whisperx') {
           formData.append("use_whisperx", "1");
-          if (config.hfToken?.trim()) formData.append("pyannote_model", config.pyannoteModel === '3.1' ? 'pyannote/speaker-diarization-3.1' : 'pyannote/speaker-diarization-community-1');
+          formData.append("diarization_engine", "whisperx");
+          const wxHf = config.hfToken?.trim() || '';
+          if (wxHf) {
+            formData.append("hf_token", wxHf);
+            formData.append("pyannote_model", config.pyannoteModel === '3.1' ? 'pyannote/speaker-diarization-3.1' : 'pyannote/speaker-diarization-community-1');
+          }
         }
-        updateJob(jobId, { progress: 20, progressStage: 'מעבד בשרת...' });
-        const resp = await fetch(`${serverUrl}/diarize`, { method: "POST", body: formData, signal: abortController.signal });
-        if (!resp.ok) {
+        updateJob(jobId, { progress: 20, progressStage: 'מתחיל עיבוד בשרת...' });
+        const resp = await fetch(`${serverUrl}/diarize-stream`, { method: "POST", body: formData, signal: abortController.signal });
+        if (!resp.ok || !resp.body) {
           const err = await resp.json().catch(() => ({ error: "Server error" }));
           throw new Error(err.error || `HTTP ${resp.status}`);
         }
-        result = await resp.json();
+
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let finalResult: DiarizationResult | null = null;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const event = JSON.parse(line.slice(6));
+              if (event.type === 'progress') {
+                updateJob(jobId, {
+                  progress: Number(event.percent) || 0,
+                  progressStage: event.stage || 'מעבד בשרת...',
+                });
+              } else if (event.type === 'segment') {
+                const pct = Number(event.percent) || 0;
+                updateJob(jobId, {
+                  progress: pct,
+                  progressStage: `קטע ${Number(event.index) + 1}/${Number(event.total) || '?'}...`,
+                });
+              } else if (event.type === 'done') {
+                finalResult = event as DiarizationResult;
+              } else if (event.type === 'error') {
+                throw new Error(event.error || 'Stream error');
+              }
+            } catch (parseErr) {
+              if (parseErr instanceof Error && parseErr.message !== 'Unexpected end of JSON input') {
+                throw parseErr;
+              }
+            }
+          }
+        }
+
+        if (!finalResult) {
+          throw new Error('השרת לא החזיר תוצאה מלאה');
+        }
+        result = finalResult;
 
       } else if (mode === 'openai') {
         if (!config.cloudApiKey?.trim()) throw new Error("נדרש מפתח API של OpenAI");
