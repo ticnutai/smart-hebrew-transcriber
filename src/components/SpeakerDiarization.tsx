@@ -1582,7 +1582,15 @@ export const SpeakerDiarization = ({ serverUrl = "/whisper", initialAudioBlob, i
               <TabsTrigger value="ai" className="text-xs gap-1 whitespace-nowrap"><Sparkles className="w-3.5 h-3.5" />AI</TabsTrigger>
               <TabsTrigger value="notes" className="text-xs gap-1 whitespace-nowrap"><BookmarkPlus className="w-3.5 h-3.5" />הערות {segmentNotes.length > 0 && `(${segmentNotes.length})`}</TabsTrigger>
               <TabsTrigger value="merge" className="text-xs gap-1 whitespace-nowrap" onClick={() => { if (transcriptList.length === 0) loadTranscriptsForMerge(); }}><FileText className="w-3.5 h-3.5" />שילוב</TabsTrigger>
-              <TabsTrigger value="compare" className="text-xs gap-1 whitespace-nowrap"><ArrowLeftRight className="w-3.5 h-3.5" />השוואה {compareEntries.length > 0 && `(${compareEntries.length})`}</TabsTrigger>
+              <TabsTrigger value="compare" className="text-xs gap-1 whitespace-nowrap" onClick={(e) => {
+                if (result) {
+                  e.preventDefault();
+                  const entry = { label: result.diarization_method || mode, result };
+                  navigate('/diarization/compare', {
+                    state: { entries: [entry], audioUrl, audioFileName: currentFileName },
+                  });
+                }
+              }}><ArrowLeftRight className="w-3.5 h-3.5" />השוואה</TabsTrigger>
             </TabsList>
           </div>
 
