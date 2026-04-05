@@ -71,7 +71,7 @@ export async function createBackup(): Promise<BackupData> {
     preferences,
   };
 
-  debugLog("backup", `Backup created: ${transcripts.length} transcripts, ${vocabulary.length} vocab, ${correctionRules.length} rules`);
+  debugLog.info("backup", `Backup created: ${transcripts.length} transcripts, ${vocabulary.length} vocab, ${correctionRules.length} rules`);
   return backup;
 }
 
