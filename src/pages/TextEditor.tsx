@@ -484,7 +484,7 @@ const TextEditor = () => {
         category: current.category || '',
         is_favorite: current.is_favorite || false,
         audio_file_path: current.audio_file_path,
-        word_timings: (syncedTimings || current.word_timings || null) as unknown as Record<string, unknown>,
+        word_timings: (syncedTimings || current.word_timings || null) as any,
       }])
       .select('id')
       .single();
