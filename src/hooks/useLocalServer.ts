@@ -150,7 +150,7 @@ export const useLocalServer = () => {
     if (shouldTryLauncherHealth) {
       try {
         const launcherRes = await fetch('http://localhost:8764/health', {
-          signal: AbortSignal.timeout(3000),
+          signal: AbortSignal.timeout(15000),
           headers: { 'Accept': 'application/json' },
         });
         if (launcherRes.ok) {

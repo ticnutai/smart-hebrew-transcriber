@@ -160,7 +160,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
     } catch (err: any) {
       // Fallback: try launcher service on 8764
       try {
-        const launcherRes = await fetch('http://localhost:8764/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target: 'whisper' }), signal: AbortSignal.timeout(3000) });
+        const launcherRes = await fetch('http://localhost:8764/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target: 'whisper' }), signal: AbortSignal.timeout(15000) });
         const launcherData = await launcherRes.json();
         if (launcherData.ok) {
           toast({
@@ -378,7 +378,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ target: 'whisper' }),
-                        signal: AbortSignal.timeout(3000),
+                        signal: AbortSignal.timeout(15000),
                       });
                       const launcherData = await launcherRes.json();
                       if (launcherData.ok) {
@@ -448,7 +448,7 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ target: 'whisper' }),
-                      signal: AbortSignal.timeout(3000),
+                      signal: AbortSignal.timeout(15000),
                     });
                   } catch {
                     // Tray not available — fall through to direct shutdown

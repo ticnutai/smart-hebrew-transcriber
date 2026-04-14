@@ -31,7 +31,21 @@ except ImportError:
     sys.exit(1)
 
 app = Flask(__name__)
+
+
+@app.after_request
+def add_pna_header(response):
+    """Allow Chrome Private Network Access (HTTPS → localhost).
+    Registered BEFORE CORS so it runs AFTER flask-cors (Flask LIFO order)."""
+    # Remove any 'false' value flask-cors might have added, then set 'true'
+    while "Access-Control-Allow-Private-Network" in response.headers:
+        del response.headers["Access-Control-Allow-Private-Network"]
+    response.headers["Access-Control-Allow-Private-Network"] = "true"
+    return response
+
+
 CORS(app)
+
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 WHISPER_SERVER_SCRIPT = PROJECT_ROOT / "server" / "transcribe_server.py"
