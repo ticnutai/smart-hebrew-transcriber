@@ -102,9 +102,9 @@ const Login = () => {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-white p-4" dir="rtl">
-      <Card className="w-full max-w-md relative bg-white border-2 border-amber-400/40 rounded-2xl shadow-2xl">
+      <Card className="w-full max-w-md relative bg-white border-2 border-yellow-500/50 rounded-2xl shadow-2xl">
         <CardHeader className="text-center pb-2">
-          <div className="mx-auto mb-4 w-20 h-20 rounded-2xl bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center shadow-lg shadow-amber-500/25 rotate-3 hover:rotate-0 transition-transform duration-300">
+          <div className="mx-auto mb-4 w-20 h-20 rounded-2xl bg-gradient-to-br from-yellow-400 to-yellow-600 flex items-center justify-center shadow-lg shadow-yellow-500/30 rotate-3 hover:rotate-0 transition-transform duration-300">
             <Lock className="w-10 h-10 text-white" />
           </div>
           <CardTitle className="text-3xl font-frank text-gray-900">
@@ -121,7 +121,7 @@ const Login = () => {
               <Button
                 type="button"
                 variant="outline"
-                className="w-full h-12 text-base font-medium gap-3 border-gray-300 hover:bg-gray-50 hover:border-amber-400/50 transition-all duration-200 text-gray-800"
+                className="w-full h-12 text-base font-medium gap-3 border-gray-300 hover:bg-gray-50 hover:border-yellow-500/60 transition-all duration-200 text-gray-800"
                 onClick={handleGoogleLogin}
                 disabled={isLoading}
               >
@@ -137,7 +137,7 @@ const Login = () => {
               {/* Divider */}
               <div className="relative">
                 <div className="absolute inset-0 flex items-center">
-                  <span className="w-full border-t border-amber-400/30" />
+                  <span className="w-full border-t border-yellow-500/40" />
                 </div>
                 <div className="relative flex justify-center text-xs uppercase">
                   <span className="bg-white px-3 text-gray-500 font-assistant">או</span>
@@ -155,7 +155,7 @@ const Login = () => {
                 placeholder="כתובת אימייל"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="h-12 pr-10 text-base font-assistant border-gray-300 focus:border-amber-500 focus:ring-amber-500/20 text-gray-900 placeholder:text-gray-400"
+                className="h-12 pr-10 text-base font-assistant border-gray-300 focus:border-yellow-500 focus:ring-yellow-500/20 text-gray-900 placeholder:text-gray-400"
                 required
                 dir="ltr"
               />
@@ -170,7 +170,7 @@ const Login = () => {
                   placeholder="סיסמה"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="h-12 pr-10 pl-10 text-base font-assistant border-gray-300 focus:border-amber-500 focus:ring-amber-500/20 text-gray-900 placeholder:text-gray-400"
+                  className="h-12 pr-10 pl-10 text-base font-assistant border-gray-300 focus:border-yellow-500 focus:ring-yellow-500/20 text-gray-900 placeholder:text-gray-400"
                   required
                   dir="ltr"
                   minLength={6}
@@ -193,7 +193,7 @@ const Login = () => {
                     id="rememberMe"
                     checked={rememberMe}
                     onCheckedChange={(checked) => setRememberMe(checked === true)}
-                    className="border-gray-400 data-[state=checked]:bg-amber-500 data-[state=checked]:border-amber-500"
+                    className="border-gray-400 data-[state=checked]:bg-yellow-500 data-[state=checked]:border-yellow-500"
                   />
                   <Label htmlFor="rememberMe" className="text-sm font-assistant text-gray-700 cursor-pointer">
                     זכור אותי
@@ -202,7 +202,7 @@ const Login = () => {
                 <button
                   type="button"
                   onClick={() => setIsForgotPassword(true)}
-                  className="text-sm text-amber-600 hover:text-amber-700 hover:underline font-assistant"
+                  className="text-sm text-yellow-600 hover:text-yellow-700 hover:underline font-assistant"
                 >
                   שכחתי סיסמה
                 </button>
@@ -211,7 +211,7 @@ const Login = () => {
 
             <Button
               type="submit"
-              className="w-full h-12 text-base font-medium bg-gradient-to-l from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 transition-all shadow-lg shadow-amber-500/25 text-white"
+              className="w-full h-12 text-base font-medium bg-gradient-to-l from-yellow-500 to-yellow-600 hover:from-yellow-600 hover:to-yellow-700 transition-all shadow-lg shadow-yellow-500/30 text-white"
               size="lg"
               disabled={isLoading}
             >
@@ -233,7 +233,7 @@ const Login = () => {
               <button
                 type="button"
                 onClick={() => setIsForgotPassword(false)}
-                className="text-amber-600 font-semibold hover:text-amber-700 hover:underline"
+                className="text-yellow-600 font-semibold hover:text-yellow-700 hover:underline"
               >
                 חזרה להתחברות
               </button>
@@ -243,7 +243,7 @@ const Login = () => {
                 <button
                   type="button"
                   onClick={() => setIsSignUp(!isSignUp)}
-                  className="text-amber-600 font-semibold hover:text-amber-700 hover:underline"
+                  className="text-yellow-600 font-semibold hover:text-yellow-700 hover:underline"
                 >
                   {isSignUp ? "התחבר" : "הרשם עכשיו"}
                 </button>
