@@ -1786,6 +1786,153 @@ def stage_audio():
     })
 
 
+# ════════════════════════════════════════════════════════════════════
+#  CONVERT TO MP3 — server-side FFmpeg conversion with streaming progress
+# ════════════════════════════════════════════════════════════════════
+
+_CONVERT_ALLOWED_SUFFIXES = frozenset({
+    ".mp4", ".mkv", ".avi", ".mov", ".webm", ".flv", ".wmv", ".m4v", ".3gp",
+    ".ogv", ".ts", ".mts", ".m2ts", ".vob", ".mpg", ".mpeg",
+    ".m4a", ".wav", ".ogg", ".flac", ".aac", ".wma", ".opus", ".amr",
+})
+
+@app.route("/convert-mp3", methods=["POST"])
+def convert_mp3():
+    """Convert uploaded audio/video file to MP3 using server-side FFmpeg.
+    Returns the MP3 file directly, or streams SSE progress if Accept: text/event-stream.
+    """
+    if not _check_ffmpeg():
+        return jsonify({"error": "FFmpeg not available on server"}), 503
+
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+
+    audio_file = request.files["file"]
+    filename = audio_file.filename or "input.mp4"
+    suffix = Path(filename).suffix.lower()
+    if suffix not in _CONVERT_ALLOWED_SUFFIXES:
+        return jsonify({"error": f"Unsupported format: {suffix}"}), 415
+
+    # Save uploaded file to temp
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_in:
+        audio_file.save(tmp_in)
+        input_path = tmp_in.name
+
+    output_path = input_path + ".mp3"
+
+    try:
+        import subprocess
+
+        # If client wants SSE streaming progress
+        if "text/event-stream" in request.headers.get("Accept", ""):
+            def generate():
+                try:
+                    proc = subprocess.Popen(
+                        ["ffmpeg", "-y", "-i", input_path,
+                         "-vn", "-acodec", "libmp3lame", "-ab", "192k",
+                         "-ar", "44100", "-ac", "2",
+                         "-progress", "pipe:1", "-nostats",
+                         output_path],
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                        text=True, encoding="utf-8", errors="replace",
+                    )
+
+                    # Parse duration from stderr in background
+                    duration = [0.0]
+                    def read_stderr():
+                        for line in proc.stderr:
+                            m = __import__("re").search(r"Duration:\s*(\d+):(\d+):(\d+)\.(\d+)", line)
+                            if m:
+                                duration[0] = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + int(m.group(3)) + int(m.group(4)) / 100
+
+                    t = threading.Thread(target=read_stderr, daemon=True)
+                    t.start()
+
+                    # Parse progress from stdout
+                    for line in proc.stdout:
+                        line = line.strip()
+                        if line.startswith("out_time_ms="):
+                            try:
+                                us = int(line.split("=", 1)[1])
+                                current_sec = us / 1_000_000
+                                if duration[0] > 0:
+                                    pct = min(99, round(current_sec / duration[0] * 100))
+                                    yield f"data: {json.dumps({'progress': pct})}\n\n"
+                            except ValueError:
+                                pass
+                        elif line == "progress=end":
+                            break
+
+                    proc.wait(timeout=600)
+                    t.join(timeout=5)
+
+                    if proc.returncode != 0 or not os.path.exists(output_path):
+                        yield f"data: {json.dumps({'error': 'FFmpeg conversion failed'})}\n\n"
+                        return
+
+                    # Stage the output for download
+                    import uuid as _uuid
+                    stage_id = str(_uuid.uuid4())
+                    mp3_name = Path(filename).stem + ".mp3"
+                    _staged_files[stage_id] = {
+                        "path": output_path,
+                        "filename": mp3_name,
+                        "timestamp": time.time(),
+                    }
+                    file_size = os.path.getsize(output_path)
+                    yield f"data: {json.dumps({'progress': 100, 'done': True, 'file_size': file_size, 'download_id': stage_id})}\n\n"
+                finally:
+                    # Cleanup input only; output stays for download
+                    try:
+                        os.unlink(input_path)
+                    except OSError:
+                        pass
+
+            return Response(generate(), mimetype="text/event-stream",
+                            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+        # Non-streaming: convert and return file directly
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-vn", "-acodec", "libmp3lame", "-ab", "192k",
+             "-ar", "44100", "-ac", "2",
+             output_path],
+            capture_output=True, timeout=600,
+        )
+
+        if result.returncode != 0 or not os.path.exists(output_path):
+            return jsonify({"error": "FFmpeg conversion failed",
+                            "details": result.stderr.decode("utf-8", errors="replace")[-500:]}), 500
+
+        mp3_name = Path(filename).stem + ".mp3"
+
+        from flask import send_file
+        return send_file(output_path, mimetype="audio/mpeg",
+                         as_attachment=True, download_name=mp3_name)
+    except subprocess.TimeoutExpired:
+        return jsonify({"error": "Conversion timed out (10 min limit)"}), 504
+    except Exception as e:
+        _log.error(f"convert-mp3 error: {e}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        for p in (input_path, output_path):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+
+
+@app.route("/convert-mp3/download/<path:stage_id>", methods=["GET"])
+def convert_mp3_download(stage_id):
+    """Download a completed SSE conversion result by stage_id."""
+    info = _staged_files.get(stage_id)
+    if not info or not os.path.exists(info.get("path", "")):
+        return jsonify({"error": "File not found or expired"}), 404
+    from flask import send_file
+    return send_file(info["path"], mimetype="audio/mpeg",
+                     as_attachment=True, download_name=info.get("filename", "output.mp3"))
+
+
 @app.route("/load-model", methods=["POST"])
 def load_model_endpoint():
     """Pre-load a model into GPU memory (unloads others first to free VRAM)."""
@@ -2574,6 +2721,7 @@ def main():
     print("    POST /transcribe-live   — Low-latency chunk transcription (live mode)")
     print("    POST /youtube-transcribe — Download + transcribe YouTube video")
     print("    POST /stage-audio       — Pre-upload audio (parallel with preload)")
+    print("    POST /convert-mp3       — Convert audio/video to MP3 (server FFmpeg)")
     print("    POST /load-model        — Load model into GPU memory")
     print("    POST /preload-stream    — Preload model via SSE (background)")
     print("    POST /download-model    — Download model to disk only")

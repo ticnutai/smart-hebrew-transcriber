@@ -1,5 +1,7 @@
 import { test, expect, mockSupabase, injectAuthSession, mockLocalServer } from './helpers';
 
+const RUN_REAL_FFMPEG_E2E = process.env.RUN_REAL_FFMPEG_E2E === '1';
+
 // ─── Generate a real WAV buffer (sine tone) that FFmpeg can actually convert ─
 function createToneWavBuffer(durationSec = 2, freq = 440, sampleRate = 16000): Buffer {
   const numSamples = sampleRate * durationSec;
@@ -131,6 +133,8 @@ test.describe('ממיר וידאו - ללא חיבור', () => {
 
 // ─── Real conversion test ────────────────────────────────────────────────────
 test.describe('המרה אמיתית WAV → MP3', () => {
+  test.skip(!RUN_REAL_FFMPEG_E2E, 'Requires real FFmpeg WASM runtime and network access for core assets');
+
   test.beforeEach(async ({ page }) => {
     await mockSupabase(page, { authenticated: true });
     await injectAuthSession(page);

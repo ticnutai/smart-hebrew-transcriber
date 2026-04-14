@@ -9,6 +9,7 @@
 
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { toBlobURL, fetchFile } from "@ffmpeg/util";
+import { chooseConversionPath, convertOnServer } from "./conversionRouter";
 
 export type JobStatus = "queued" | "loading" | "converting" | "done" | "error";
 
@@ -26,6 +27,7 @@ export interface ConversionJob {
   finishedAt?: number;
   duration?: number;        // total duration in seconds (for real progress)
   retryCount: number;
+  conversionPath?: "browser" | "server";  // which engine was used
 }
 
 export type JobUpdateCallback = (job: ConversionJob) => void;
@@ -165,19 +167,55 @@ export async function removePersistedJob(jobId: string) {
 
 // ─── FFmpeg instance pool for parallelism ────────────────────────────────────
 
-const CDN_BASE = "https://unpkg.com/@ffmpeg/core@0.12.10/dist/esm";
+// Local import from installed @ffmpeg/core (served by Vite from node_modules)
+import coreUrl from "@ffmpeg/core?url";
+import wasmUrl from "@ffmpeg/core/wasm?url";
+
 let cachedCoreURL: string | null = null;
 let cachedWasmURL: string | null = null;
 
 async function loadCoreUrls() {
-  if (cachedCoreURL && cachedWasmURL) return { coreURL: cachedCoreURL, wasmURL: cachedWasmURL };
-  const [coreURL, wasmURL] = await Promise.all([
-    toBlobURL(`${CDN_BASE}/ffmpeg-core.js`, "text/javascript"),
-    toBlobURL(`${CDN_BASE}/ffmpeg-core.wasm`, "application/wasm"),
-  ]);
-  cachedCoreURL = coreURL;
-  cachedWasmURL = wasmURL;
-  return { coreURL, wasmURL };
+  if (cachedCoreURL && cachedWasmURL) {
+    return { coreURL: cachedCoreURL, wasmURL: cachedWasmURL };
+  }
+
+  // Primary: load from local node_modules (bundled by Vite)
+  try {
+    const [coreBlobURL, wasmBlobURL] = await Promise.all([
+      toBlobURL(coreUrl, "text/javascript"),
+      toBlobURL(wasmUrl, "application/wasm"),
+    ]);
+    cachedCoreURL = coreBlobURL;
+    cachedWasmURL = wasmBlobURL;
+    return { coreURL: cachedCoreURL, wasmURL: cachedWasmURL };
+  } catch (localErr) {
+    console.warn("[FFmpeg] Local core load failed, trying CDN fallback...", localErr);
+  }
+
+  // Fallback: CDN (core + wasm only, no worker file in single-threaded package)
+  const CDN_BASES = [
+    "https://unpkg.com/@ffmpeg/core@0.12.10/dist/esm",
+    "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm",
+  ];
+
+  let lastErr: unknown;
+  for (const base of CDN_BASES) {
+    try {
+      const [coreBlobURL, wasmBlobURL] = await Promise.all([
+        toBlobURL(`${base}/ffmpeg-core.js`, "text/javascript"),
+        toBlobURL(`${base}/ffmpeg-core.wasm`, "application/wasm"),
+      ]);
+      cachedCoreURL = coreBlobURL;
+      cachedWasmURL = wasmBlobURL;
+      return { coreURL: cachedCoreURL, wasmURL: cachedWasmURL };
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+
+  throw lastErr instanceof Error
+    ? lastErr
+    : new Error("Failed to load FFmpeg core assets from local bundle and CDN fallbacks");
 }
 
 async function createFFmpegInstance(): Promise<FFmpeg> {
@@ -238,7 +276,36 @@ function parseTime(msg: string): number | null {
 
 // ─── Conversion engine ──────────────────────────────────────────────────────
 
-async function runConversion(job: ConversionJob) {
+async function runServerConversion(job: ConversionJob): Promise<boolean> {
+  const file = job.file!;
+  try {
+    job.conversionPath = "server";
+    job.status = "converting";
+    job.progress = 0;
+    notifyAll(job);
+
+    const blob = await convertOnServer(file, (p) => {
+      job.progress = Math.min(99, p.progress);
+      notifyAll(job);
+    });
+
+    const url = URL.createObjectURL(blob);
+    job.status = "done";
+    job.progress = 100;
+    job.outputBlob = blob;
+    job.outputUrl = url;
+    job.finishedAt = Date.now();
+    notifyAll(job);
+
+    const mp3Name = file.name.replace(/\.[^/.]+$/, "") + ".mp3";
+    await Promise.all([persistJob(job), persistOutput(job.id, blob, mp3Name)]);
+    return true;
+  } catch {
+    return false; // caller will fallback to WASM
+  }
+}
+
+async function runWasmConversion(job: ConversionJob): Promise<void> {
   const file = job.file;
   if (!file) {
     job.status = "error";
@@ -251,6 +318,7 @@ async function runConversion(job: ConversionJob) {
 
   let ffmpeg: FFmpeg | null = null;
   try {
+    job.conversionPath = "browser";
     job.status = "loading";
     job.startedAt = Date.now();
     job.progress = 0;
@@ -330,6 +398,35 @@ async function runConversion(job: ConversionJob) {
     if (ffmpeg) releaseFFmpeg(ffmpeg);
     drainQueue();
   }
+}
+
+/** Hybrid orchestrator: choose path, try server for large files, fallback to WASM. */
+async function runConversion(job: ConversionJob) {
+  const file = job.file;
+  if (!file) {
+    job.status = "error";
+    job.error = "קובץ לא נמצא — יש להוסיף מחדש";
+    job.finishedAt = Date.now();
+    notifyAll(job);
+    await persistJob(job);
+    return;
+  }
+
+  job.startedAt = Date.now();
+  const path = await chooseConversionPath(file.size);
+
+  if (path === "server") {
+    const ok = await runServerConversion(job);
+    if (ok) return;
+    // Server failed — reset and fallback to WASM
+    job.status = "queued";
+    job.progress = 0;
+    job.error = undefined;
+    job.conversionPath = undefined;
+    notifyAll(job);
+  }
+
+  await runWasmConversion(job);
 }
 
 // ─── Queue with parallel dispatch ────────────────────────────────────────────

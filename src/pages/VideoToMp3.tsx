@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   convertToMp3,
@@ -13,6 +13,7 @@ import {
   removePersistedJob,
   type ConversionJob,
 } from "@/lib/ffmpegConverter";
+import { isServerAvailable } from "@/lib/conversionRouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -46,14 +47,14 @@ import {
   RefreshCw,
   Cpu,
   Scissors,
-  Pencil,
-  CheckSquare,
+  Server,
+  Globe,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { extractAudioSegment, probeAudioDurationSec } from "@/lib/audioSegment";
+
+// Lazy-loaded advanced cut panel
+const AdvancedCutPanel = lazy(() => import("@/components/AdvancedCutPanel"));
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -73,16 +74,6 @@ function formatDuration(ms: number): string {
 
 const ACCEPTED_MIME =
   "video/*,audio/*,.mkv,.avi,.mov,.webm,.flv,.wmv,.m4v,.3gp,.ogv,.ts,.mts,.m2ts,.vob,.mpg,.mpeg,.m4a,.wav,.ogg,.flac,.aac,.wma,.opus,.amr";
-
-interface CutFileItem {
-  id: string;
-  file: File;
-  fileName: string;
-  sourceName: string;
-  createdAt: number;
-  startSec: number;
-  endSec: number;
-}
 
 // ─── Status Badge ────────────────────────────────────────────────────────────
 
@@ -161,6 +152,16 @@ function JobCard({
                 )}
                 {elapsed && <span>• {elapsed}</span>}
                 {job.retryCount > 0 && <span>• ניסיון {job.retryCount + 1}</span>}
+                {job.conversionPath && (
+                  <span className="inline-flex items-center gap-0.5">
+                    •
+                    {job.conversionPath === "server" ? (
+                      <><Server className="w-3 h-3" /> שרת</>
+                    ) : (
+                      <><Globe className="w-3 h-3" /> דפדפן</>
+                    )}
+                  </span>
+                )}
               </div>
               {(job.status === "converting" || job.status === "loading") && (
                 <div className="flex items-center gap-2 mt-2">
@@ -253,18 +254,10 @@ export default function VideoToMp3() {
   const [saveAndTranscribeBusyId, setSaveAndTranscribeBusyId] = useState<string | null>(null);
   const [autoTranscribe, setAutoTranscribe] = useState(false);
   const [activeTab, setActiveTab] = useState<"convert" | "cut">("convert");
-  const [cutSourceFile, setCutSourceFile] = useState<File | null>(null);
-  const [cutSourceLabel, setCutSourceLabel] = useState("");
-  const [cutStartSec, setCutStartSec] = useState("0");
-  const [cutEndSec, setCutEndSec] = useState("");
-  const [cutDurationSec, setCutDurationSec] = useState<number | null>(null);
-  const [isCutting, setIsCutting] = useState(false);
-  const [cutFiles, setCutFiles] = useState<CutFileItem[]>([]);
-  const [selectedCutIds, setSelectedCutIds] = useState<string[]>([]);
-  const [editingCutId, setEditingCutId] = useState<string | null>(null);
-  const [editingCutName, setEditingCutName] = useState("");
+  const [cutInitialFile, setCutInitialFile] = useState<File | null>(null);
+  const [cutInitialLabel, setCutInitialLabel] = useState("");
+  const [serverOnline, setServerOnline] = useState<boolean | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const cutFileInputRef = useRef<HTMLInputElement>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
 
   const toMp3File = useCallback((job: ConversionJob): File | null => {
@@ -286,13 +279,15 @@ export default function VideoToMp3() {
     return filePath;
   }, [isAuthenticated, user]);
 
-  // Preload FFmpeg on mount + restore persisted jobs
+  // Preload FFmpeg on mount + restore persisted jobs + check server
   useEffect(() => {
     preloadFFmpeg()
       .then(() => setFfmpegReady(true))
       .catch(() => {
         // Will load on first conversion
       });
+
+    isServerAvailable().then(setServerOnline);
 
     // Restore any persisted jobs from previous session
     restorePersistedJobs().then((restored) => {
@@ -459,18 +454,8 @@ export default function VideoToMp3() {
   }, []);
 
   const handleSelectCutSource = useCallback(async (file: File, sourceName?: string) => {
-    setCutSourceFile(file);
-    setCutSourceLabel(sourceName || file.name);
-    try {
-      const duration = await probeAudioDurationSec(file);
-      setCutDurationSec(duration);
-      setCutStartSec("0");
-      setCutEndSec(duration.toFixed(2));
-    } catch {
-      setCutDurationSec(null);
-      setCutEndSec("");
-      toast({ title: "לא ניתן לטעון משך קובץ", description: "בחר קובץ אודיו תקין", variant: "destructive" });
-    }
+    setCutInitialFile(file);
+    setCutInitialLabel(sourceName || file.name);
   }, []);
 
   const handleCutFromConverted = useCallback((job: ConversionJob) => {
@@ -479,72 +464,6 @@ export default function VideoToMp3() {
     void handleSelectCutSource(mp3File, `${job.fileName} (מומר)`);
     setActiveTab("cut");
   }, [handleSelectCutSource, toMp3File]);
-
-  const handleRunCut = useCallback(async () => {
-    if (!cutSourceFile) {
-      toast({ title: "לא נבחר מקור", description: "בחר קובץ לחיתוך", variant: "destructive" });
-      return;
-    }
-    const start = Number(cutStartSec);
-    const end = Number(cutEndSec);
-    if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start) {
-      toast({ title: "טווח חיתוך לא תקין", description: "יש לוודא התחלה/סיום תקינים", variant: "destructive" });
-      return;
-    }
-
-    setIsCutting(true);
-    try {
-      const segmentFile = await extractAudioSegment(cutSourceFile, start, end);
-      const newItem: CutFileItem = {
-        id: `cut_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        file: segmentFile,
-        fileName: segmentFile.name,
-        sourceName: cutSourceLabel || cutSourceFile.name,
-        createdAt: Date.now(),
-        startSec: start,
-        endSec: end,
-      };
-      setCutFiles(prev => [newItem, ...prev]);
-      toast({ title: "החיתוך הושלם", description: `${segmentFile.name} נוסף לרשימה` });
-    } catch (err) {
-      toast({ title: "שגיאה בחיתוך", description: err instanceof Error ? err.message : "Unknown error", variant: "destructive" });
-    } finally {
-      setIsCutting(false);
-    }
-  }, [cutEndSec, cutSourceFile, cutSourceLabel, cutStartSec]);
-
-  const handleSaveCutFile = useCallback((item: CutFileItem) => {
-    const url = URL.createObjectURL(item.file);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = item.fileName;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, []);
-
-  const handleDeleteCutFile = useCallback((id: string) => {
-    setCutFiles(prev => prev.filter(item => item.id !== id));
-    setSelectedCutIds(prev => prev.filter(x => x !== id));
-  }, []);
-
-  const handleToggleCutSelection = useCallback((id: string) => {
-    setSelectedCutIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
-  }, []);
-
-  const handleDeleteSelectedCuts = useCallback(() => {
-    if (selectedCutIds.length === 0) return;
-    setCutFiles(prev => prev.filter(item => !selectedCutIds.includes(item.id)));
-    setSelectedCutIds([]);
-    toast({ title: "נמחקו קטעים", description: `${selectedCutIds.length} קטעים נמחקו` });
-  }, [selectedCutIds]);
-
-  const handleSaveCutRename = useCallback((id: string) => {
-    const nextName = editingCutName.trim();
-    if (!nextName) return;
-    setCutFiles(prev => prev.map(item => item.id === id ? { ...item, fileName: nextName } : item));
-    setEditingCutId(null);
-    setEditingCutName("");
-  }, [editingCutName]);
 
   // Drag & Drop handlers
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -592,7 +511,7 @@ export default function VideoToMp3() {
             ממיר וידאו ל-MP3
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            המרה מהירה בדפדפן — ללא העלאה לשרת. תומך ב-{getSupportedExtensions().length}+ פורמטים.
+            המרה היברידית — דפדפן לקבצים קטנים, שרת לקבצים גדולים. תומך ב-{getSupportedExtensions().length}+ פורמטים.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -607,6 +526,12 @@ export default function VideoToMp3() {
               <><Loader2 className="w-3 h-3 animate-spin" /> טוען מנוע...</>
             )}
           </Badge>
+          {serverOnline !== null && (
+            <Badge variant={serverOnline ? "secondary" : "outline"} className="gap-1">
+              <Server className="w-3 h-3" />
+              {serverOnline ? "שרת מחובר" : "שרת לא זמין"}
+            </Badge>
+          )}
         </div>
       </div>
 
@@ -753,148 +678,26 @@ export default function VideoToMp3() {
         </TabsContent>
 
         <TabsContent value="cut" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <Scissors className="w-4 h-4 text-primary" />
-                מערכת חיתוך קבצים
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-1"
-                  onClick={() => cutFileInputRef.current?.click()}
-                >
-                  <Upload className="w-4 h-4" />
-                  בחר קובץ לחיתוך
-                </Button>
-                <input
-                  ref={cutFileInputRef}
-                  type="file"
-                  accept="audio/*"
-                  className="hidden"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) void handleSelectCutSource(f);
-                    e.target.value = "";
-                  }}
-                />
-                {doneJobs.length > 0 && (
-                  <span className="text-xs text-muted-foreground">או בחר מתוך קבצים שהומרו:</span>
-                )}
-                {doneJobs.slice(0, 6).map(job => (
-                  <Button key={job.id} variant="ghost" size="sm" className="text-xs h-7" onClick={() => handleCutFromConverted(job)}>
-                    {job.fileName.replace(/\.[^/.]+$/, "")}
-                  </Button>
-                ))}
-              </div>
-
-              {cutSourceFile && (
-                <div className="border rounded-lg p-3 space-y-3 bg-muted/20">
-                  <div className="text-sm">
-                    מקור נבחר: <span className="font-medium">{cutSourceLabel}</span>
-                    {cutDurationSec !== null && <span className="text-muted-foreground"> • משך {cutDurationSec.toFixed(2)} שנ׳</span>}
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <div className="space-y-1">
-                      <Label className="text-xs">התחלה (שניות)</Label>
-                      <Input type="number" min={0} step="0.1" value={cutStartSec} onChange={(e) => setCutStartSec(e.target.value)} className="h-8" />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">סיום (שניות)</Label>
-                      <Input type="number" min={0} step="0.1" value={cutEndSec} onChange={(e) => setCutEndSec(e.target.value)} className="h-8" />
-                    </div>
-                  </div>
-                  <Button size="sm" className="gap-1" disabled={isCutting} onClick={() => void handleRunCut()}>
-                    {isCutting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Scissors className="w-4 h-4" />}
-                    חתוך קובץ
-                  </Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base flex items-center justify-between">
-                <span>קבצים שנחתכו ({cutFiles.length})</span>
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="gap-1">
-                    <CheckSquare className="w-3 h-3" />
-                    נבחרו {selectedCutIds.length}
-                  </Badge>
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    className="h-7 text-xs gap-1"
-                    disabled={selectedCutIds.length === 0}
-                    onClick={handleDeleteSelectedCuts}
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    מחק נבחרים
-                  </Button>
-                </div>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {cutFiles.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-6">עדיין אין קבצים חתוכים.</p>
-              ) : (
-                <div className="space-y-2">
-                  {cutFiles.map(item => (
-                    <div key={item.id} className="border rounded-lg p-2.5 flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={selectedCutIds.includes(item.id)}
-                        onChange={() => handleToggleCutSelection(item.id)}
-                        className="rounded border-muted-foreground/40"
-                      />
-                      <div className="flex-1 min-w-0">
-                        {editingCutId === item.id ? (
-                          <div className="flex items-center gap-1.5">
-                            <Input value={editingCutName} onChange={(e) => setEditingCutName(e.target.value)} className="h-7 text-xs" />
-                            <Button size="sm" className="h-7 text-xs" onClick={() => handleSaveCutRename(item.id)}>
-                              שמור
-                            </Button>
-                          </div>
-                        ) : (
-                          <>
-                            <div className="text-sm font-medium truncate">{item.fileName}</div>
-                            <div className="text-[11px] text-muted-foreground truncate">
-                              מקור: {item.sourceName} • {item.startSec.toFixed(2)}s-{item.endSec.toFixed(2)}s • {formatBytes(item.file.size)}
-                            </div>
-                          </>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Button size="icon" variant="ghost" className="h-8 w-8" title="שמור" onClick={() => handleSaveCutFile(item)}>
-                          <Save className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8"
-                          title="ערוך שם"
-                          onClick={() => {
-                            setEditingCutId(item.id);
-                            setEditingCutName(item.fileName);
-                          }}
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </Button>
-                        <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" title="מחק" onClick={() => handleDeleteCutFile(item.id)}>
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <Suspense
+            fallback={
+              <Card>
+                <CardContent className="flex items-center justify-center py-12">
+                  <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                  <span className="mr-2 text-sm text-muted-foreground">טוען מערכת חיתוך...</span>
+                </CardContent>
+              </Card>
+            }
+          >
+            <AdvancedCutPanel
+              initialFile={cutInitialFile ?? undefined}
+              initialSourceLabel={cutInitialLabel || undefined}
+              convertedFiles={doneJobs.map((j) => ({
+                id: j.id,
+                name: j.fileName,
+                file: new File([j.outputBlob!], j.fileName.replace(/\.[^/.]+$/, "") + ".mp3", { type: "audio/mpeg" }),
+              }))}
+            />
+          </Suspense>
         </TabsContent>
       </Tabs>
 

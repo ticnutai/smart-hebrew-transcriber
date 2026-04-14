@@ -15,7 +15,7 @@ import {
   GitCompareArrows, MessageSquare, Users, ArrowRight,
   Maximize2, Minimize2, Eye, EyeOff, Filter, Printer, ChevronDown,
   Play, Volume2, Search, Square, Check, Merge, Subtitles, Pause,
-  Loader2, Cloud, Globe, Mic, Server, Zap,
+  Loader2, Cloud, Globe, Mic, Server, Zap, Save, Pencil, Eraser, X,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useCloudApiKeys } from "@/hooks/useCloudApiKeys";
@@ -326,6 +326,20 @@ function exportVTT(entry: CompareEntry) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = `${entry.label}-diarization.vtt`; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function saveEntryTranscript(entry: CompareEntry) {
+  const merged = getMergedSegments(entry.result);
+  const lines = merged.map((seg) =>
+    `[${resolveSpeakerLabel(entry, seg.speaker_label)}] (${formatTime(seg.start)}-${formatTime(seg.end)})\n${seg.text}`
+  );
+  const blob = new Blob([lines.join('\n\n')], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${entry.label}-diarization.txt`;
+  a.click();
   URL.revokeObjectURL(url);
 }
 
@@ -795,6 +809,7 @@ function TranscriptComparison({ entries, diffPair }: {
 interface EngineColumnProps {
   entry: CompareEntry;
   idx: number;
+  canClear: boolean;
   currentTime: number;
   onSeek: (time: number) => void;
   audioUrl: string | null;
@@ -814,15 +829,19 @@ interface EngineColumnProps {
   onSyncSeekPlay?: (time: number, play?: boolean) => void;
   onSyncPauseAll?: () => void;
   onRegisterAudio?: (idx: number, el: HTMLAudioElement | null) => void;
+  onClearColumn: (idx: number) => void;
+  onSaveColumn: (idx: number) => void;
+  onRenameColumn: (idx: number, name: string) => void;
   dmp: DiffMatchPatch;
 }
 
 function EngineColumn({
-  entry, idx, currentTime, onSeek, searchQuery, highlightedSegIdx,
+  entry, idx, canClear, currentTime, onSeek, searchQuery, highlightedSegIdx,
   onHighlightSeg, otherEntry, speakerMap, onPlaySegment,
   audioUrl,
   mergeSelections, onToggleMerge, side, showMerge, scrollRef, onScroll,
   syncPlaybackEnabled, onSyncSeekPlay, onSyncPauseAll, onRegisterAudio,
+  onClearColumn, onSaveColumn, onRenameColumn,
   dmp,
 }: EngineColumnProps) {
   const color = ENGINE_COLORS[entry.label] || '#888';
@@ -833,6 +852,12 @@ function EngineColumn({
   const columnAudioRef = useRef<HTMLAudioElement | null>(null);
   const segmentStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [columnTime, setColumnTime] = useState(0);
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editedName, setEditedName] = useState(entry.label);
+
+  useEffect(() => {
+    setEditedName(entry.label);
+  }, [entry.label]);
 
   // Find current segment for highlight
   const effectiveTime = audioUrl ? columnTime : currentTime;
@@ -904,10 +929,105 @@ function EngineColumn({
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
             <div className="w-3.5 h-3.5 rounded-full" style={{ backgroundColor: color }} />
-            <span className="font-bold text-base">{entry.label}</span>
+            {isEditingName ? (
+              <div className="flex items-center gap-1">
+                <Input
+                  value={editedName}
+                  onChange={(e) => setEditedName(e.target.value)}
+                  className="h-7 w-36 text-xs"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      const nextName = editedName.trim();
+                      if (nextName) {
+                        onRenameColumn(idx, nextName);
+                        setIsEditingName(false);
+                      }
+                    }
+                    if (e.key === 'Escape') {
+                      setEditedName(entry.label);
+                      setIsEditingName(false);
+                    }
+                  }}
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0"
+                  onClick={() => {
+                    const nextName = editedName.trim();
+                    if (!nextName) return;
+                    onRenameColumn(idx, nextName);
+                    setIsEditingName(false);
+                  }}
+                >
+                  <Check className="w-3.5 h-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0"
+                  onClick={() => {
+                    setEditedName(entry.label);
+                    setIsEditingName(false);
+                  }}
+                >
+                  <X className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+            ) : (
+              <span className="font-bold text-base">{entry.label}</span>
+            )}
             <Badge variant="outline" className="text-[10px]">{entry.result.diarization_method}</Badge>
           </div>
           <div className="flex items-center gap-1">
+            <div className="flex items-center gap-0.5 rounded-md border bg-muted/30 px-1 py-0.5">
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0"
+                      onClick={() => onSaveColumn(idx)}
+                      aria-label="שמור עמודה"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>שמור עמודה</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0"
+                      onClick={() => setIsEditingName(true)}
+                      aria-label="עריכת שם"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>עריכת שם</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0 text-destructive hover:text-destructive"
+                      onClick={() => onClearColumn(idx)}
+                      disabled={!canClear}
+                      aria-label="ניקוי עמודה"
+                    >
+                      <Eraser className="w-3.5 h-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{canClear ? 'ניקוי עמודה' : 'נדרש לפחות מנוע נוסף'}</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+
             {/* SRT/VTT export (Enhancement 7) */}
             <TooltipProvider>
               <Tooltip>
@@ -1456,6 +1576,67 @@ const DiarizationComparePage = () => {
 
   const handlePrint = () => window.print();
 
+  const handleClearEntry = useCallback((idxToClear: number) => {
+    setEntries((prev) => {
+      if (idxToClear < 0 || idxToClear >= prev.length) return prev;
+      if (prev.length <= 1) return prev;
+
+      const next = prev.filter((_, i) => i !== idxToClear);
+      if (next.length >= 2) {
+        localStorage.setItem('diarization_compare_entries', JSON.stringify(next));
+      } else {
+        localStorage.removeItem('diarization_compare_entries');
+      }
+
+      setDiffPair((pairPrev) => {
+        if (next.length < 2) return [0, 1];
+
+        const remap = (v: number) => (v > idxToClear ? v - 1 : v);
+        const removedInPair = pairPrev[0] === idxToClear || pairPrev[1] === idxToClear;
+        if (removedInPair) return [0, 1];
+
+        const a = remap(pairPrev[0]);
+        const b = remap(pairPrev[1]);
+        if (a === b || a >= next.length || b >= next.length) return [0, 1];
+        return [Math.min(a, b), Math.max(a, b)];
+      });
+
+      toast({ title: 'העמודה נוקתה', description: 'אפשר להוסיף מנוע חדש במקומה' });
+      return next;
+    });
+  }, []);
+
+  const handleSaveEntry = useCallback((idxToSave: number) => {
+    const entry = entries[idxToSave];
+    if (!entry) return;
+    saveEntryTranscript(entry);
+    toast({ title: 'נשמר', description: `נשמר קובץ עבור ${entry.label}` });
+  }, [entries]);
+
+  const handleRenameEntry = useCallback((idxToRename: number, nextNameRaw: string) => {
+    const nextName = nextNameRaw.trim();
+    if (!nextName) {
+      toast({ title: 'שם לא תקין', description: 'נא להזין שם עמודה', variant: 'destructive' });
+      return;
+    }
+
+    setEntries((prev) => {
+      if (idxToRename < 0 || idxToRename >= prev.length) return prev;
+      const duplicate = prev.some((e, i) => i !== idxToRename && e.label.trim().toLowerCase() === nextName.toLowerCase());
+      if (duplicate) {
+        toast({ title: 'שם כבר קיים', description: 'בחר שם שונה לעמודה', variant: 'destructive' });
+        return prev;
+      }
+
+      const next = prev.map((entry, i) => i === idxToRename ? { ...entry, label: nextName } : entry);
+      if (next.length >= 2) {
+        localStorage.setItem('diarization_compare_entries', JSON.stringify(next));
+      }
+      toast({ title: 'השם עודכן', description: `העמודה נקראת עכשיו ${nextName}` });
+      return next;
+    });
+  }, []);
+
   // handleRunSecondEngine removed — replaced by handleAddEngine above
 
   // Add engine handler — works for both 1-entry and 2+ entry states
@@ -1534,18 +1715,29 @@ const DiarizationComparePage = () => {
     }
   }, [audioFileName, audioUrl, cloudKeys, pendingEngineJobs, qualityByEngine, queue]);
 
-  // Build available engines list (excluding already-present engines)
+  // Build engine list (show all; mark already-added instead of hiding)
   const getAvailableEngines = useCallback(() => {
-    const existingLabels = entries.map(e => e.label.toLowerCase());
+    const toEngineValue = (label: string): string | null => {
+      const l = label.trim().toLowerCase();
+      if (l.includes('מקומי') || l.includes('local') || l.includes('silence-gap')) return 'local';
+      if (l.includes('whisperx')) return 'whisperx';
+      if (l.includes('assembly')) return 'assemblyai';
+      if (l.includes('deepgram')) return 'deepgram';
+      if (l.includes('openai')) return 'openai';
+      if (l.includes('דפדפן') || l.includes('browser')) return 'browser';
+      return null;
+    };
+
+    const existingValues = new Set(entries.map(e => toEngineValue(e.label)).filter(Boolean) as string[]);
+
     return [
-      { value: 'local', label: 'מקומי', icon: Server, hasKey: true },
-      { value: 'whisperx', label: 'WhisperX', icon: Mic, hasKey: true },
-      { value: 'assemblyai', label: 'AssemblyAI', icon: Cloud, hasKey: !!cloudKeys.assemblyai_key },
-      { value: 'deepgram', label: 'Deepgram', icon: Cloud, hasKey: !!cloudKeys.deepgram_key },
-      { value: 'openai', label: 'OpenAI', icon: Cloud, hasKey: !!cloudKeys.openai_key },
-      { value: 'browser', label: 'דפדפן (pyannote)', icon: Globe, hasKey: true },
-    ].filter(eng => !existingLabels.includes(eng.value) && !existingLabels.includes(eng.label.toLowerCase())
-      && !existingLabels.some(l => l.includes(eng.value)));
+      { value: 'local', label: 'מקומי', icon: Server, hasKey: true, alreadyAdded: existingValues.has('local') },
+      { value: 'whisperx', label: 'WhisperX', icon: Mic, hasKey: true, alreadyAdded: existingValues.has('whisperx') },
+      { value: 'assemblyai', label: 'AssemblyAI', icon: Cloud, hasKey: !!cloudKeys.assemblyai_key, alreadyAdded: existingValues.has('assemblyai') },
+      { value: 'deepgram', label: 'Deepgram', icon: Cloud, hasKey: !!cloudKeys.deepgram_key, alreadyAdded: existingValues.has('deepgram') },
+      { value: 'openai', label: 'OpenAI', icon: Cloud, hasKey: !!cloudKeys.openai_key, alreadyAdded: existingValues.has('openai') },
+      { value: 'browser', label: 'דפדפן (pyannote)', icon: Globe, hasKey: true, alreadyAdded: existingValues.has('browser') },
+    ];
   }, [entries, cloudKeys]);
 
   // ── Single entry: split view with result on left, picker on right ──
@@ -1579,6 +1771,7 @@ const DiarizationComparePage = () => {
             <EngineColumn
               entry={firstEntry}
               idx={0}
+              canClear={false}
               currentTime={currentTime}
               onSeek={handleSeek}
               audioUrl={audioUrl}
@@ -1598,6 +1791,9 @@ const DiarizationComparePage = () => {
               onSyncSeekPlay={syncSeekPlay}
               onSyncPauseAll={pauseAll}
               onRegisterAudio={registerAudio}
+              onClearColumn={handleClearEntry}
+              onSaveColumn={handleSaveEntry}
+              onRenameColumn={handleRenameEntry}
               dmp={dmp}
             />
           </div>
@@ -1617,7 +1813,7 @@ const DiarizationComparePage = () => {
                   key={eng.value}
                   variant="outline"
                   className="h-auto py-4 flex flex-col items-center gap-2 relative hover:bg-primary/5 hover:border-primary/30"
-                  disabled={!eng.hasKey || runningEngines.has(eng.value)}
+                  disabled={!eng.hasKey || runningEngines.has(eng.value) || eng.alreadyAdded}
                   onClick={() => handleAddEngine(eng.value)}
                 >
                   {runningEngines.has(eng.value) ? (
@@ -1627,6 +1823,7 @@ const DiarizationComparePage = () => {
                   )}
                   <span className="text-sm font-medium">{eng.label}</span>
                   {!eng.hasKey && <span className="text-[9px] text-destructive">חסר מפתח</span>}
+                  {eng.alreadyAdded && <span className="text-[9px] text-muted-foreground">כבר נוסף</span>}
                   {runningEngines.has(eng.value) && (() => {
                     const jobId = pendingEngineJobs[eng.value];
                     const job = queue.jobs.find(j => j.id === jobId);
@@ -1849,8 +2046,8 @@ const DiarizationComparePage = () => {
                 </SelectTrigger>
                 <SelectContent>
                   {avail.map(eng => (
-                    <SelectItem key={eng.value} value={eng.value} disabled={!eng.hasKey}>
-                      {eng.label} {!eng.hasKey && '(חסר מפתח)'}
+                    <SelectItem key={eng.value} value={eng.value} disabled={!eng.hasKey || eng.alreadyAdded || runningEngines.has(eng.value)}>
+                      {eng.label} {eng.alreadyAdded ? '(כבר נוסף)' : !eng.hasKey ? '(חסר מפתח)' : runningEngines.has(eng.value) ? '(בעיבוד)' : ''}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -1911,6 +2108,7 @@ const DiarizationComparePage = () => {
                 <EngineColumn
                   entry={entry}
                   idx={i}
+                  canClear={entries.length > 1}
                   currentTime={currentTime}
                   onSeek={handleSeek}
                   audioUrl={audioUrl}
@@ -1930,6 +2128,9 @@ const DiarizationComparePage = () => {
                   onSyncSeekPlay={syncSeekPlay}
                   onSyncPauseAll={pauseAll}
                   onRegisterAudio={registerAudio}
+                  onClearColumn={handleClearEntry}
+                  onSaveColumn={handleSaveEntry}
+                  onRenameColumn={handleRenameEntry}
                   dmp={dmp}
                 />
               </div>
