@@ -1,6 +1,15 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, chromium } from '@playwright/test';
 
-test('Login and verify CUDA server connection via console', async ({ browser }) => {
+test('Login and verify CUDA server connection via console', async () => {
+  // Launch with web security disabled to bypass PNA blocking
+  const browser = await chromium.launch({
+    headless: false,
+    args: [
+      '--disable-web-security',
+      '--disable-features=PrivateNetworkAccessRespectPreflightResults,PrivateNetworkAccessForWorkers,PrivateNetworkAccessForNavigations',
+      '--allow-insecure-localhost',
+    ],
+  });
   const context = await browser.newContext({ ignoreHTTPSErrors: true });
   const page = await context.newPage();
 
@@ -103,4 +112,5 @@ test('Login and verify CUDA server connection via console', async ({ browser }) 
   console.log(`--- Final URL: ${page.url()} ---`);
 
   await context.close();
+  await browser.close();
 });

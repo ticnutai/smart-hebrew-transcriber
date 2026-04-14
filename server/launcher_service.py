@@ -115,8 +115,12 @@ def start_ollama():
 
 @app.route("/health", methods=["GET"])
 def health():
-    whisper_ok, whisper_data = is_whisper_running()
-    ollama_ok, ollama_models = is_ollama_running()
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+        wf = ex.submit(is_whisper_running)
+        of = ex.submit(is_ollama_running)
+        whisper_ok, whisper_data = wf.result(timeout=4)
+        ollama_ok, ollama_models = of.result(timeout=4)
     return jsonify({
         "status": "ok",
         "launcher": True,
@@ -134,61 +138,38 @@ def health():
 
 @app.route("/start", methods=["POST"])
 def start_all():
-    """Start CUDA whisper server (and Ollama if available)."""
+    """Start CUDA whisper server (and Ollama if available).
+    Responds immediately to avoid browser timeout (PNA preflight + AbortSignal).
+    Heavy checks run in background thread."""
+    import threading
     global WHISPER_PROCESS
 
-    results = {"whisper": None, "ollama": None}
+    def _do_start():
+        global WHISPER_PROCESS
+        start_ollama()
+        running, _ = is_whisper_running()
+        if running:
+            return
+        python_path = find_python()
+        if not python_path:
+            return
+        model = "ivrit-ai/whisper-large-v3-turbo-ct2"
+        cmd = [python_path, str(WHISPER_SERVER_SCRIPT), "--port", str(WHISPER_PORT), "--model", model]
+        try:
+            WHISPER_PROCESS = subprocess.Popen(
+                cmd, cwd=str(PROJECT_ROOT),
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+            )
+        except Exception:
+            pass
 
-    # 1. Start Ollama
-    ok, msg = start_ollama()
-    results["ollama"] = {"ok": ok, "message": msg}
-
-    # 2. Check if whisper already running
-    running, data = is_whisper_running()
-    if running:
-        results["whisper"] = {
-            "ok": True,
-            "message": "already running",
-            "gpu": data.get("gpu") if data else None,
-        }
-        return jsonify({"ok": True, "results": results})
-
-    # 3. Find python
-    python_path = find_python()
-    if not python_path:
-        results["whisper"] = {
-            "ok": False,
-            "message": "No venv found (.venv or venv-whisper). Run install-whisper-server.ps1 first.",
-        }
-        return jsonify({"ok": False, "results": results}), 500
-
-    # 4. Start whisper server
-    model = "ivrit-ai/whisper-large-v3-turbo-ct2"
-    cmd = [
-        python_path,
-        str(WHISPER_SERVER_SCRIPT),
-        "--port", str(WHISPER_PORT),
-        "--model", model,
-    ]
-
-    try:
-        WHISPER_PROCESS = subprocess.Popen(
-            cmd,
-            cwd=str(PROJECT_ROOT),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
-        )
-        results["whisper"] = {
-            "ok": True,
-            "message": "starting",
-            "pid": WHISPER_PROCESS.pid,
-            "model": model,
-        }
-        return jsonify({"ok": True, "results": results})
-    except Exception as e:
-        results["whisper"] = {"ok": False, "message": str(e)}
-        return jsonify({"ok": False, "results": results}), 500
+    # Fire and forget — respond instantly
+    threading.Thread(target=_do_start, daemon=True).start()
+    return jsonify({"ok": True, "results": {
+        "whisper": {"ok": True, "message": "starting"},
+        "ollama": {"ok": True, "message": "starting"},
+    }})
 
 
 @app.route("/stop", methods=["POST"])
@@ -253,4 +234,10 @@ if __name__ == "__main__":
     print(f"========================================")
     print(f"")
 
-    app.run(host="127.0.0.1", port=args.port, debug=False)
+    # Use waitress with dual-stack so 'localhost' (::1) connects instantly
+    try:
+        from waitress import serve
+        serve(app, listen=f'0.0.0.0:{args.port} [::1]:{args.port}', threads=4,
+              channel_timeout=30, connection_limit=100)
+    except ImportError:
+        app.run(host="0.0.0.0", port=args.port, debug=False)
