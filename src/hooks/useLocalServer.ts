@@ -99,6 +99,9 @@ export const useLocalServer = () => {
   const preloadAbortRef = useRef<AbortController | null>(null);
 
   const getBaseUrl = () => {
+    // Prefer decrypted in-memory value (handles encrypted CloudKeySync values)
+    const decrypted = getApiKey('whisper_server_url');
+    if (decrypted) return normalizeServerUrl(decrypted);
     return normalizeServerUrl(localStorage.getItem('whisper_server_url'));
   };
 

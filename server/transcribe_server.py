@@ -2735,7 +2735,7 @@ def main():
         from waitress import serve
         print(f"  Server: waitress (4 threads, timeout={WAITRESS_CHANNEL_TIMEOUT}s)")
         print()
-        serve(app, host="0.0.0.0", port=args.port, threads=4,
+        serve(app, listen=f'0.0.0.0:{args.port} [::1]:{args.port}', threads=4,
               channel_timeout=WAITRESS_CHANNEL_TIMEOUT,
               recv_bytes=WAITRESS_RECV_BYTES,
               send_bytes=4096, url_scheme='http')
