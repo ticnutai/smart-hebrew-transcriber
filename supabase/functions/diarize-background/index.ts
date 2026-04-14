@@ -117,6 +117,7 @@ async function processAssemblyAI(jobId: string, apiKey: string, filePath: string
     speakers,
     speaker_count: speakers.length,
     duration,
+    processing_time: 0,
     diarization_method: 'AssemblyAI Cloud (Background)',
   };
 }
@@ -160,6 +161,7 @@ async function processDeepgram(jobId: string, apiKey: string, filePath: string, 
     segments, speakers,
     speaker_count: speakers.length,
     duration: data.metadata?.duration || 0,
+    processing_time: 0,
     diarization_method: 'Deepgram Cloud (Background)',
   };
 }
