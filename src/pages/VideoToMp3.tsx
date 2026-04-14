@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  convertToMp3,
+  convertAudio,
   retryJob,
   onJobUpdate,
   revokeJobUrl,
@@ -12,6 +12,7 @@ import {
   restorePersistedJobs,
   removePersistedJob,
   type ConversionJob,
+  type OutputFormat,
 } from "@/lib/ffmpegConverter";
 import { isServerAvailable } from "@/lib/conversionRouter";
 import { Button } from "@/components/ui/button";
@@ -49,9 +50,11 @@ import {
   Scissors,
   Server,
   Globe,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import AudioEnhanceDialog from "@/components/AudioEnhanceDialog";
 
 // Lazy-loaded advanced cut panel
 const AdvancedCutPanel = lazy(() => import("@/components/AdvancedCutPanel"));
@@ -74,6 +77,32 @@ function formatDuration(ms: number): string {
 
 const ACCEPTED_MIME =
   "video/*,audio/*,.mkv,.avi,.mov,.webm,.flv,.wmv,.m4v,.3gp,.ogv,.ts,.mts,.m2ts,.vob,.mpg,.mpeg,.m4a,.wav,.ogg,.flac,.aac,.wma,.opus,.amr";
+
+const OUTPUT_FORMAT_META: Record<OutputFormat, { label: string; ext: string; mime: string; description: string }> = {
+  mp3: {
+    label: "MP3",
+    ext: "mp3",
+    mime: "audio/mpeg",
+    description: "תאימות מקסימלית",
+  },
+  opus: {
+    label: "OPUS",
+    ext: "opus",
+    mime: "audio/opus",
+    description: "איכות גבוהה בקובץ קטן",
+  },
+  aac: {
+    label: "AAC",
+    ext: "m4a",
+    mime: "audio/mp4",
+    description: "מעולה למובייל וסטרימינג",
+  },
+};
+
+function getOutputFileName(fileName: string, outputFormat: OutputFormat): string {
+  const ext = OUTPUT_FORMAT_META[outputFormat].ext;
+  return fileName.replace(/\.[^/.]+$/, "") + `.${ext}`;
+}
 
 // ─── Status Badge ────────────────────────────────────────────────────────────
 
@@ -104,6 +133,7 @@ function JobCard({
   onSaveAndTranscribe,
   onRetry,
   onCut,
+  onEnhance,
 }: {
   job: ConversionJob;
   onRemove: (id: string) => void;
@@ -111,6 +141,7 @@ function JobCard({
   onSaveAndTranscribe: (job: ConversionJob) => void;
   onRetry: (job: ConversionJob) => void;
   onCut: (job: ConversionJob) => void;
+  onEnhance: (job: ConversionJob) => void;
 }) {
   const elapsed =
     job.startedAt && job.finishedAt
@@ -119,7 +150,7 @@ function JobCard({
         ? formatDuration(Date.now() - job.startedAt)
         : null;
 
-  const outputFilename = job.fileName.replace(/\.[^/.]+$/, "") + ".mp3";
+  const outputFilename = getOutputFileName(job.fileName, job.outputFormat);
 
   return (
     <Card className="relative overflow-hidden" data-testid="job-card" data-status={job.status}>
@@ -207,6 +238,15 @@ function JobCard({
                 >
                   <Scissors className="w-4 h-4" />
                 </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-8 w-8"
+                  title="שיפור איכות"
+                  onClick={() => onEnhance(job)}
+                >
+                  <Sparkles className="w-4 h-4" />
+                </Button>
                 <Button size="icon" variant="ghost" className="h-8 w-8" asChild>
                   <a href={job.outputUrl} download={outputFilename}>
                     <Download className="w-4 h-4" />
@@ -248,9 +288,15 @@ export default function VideoToMp3() {
   const navigate = useNavigate();
   const { user, isAuthenticated } = useAuth();
   const [jobs, setJobs] = useState<ConversionJob[]>([]);
+  const [outputFormat, setOutputFormat] = useState<OutputFormat>(() => {
+    const saved = localStorage.getItem("video_to_audio_output_format");
+    if (saved === "mp3" || saved === "opus" || saved === "aac") return saved;
+    return "mp3";
+  });
   const [isDragging, setIsDragging] = useState(false);
   const [ffmpegReady, setFfmpegReady] = useState(false);
   const [promptJob, setPromptJob] = useState<ConversionJob | null>(null);
+  const [enhanceTarget, setEnhanceTarget] = useState<ConversionJob | null>(null);
   const [saveAndTranscribeBusyId, setSaveAndTranscribeBusyId] = useState<string | null>(null);
   const [autoTranscribe, setAutoTranscribe] = useState(false);
   const [activeTab, setActiveTab] = useState<"convert" | "cut">("convert");
@@ -260,10 +306,11 @@ export default function VideoToMp3() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
 
-  const toMp3File = useCallback((job: ConversionJob): File | null => {
+  const toOutputFile = useCallback((job: ConversionJob): File | null => {
     if (!job.outputBlob) return null;
-    const mp3Name = job.fileName.replace(/\.[^/.]+$/, "") + ".mp3";
-    return new File([job.outputBlob], mp3Name, { type: "audio/mpeg" });
+    const meta = OUTPUT_FORMAT_META[job.outputFormat];
+    const outputName = getOutputFileName(job.fileName, job.outputFormat);
+    return new File([job.outputBlob], outputName, { type: meta.mime });
   }, []);
 
   const uploadMp3ToCloud = useCallback(async (file: File): Promise<string | null> => {
@@ -280,6 +327,10 @@ export default function VideoToMp3() {
   }, [isAuthenticated, user]);
 
   // Preload FFmpeg on mount + restore persisted jobs + check server
+  useEffect(() => {
+    localStorage.setItem("video_to_audio_output_format", outputFormat);
+  }, [outputFormat]);
+
   useEffect(() => {
     preloadFFmpeg()
       .then(() => setFfmpegReady(true))
@@ -311,9 +362,9 @@ export default function VideoToMp3() {
 
       if (updatedJob.status === "done") {
         if (autoTranscribe) {
-          const mp3File = toMp3File(updatedJob);
-          if (mp3File) {
-            navigate("/transcribe", { state: { file: mp3File } });
+          const outputFile = toOutputFile(updatedJob);
+          if (outputFile) {
+            navigate("/transcribe", { state: { file: outputFile } });
             return;
           }
         }
@@ -321,7 +372,7 @@ export default function VideoToMp3() {
       }
     });
     return unsub;
-  }, [autoTranscribe, toMp3File, navigate]);
+  }, [autoTranscribe, toOutputFile, navigate]);
 
   // Cleanup blob URLs on unmount
   useEffect(() => {
@@ -354,9 +405,9 @@ export default function VideoToMp3() {
 
     if (valid.length === 0) return;
 
-    const newJobs = valid.map((f) => convertToMp3(f));
+    const newJobs = valid.map((f) => convertAudio(f, outputFormat));
     setJobs((prev) => [...newJobs, ...prev]);
-  }, []);
+  }, [outputFormat]);
 
   const handleRemove = useCallback((id: string) => {
     setJobs((prev) => {
@@ -372,7 +423,7 @@ export default function VideoToMp3() {
     for (const job of doneJobs) {
       const a = document.createElement("a");
       a.href = job.outputUrl!;
-      a.download = job.fileName.replace(/\.[^/.]+$/, "") + ".mp3";
+      a.download = getOutputFileName(job.fileName, job.outputFormat);
       a.click();
     }
   }, [jobs]);
@@ -390,37 +441,37 @@ export default function VideoToMp3() {
 
   // Navigate to transcription page with the converted MP3
   const handleTranscribe = useCallback((job: ConversionJob) => {
-    const mp3File = toMp3File(job);
-    if (!mp3File) return;
-    navigate("/transcribe", { state: { file: mp3File } });
-  }, [navigate, toMp3File]);
+    const outputFile = toOutputFile(job);
+    if (!outputFile) return;
+    navigate("/transcribe", { state: { file: outputFile } });
+  }, [navigate, toOutputFile]);
 
   // Download the MP3 file
   const handleSaveMp3 = useCallback((job: ConversionJob) => {
     if (!job.outputUrl) return;
     const a = document.createElement("a");
     a.href = job.outputUrl;
-    a.download = job.fileName.replace(/\.[^/.]+$/, "") + ".mp3";
+    a.download = getOutputFileName(job.fileName, job.outputFormat);
     a.click();
     setPromptJob(null);
     toast({ title: "הקובץ נשמר ✓" });
   }, []);
 
   const handleSaveAndTranscribe = useCallback(async (job: ConversionJob) => {
-    const mp3File = toMp3File(job);
-    if (!mp3File || !job.outputUrl) return;
+    const outputFile = toOutputFile(job);
+    if (!outputFile || !job.outputUrl) return;
 
     setSaveAndTranscribeBusyId(job.id);
     try {
       // Keep an explicit local copy for the user before moving to transcription.
       const a = document.createElement("a");
       a.href = job.outputUrl;
-      a.download = mp3File.name;
+      a.download = outputFile.name;
       a.click();
 
       if (isAuthenticated) {
         try {
-          await uploadMp3ToCloud(mp3File);
+          await uploadMp3ToCloud(outputFile);
           toast({ title: "הקובץ נשמר והועלה לענן ✓" });
         } catch {
           toast({
@@ -436,12 +487,12 @@ export default function VideoToMp3() {
         });
       }
 
-      navigate("/transcribe", { state: { file: mp3File } });
+      navigate("/transcribe", { state: { file: outputFile } });
       setPromptJob(null);
     } finally {
       setSaveAndTranscribeBusyId(null);
     }
-  }, [isAuthenticated, navigate, toMp3File, uploadMp3ToCloud]);
+  }, [isAuthenticated, navigate, toOutputFile, uploadMp3ToCloud]);
 
   // Retry a failed conversion
   const handleRetry = useCallback((job: ConversionJob) => {
@@ -459,11 +510,11 @@ export default function VideoToMp3() {
   }, []);
 
   const handleCutFromConverted = useCallback((job: ConversionJob) => {
-    const mp3File = toMp3File(job);
-    if (!mp3File) return;
-    void handleSelectCutSource(mp3File, `${job.fileName} (מומר)`);
+    const outputFile = toOutputFile(job);
+    if (!outputFile) return;
+    void handleSelectCutSource(outputFile, `${job.fileName} (מומר)`);
     setActiveTab("cut");
-  }, [handleSelectCutSource, toMp3File]);
+  }, [handleSelectCutSource, toOutputFile]);
 
   // Drag & Drop handlers
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -508,10 +559,10 @@ export default function VideoToMp3() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
             <Music className="w-6 h-6 text-primary" />
-            ממיר וידאו ל-MP3
+            ממיר וידאו ואודיו
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            המרה היברידית — דפדפן לקבצים קטנים, שרת לקבצים גדולים. תומך ב-{getSupportedExtensions().length}+ פורמטים.
+            המרה היברידית ל-MP3 / OPUS / AAC — דפדפן לקבצים קטנים, שרת לקבצים גדולים. תומך ב-{getSupportedExtensions().length}+ פורמטים.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -561,6 +612,34 @@ export default function VideoToMp3() {
               המר ותמלל אוטומטית — בסיום ההמרה עובר ישירות לתמלול
             </label>
           </div>
+
+          {/* Output format selector */}
+          <Card>
+            <CardContent className="pt-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="font-medium">פורמט פלט</p>
+                  <p className="text-xs text-muted-foreground">הבחירה תשפיע על כל ההמרות החדשות. מנוע FFmpeg נטען עצלית ועובד ברקע כמו המערכת הקיימת.</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {(["mp3", "opus", "aac"] as OutputFormat[]).map((fmt) => (
+                    <Button
+                      key={fmt}
+                      size="sm"
+                      variant={outputFormat === fmt ? "default" : "outline"}
+                      onClick={() => setOutputFormat(fmt)}
+                      className="min-w-[96px]"
+                    >
+                      {OUTPUT_FORMAT_META[fmt].label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+              <div className="mt-2 text-xs text-muted-foreground">
+                נבחר: <span className="font-medium text-foreground">{OUTPUT_FORMAT_META[outputFormat].label}</span> • סיומת <span className="font-medium text-foreground">.{OUTPUT_FORMAT_META[outputFormat].ext}</span> • {OUTPUT_FORMAT_META[outputFormat].description}
+              </div>
+            </CardContent>
+          </Card>
 
           {/* Drop Zone */}
           <div
@@ -646,6 +725,7 @@ export default function VideoToMp3() {
                     onSaveAndTranscribe={(j) => void handleSaveAndTranscribe(j)}
                     onRetry={handleRetry}
                     onCut={handleCutFromConverted}
+                    onEnhance={setEnhanceTarget}
                   />
                 ))}
               </div>
@@ -670,7 +750,7 @@ export default function VideoToMp3() {
                   <Badge variant="outline" className="text-xs">+עוד</Badge>
                 </div>
                 <p className="text-xs text-muted-foreground mt-3">
-                  ⚡ ההמרה רצה לגמרי בדפדפן שלך באמצעות FFmpeg WebAssembly — הקבצים לא עוזבים את המחשב
+                  ⚡ ההמרה רצה ברקע באמצעות FFmpeg (בדפדפן/שרת) — כולל טעינה עצילה ותור מקבילי
                 </p>
               </CardContent>
             </Card>
@@ -694,7 +774,7 @@ export default function VideoToMp3() {
               convertedFiles={doneJobs.map((j) => ({
                 id: j.id,
                 name: j.fileName,
-                file: new File([j.outputBlob!], j.fileName.replace(/\.[^/.]+$/, "") + ".mp3", { type: "audio/mpeg" }),
+                file: new File([j.outputBlob!], getOutputFileName(j.fileName, j.outputFormat), { type: OUTPUT_FORMAT_META[j.outputFormat].mime }),
               }))}
             />
           </Suspense>
@@ -710,7 +790,7 @@ export default function VideoToMp3() {
               ההמרה הושלמה!
             </DialogTitle>
             <DialogDescription className="text-right">
-              <span className="font-medium">{promptJob?.fileName.replace(/\.[^/.]+$/, "")}.mp3</span>
+              <span className="font-medium">{promptJob ? getOutputFileName(promptJob.fileName, promptJob.outputFormat) : ""}</span>
               {promptJob?.outputBlob && (
                 <span className="text-muted-foreground"> ({formatBytes(promptJob.outputBlob.size)})</span>
               )}
@@ -751,11 +831,22 @@ export default function VideoToMp3() {
               }}
             >
               <Save className="w-4 h-4" />
-              שמור כ-MP3
+              שמור קובץ
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AudioEnhanceDialog
+        open={!!enhanceTarget}
+        onOpenChange={(open) => {
+          if (!open) setEnhanceTarget(null);
+        }}
+        file={enhanceTarget ? toOutputFile(enhanceTarget) : null}
+        sourceLabel={enhanceTarget ? getOutputFileName(enhanceTarget.fileName, enhanceTarget.outputFormat) : undefined}
+        defaultOutputFormat={enhanceTarget?.outputFormat === "aac" ? "aac" : enhanceTarget?.outputFormat === "opus" ? "opus" : "mp3"}
+        onTranscribe={(file) => navigate("/transcribe", { state: { file } })}
+      />
     </div>
   );
 }

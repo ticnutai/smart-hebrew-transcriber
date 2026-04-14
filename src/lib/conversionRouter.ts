@@ -77,20 +77,23 @@ export interface ServerConversionProgress {
 }
 
 export type ProgressCallback = (p: ServerConversionProgress) => void;
+export type ConversionOutputFormat = "mp3" | "opus" | "aac";
 
 /**
- * Convert a file to MP3 using the server-side FFmpeg endpoint.
+ * Convert a file using the server-side FFmpeg endpoint.
  * Uses SSE streaming for progress, then downloads the result.
- * Returns the MP3 blob on success.
+ * Returns the converted blob on success.
  */
 export async function convertOnServer(
   file: File,
+  outputFormat: ConversionOutputFormat,
   onProgress?: ProgressCallback,
   abortSignal?: AbortSignal,
 ): Promise<Blob> {
   const url = getServerUrl();
   const formData = new FormData();
   formData.append("file", file);
+  formData.append("output_format", outputFormat);
 
   // Try SSE streaming for progress
   const res = await fetch(`${url}/convert-mp3`, {

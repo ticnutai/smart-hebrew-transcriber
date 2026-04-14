@@ -1787,7 +1787,7 @@ def stage_audio():
 
 
 # ════════════════════════════════════════════════════════════════════
-#  CONVERT TO MP3 — server-side FFmpeg conversion with streaming progress
+#  CONVERT AUDIO — server-side FFmpeg conversion with streaming progress
 # ════════════════════════════════════════════════════════════════════
 
 _CONVERT_ALLOWED_SUFFIXES = frozenset({
@@ -1796,10 +1796,38 @@ _CONVERT_ALLOWED_SUFFIXES = frozenset({
     ".m4a", ".wav", ".ogg", ".flac", ".aac", ".wma", ".opus", ".amr",
 })
 
+_CONVERT_OUTPUT_FORMATS = {
+    "mp3": {
+        "suffix": ".mp3",
+        "mimetype": "audio/mpeg",
+        "ffmpeg_args": ["-acodec", "libmp3lame", "-ab", "192k", "-ar", "44100", "-ac", "2"],
+    },
+    "opus": {
+        "suffix": ".opus",
+        "mimetype": "audio/opus",
+        "ffmpeg_args": ["-c:a", "libopus", "-b:a", "128k", "-vbr", "on", "-compression_level", "10", "-ar", "48000", "-ac", "2"],
+    },
+    "aac": {
+        "suffix": ".m4a",
+        "mimetype": "audio/mp4",
+        "ffmpeg_args": ["-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2"],
+    },
+}
+
+_ENHANCE_PRESET_FILTERS = {
+    # Non-AI baseline: cleanup + balanced speech presence
+    "clean": "highpass=f=80,lowpass=f=15000,equalizer=f=3200:t=q:w=1.2:g=3,acompressor=threshold=-20dB:ratio=3:attack=8:release=220,loudnorm=I=-16:TP=-1.5:LRA=11,alimiter=limit=0.95",
+    # AI-like voice profile (no external model dependency): stronger denoise + clarity
+    "ai_voice": "afftdn=nf=-24,highpass=f=100,lowpass=f=13500,equalizer=f=2600:t=q:w=1.0:g=4,equalizer=f=7000:t=q:w=1.8:g=-3,acompressor=threshold=-24dB:ratio=5:attack=5:release=180,loudnorm=I=-16:TP=-1.5:LRA=9,alimiter=limit=0.95",
+    "podcast": "highpass=f=70,equalizer=f=180:t=q:w=1.0:g=2,equalizer=f=2800:t=q:w=1.1:g=2.5,acompressor=threshold=-18dB:ratio=2.8:attack=10:release=260,loudnorm=I=-16:TP=-1.5:LRA=10,alimiter=limit=0.97",
+    "broadcast": "afftdn=nf=-20,highpass=f=90,lowpass=f=14000,equalizer=f=3000:t=q:w=1.1:g=3,acompressor=threshold=-22dB:ratio=4:attack=6:release=180,loudnorm=I=-16:TP=-1.5:LRA=8,alimiter=limit=0.95",
+}
+
 @app.route("/convert-mp3", methods=["POST"])
 def convert_mp3():
-    """Convert uploaded audio/video file to MP3 using server-side FFmpeg.
-    Returns the MP3 file directly, or streams SSE progress if Accept: text/event-stream.
+    """Convert uploaded audio/video file to requested audio format using server-side FFmpeg.
+    Supported output formats: mp3, opus, aac.
+    Returns the converted file directly, or streams SSE progress if Accept: text/event-stream.
     """
     if not _check_ffmpeg():
         return jsonify({"error": "FFmpeg not available on server"}), 503
@@ -1813,12 +1841,20 @@ def convert_mp3():
     if suffix not in _CONVERT_ALLOWED_SUFFIXES:
         return jsonify({"error": f"Unsupported format: {suffix}"}), 415
 
+    output_format = (request.form.get("output_format") or "mp3").strip().lower()
+    output_cfg = _CONVERT_OUTPUT_FORMATS.get(output_format)
+    if not output_cfg:
+        return jsonify({"error": f"Unsupported output format: {output_format}"}), 415
+
     # Save uploaded file to temp
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_in:
         audio_file.save(tmp_in)
         input_path = tmp_in.name
 
-    output_path = input_path + ".mp3"
+    output_suffix = output_cfg["suffix"]
+    output_mimetype = output_cfg["mimetype"]
+    ffmpeg_audio_args = output_cfg["ffmpeg_args"]
+    output_path = input_path + output_suffix
 
     try:
         import subprocess
@@ -1829,8 +1865,7 @@ def convert_mp3():
                 try:
                     proc = subprocess.Popen(
                         ["ffmpeg", "-y", "-i", input_path,
-                         "-vn", "-acodec", "libmp3lame", "-ab", "192k",
-                         "-ar", "44100", "-ac", "2",
+                         "-vn", *ffmpeg_audio_args,
                          "-progress", "pipe:1", "-nostats",
                          output_path],
                         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -1873,10 +1908,11 @@ def convert_mp3():
                     # Stage the output for download
                     import uuid as _uuid
                     stage_id = str(_uuid.uuid4())
-                    mp3_name = Path(filename).stem + ".mp3"
+                    output_name = Path(filename).stem + output_suffix
                     _staged_files[stage_id] = {
                         "path": output_path,
-                        "filename": mp3_name,
+                        "filename": output_name,
+                        "mimetype": output_mimetype,
                         "timestamp": time.time(),
                     }
                     file_size = os.path.getsize(output_path)
@@ -1894,8 +1930,7 @@ def convert_mp3():
         # Non-streaming: convert and return file directly
         result = subprocess.run(
             ["ffmpeg", "-y", "-i", input_path,
-             "-vn", "-acodec", "libmp3lame", "-ab", "192k",
-             "-ar", "44100", "-ac", "2",
+             "-vn", *ffmpeg_audio_args,
              output_path],
             capture_output=True, timeout=600,
         )
@@ -1904,11 +1939,11 @@ def convert_mp3():
             return jsonify({"error": "FFmpeg conversion failed",
                             "details": result.stderr.decode("utf-8", errors="replace")[-500:]}), 500
 
-        mp3_name = Path(filename).stem + ".mp3"
+        output_name = Path(filename).stem + output_suffix
 
         from flask import send_file
-        return send_file(output_path, mimetype="audio/mpeg",
-                         as_attachment=True, download_name=mp3_name)
+        return send_file(output_path, mimetype=output_mimetype,
+                 as_attachment=True, download_name=output_name)
     except subprocess.TimeoutExpired:
         return jsonify({"error": "Conversion timed out (10 min limit)"}), 504
     except Exception as e:
@@ -1929,8 +1964,91 @@ def convert_mp3_download(stage_id):
     if not info or not os.path.exists(info.get("path", "")):
         return jsonify({"error": "File not found or expired"}), 404
     from flask import send_file
-    return send_file(info["path"], mimetype="audio/mpeg",
+    return send_file(info["path"], mimetype=info.get("mimetype", "application/octet-stream"),
                      as_attachment=True, download_name=info.get("filename", "output.mp3"))
+
+
+@app.route("/enhance-audio", methods=["POST"])
+def enhance_audio():
+    """Enhance uploaded audio/video and return a new processed audio file.
+
+    Form fields:
+      - file: uploaded input media
+      - output_format: mp3|opus|aac (default: mp3)
+      - preset: clean|ai_voice|podcast|broadcast (default: clean)
+    """
+    if not _check_ffmpeg():
+        return jsonify({"error": "FFmpeg not available on server"}), 503
+
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+
+    media_file = request.files["file"]
+    filename = media_file.filename or "input.wav"
+    suffix = Path(filename).suffix.lower()
+    if suffix not in _CONVERT_ALLOWED_SUFFIXES:
+        return jsonify({"error": f"Unsupported format: {suffix}"}), 415
+
+    output_format = (request.form.get("output_format") or "mp3").strip().lower()
+    output_cfg = _CONVERT_OUTPUT_FORMATS.get(output_format)
+    if not output_cfg:
+        return jsonify({"error": f"Unsupported output format: {output_format}"}), 415
+
+    preset = (request.form.get("preset") or "clean").strip().lower()
+    filter_chain = _ENHANCE_PRESET_FILTERS.get(preset)
+    if not filter_chain:
+        return jsonify({"error": f"Unsupported preset: {preset}"}), 415
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_in:
+        media_file.save(tmp_in)
+        input_path = tmp_in.name
+
+    output_suffix = output_cfg["suffix"]
+    output_mimetype = output_cfg["mimetype"]
+    ffmpeg_audio_args = output_cfg["ffmpeg_args"]
+    output_path = input_path + f".enhanced{output_suffix}"
+
+    try:
+        import subprocess
+
+        result = subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-i", input_path,
+                "-vn",
+                "-af", filter_chain,
+                *ffmpeg_audio_args,
+                output_path,
+            ],
+            capture_output=True,
+            timeout=600,
+        )
+
+        if result.returncode != 0 or not os.path.exists(output_path):
+            return jsonify({
+                "error": "FFmpeg enhancement failed",
+                "details": result.stderr.decode("utf-8", errors="replace")[-700:],
+            }), 500
+
+        output_name = f"{Path(filename).stem}.enhanced{output_suffix}"
+        from flask import send_file
+        return send_file(
+            output_path,
+            mimetype=output_mimetype,
+            as_attachment=True,
+            download_name=output_name,
+        )
+    except subprocess.TimeoutExpired:
+        return jsonify({"error": "Enhancement timed out (10 min limit)"}), 504
+    except Exception as e:
+        _log.error(f"enhance-audio error: {e}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        for p in (input_path, output_path):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
 
 
 @app.route("/load-model", methods=["POST"])
@@ -2721,7 +2839,8 @@ def main():
     print("    POST /transcribe-live   — Low-latency chunk transcription (live mode)")
     print("    POST /youtube-transcribe — Download + transcribe YouTube video")
     print("    POST /stage-audio       — Pre-upload audio (parallel with preload)")
-    print("    POST /convert-mp3       — Convert audio/video to MP3 (server FFmpeg)")
+    print("    POST /convert-mp3       — Convert audio/video to MP3/OPUS/AAC (server FFmpeg)")
+    print("    POST /enhance-audio     — Enhance audio (AI/non-AI presets) to MP3/OPUS/AAC")
     print("    POST /load-model        — Load model into GPU memory")
     print("    POST /preload-stream    — Preload model via SSE (background)")
     print("    POST /download-model    — Download model to disk only")

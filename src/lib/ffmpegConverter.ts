@@ -12,11 +12,50 @@ import { toBlobURL, fetchFile } from "@ffmpeg/util";
 import { chooseConversionPath, convertOnServer } from "./conversionRouter";
 
 export type JobStatus = "queued" | "loading" | "converting" | "done" | "error";
+export type OutputFormat = "mp3" | "opus" | "aac";
+
+interface OutputFormatConfig {
+  ext: string;
+  mime: string;
+  ffmpegArgs: string[];
+}
+
+const OUTPUT_FORMAT_CONFIG: Record<OutputFormat, OutputFormatConfig> = {
+  mp3: {
+    ext: "mp3",
+    mime: "audio/mpeg",
+    ffmpegArgs: ["-acodec", "libmp3lame", "-ab", "192k", "-ar", "44100", "-ac", "2"],
+  },
+  opus: {
+    ext: "opus",
+    mime: "audio/opus",
+    ffmpegArgs: ["-c:a", "libopus", "-b:a", "128k", "-vbr", "on", "-compression_level", "10", "-ar", "48000", "-ac", "2"],
+  },
+  aac: {
+    ext: "m4a",
+    mime: "audio/mp4",
+    ffmpegArgs: ["-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2"],
+  },
+};
+
+function getOutputFileName(inputName: string, outputFormat: OutputFormat): string {
+  const ext = OUTPUT_FORMAT_CONFIG[outputFormat].ext;
+  return inputName.replace(/\.[^/.]+$/, "") + `.${ext}`;
+}
+
+function getOutputMime(outputFormat: OutputFormat): string {
+  return OUTPUT_FORMAT_CONFIG[outputFormat].mime;
+}
+
+function getOutputFfmpegArgs(outputFormat: OutputFormat): string[] {
+  return OUTPUT_FORMAT_CONFIG[outputFormat].ffmpegArgs;
+}
 
 export interface ConversionJob {
   id: string;
   fileName: string;
   fileSize: number;
+  outputFormat: OutputFormat;
   file?: File;              // only in-memory, not persisted
   status: JobStatus;
   progress: number;         // 0-100 – real, time-based
@@ -58,6 +97,7 @@ interface PersistedJob {
   id: string;
   fileName: string;
   fileSize: number;
+  outputFormat?: OutputFormat;
   status: JobStatus;
   startedAt?: number;
   finishedAt?: number;
@@ -118,6 +158,7 @@ async function dbDelete(store: string, key: string): Promise<void> {
 async function persistJob(job: ConversionJob) {
   const pj: PersistedJob = {
     id: job.id, fileName: job.fileName, fileSize: job.fileSize,
+    outputFormat: job.outputFormat,
     status: job.status, startedAt: job.startedAt,
     finishedAt: job.finishedAt, error: job.error, retryCount: job.retryCount,
   };
@@ -140,6 +181,7 @@ export async function restorePersistedJobs(): Promise<ConversionJob[]> {
       const output = outputMap.get(pj.id);
       const job: ConversionJob = {
         id: pj.id, fileName: pj.fileName, fileSize: pj.fileSize,
+        outputFormat: pj.outputFormat ?? "mp3",
         status: pj.status, progress: pj.status === "done" ? 100 : 0,
         startedAt: pj.startedAt, finishedAt: pj.finishedAt,
         error: pj.error, retryCount: pj.retryCount,
@@ -284,7 +326,7 @@ async function runServerConversion(job: ConversionJob): Promise<boolean> {
     job.progress = 0;
     notifyAll(job);
 
-    const blob = await convertOnServer(file, (p) => {
+    const blob = await convertOnServer(file, job.outputFormat, (p) => {
       job.progress = Math.min(99, p.progress);
       notifyAll(job);
     });
@@ -297,8 +339,8 @@ async function runServerConversion(job: ConversionJob): Promise<boolean> {
     job.finishedAt = Date.now();
     notifyAll(job);
 
-    const mp3Name = file.name.replace(/\.[^/.]+$/, "") + ".mp3";
-    await Promise.all([persistJob(job), persistOutput(job.id, blob, mp3Name)]);
+    const outputName = getOutputFileName(file.name, job.outputFormat);
+    await Promise.all([persistJob(job), persistOutput(job.id, blob, outputName)]);
     return true;
   } catch {
     return false; // caller will fallback to WASM
@@ -329,7 +371,8 @@ async function runWasmConversion(job: ConversionJob): Promise<void> {
 
     const ext = file.name.split(".").pop()?.toLowerCase() ?? "mp4";
     const inputName = `in_${job.id}.${ext}`;
-    const outputName = `out_${job.id}.mp3`;
+    const outputExt = OUTPUT_FORMAT_CONFIG[job.outputFormat].ext;
+    const outputName = `out_${job.id}.${outputExt}`;
 
     const data = await fetchFile(file);
     await ffmpeg.writeFile(inputName, data);
@@ -364,7 +407,7 @@ async function runWasmConversion(job: ConversionJob): Promise<void> {
 
     await ffmpeg.exec([
       "-i", inputName, "-vn",
-      "-acodec", "libmp3lame", "-ab", "192k", "-ar", "44100", "-ac", "2",
+      ...getOutputFfmpegArgs(job.outputFormat),
       outputName,
     ]);
 
@@ -373,7 +416,7 @@ async function runWasmConversion(job: ConversionJob): Promise<void> {
 
     const outputData = await ffmpeg.readFile(outputName);
     const bytes = outputData instanceof Uint8Array ? outputData : new TextEncoder().encode(outputData as string);
-    const blob = new Blob([new Uint8Array(bytes)], { type: "audio/mpeg" });
+    const blob = new Blob([new Uint8Array(bytes)], { type: getOutputMime(job.outputFormat) });
     const url = URL.createObjectURL(blob);
 
     await ffmpeg.deleteFile(inputName).catch(() => {});
@@ -386,8 +429,8 @@ async function runWasmConversion(job: ConversionJob): Promise<void> {
     job.finishedAt = Date.now();
     notifyAll(job);
 
-    const mp3Name = file.name.replace(/\.[^/.]+$/, "") + ".mp3";
-    await Promise.all([persistJob(job), persistOutput(job.id, blob, mp3Name)]);
+    const outputNameForSave = getOutputFileName(file.name, job.outputFormat);
+    await Promise.all([persistJob(job), persistOutput(job.id, blob, outputNameForSave)]);
   } catch (err: unknown) {
     job.status = "error";
     job.error = err instanceof Error ? err.message : "שגיאה לא ידועה";
@@ -452,10 +495,15 @@ function drainQueue() {
 let idCounter = 0;
 
 export function convertToMp3(file: File): ConversionJob {
+  return convertAudio(file, "mp3");
+}
+
+export function convertAudio(file: File, outputFormat: OutputFormat = "mp3"): ConversionJob {
   const job: ConversionJob = {
     id: `conv_${++idCounter}_${Date.now()}`,
     fileName: file.name,
     fileSize: file.size,
+    outputFormat,
     file,
     status: "queued",
     progress: 0,

@@ -29,6 +29,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
+import AudioEnhanceDialog from "@/components/AudioEnhanceDialog";
 import { toast } from "@/hooks/use-toast";
 import {
   Upload,
@@ -51,6 +52,7 @@ import {
   RefreshCw,
   ChevronDown,
   ChevronUp,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -224,10 +226,12 @@ function CutResultRow({
   result,
   onDownload,
   onTranscribe,
+  onEnhance,
 }: {
   result: CutResult;
   onDownload: () => void;
   onTranscribe: () => void;
+  onEnhance: () => void;
 }) {
   return (
     <div className="flex items-center gap-2 border rounded-lg p-2">
@@ -240,6 +244,9 @@ function CutResultRow({
         </div>
       </div>
       <div className="flex items-center gap-1">
+        <Button size="icon" variant="ghost" className="h-7 w-7" title="שפר איכות" onClick={onEnhance}>
+          <Sparkles className="w-3.5 h-3.5" />
+        </Button>
         <Button size="icon" variant="ghost" className="h-7 w-7" title="תמלל" onClick={onTranscribe}>
           <Mic className="w-3.5 h-3.5" />
         </Button>
@@ -258,11 +265,13 @@ function CutJobCard({
   onRemove,
   onDownloadAll,
   onTranscribeResult,
+  onEnhanceResult,
 }: {
   job: CutJob;
   onRemove: (id: string) => void;
   onDownloadAll: (job: CutJob) => void;
   onTranscribeResult: (result: CutResult) => void;
+  onEnhanceResult: (result: CutResult) => void;
 }) {
   const [expanded, setExpanded] = useState(job.status === "done");
   const elapsed =
@@ -366,6 +375,7 @@ function CutJobCard({
                   URL.revokeObjectURL(url);
                 }}
                 onTranscribe={() => onTranscribeResult(r)}
+                onEnhance={() => onEnhanceResult(r)}
               />
             ))}
           </div>
@@ -398,6 +408,7 @@ export default function AdvancedCutPanel({
   const [sourceLabel, setSourceLabel] = useState(initialSourceLabel ?? "");
   const [sourceDuration, setSourceDuration] = useState<number | null>(null);
   const [isProbing, setIsProbing] = useState(false);
+  const [enhanceTarget, setEnhanceTarget] = useState<CutResult | null>(null);
 
   // Mode
   const [cutMode, setCutMode] = useState<CutMode>("manual");
@@ -934,6 +945,7 @@ export default function AdvancedCutPanel({
                     onRemove={handleRemoveJob}
                     onDownloadAll={handleDownloadAll}
                     onTranscribeResult={handleTranscribeResult}
+                    onEnhanceResult={setEnhanceTarget}
                   />
                 ))}
               </div>
@@ -941,6 +953,17 @@ export default function AdvancedCutPanel({
           </CardContent>
         </Card>
       )}
+
+      <AudioEnhanceDialog
+        open={!!enhanceTarget}
+        onOpenChange={(open) => {
+          if (!open) setEnhanceTarget(null);
+        }}
+        file={enhanceTarget?.file ?? null}
+        sourceLabel={enhanceTarget?.label}
+        defaultOutputFormat={enhanceTarget?.file.name.toLowerCase().endsWith(".opus") ? "opus" : enhanceTarget?.file.name.toLowerCase().endsWith(".m4a") ? "aac" : "mp3"}
+        onTranscribe={(file) => navigate("/transcribe", { state: { file } })}
+      />
     </div>
   );
 }
