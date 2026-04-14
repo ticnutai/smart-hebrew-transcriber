@@ -101,23 +101,16 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-secondary/30 to-accent/10 p-4 relative overflow-hidden" dir="rtl">
-      {/* Background decorations */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -left-40 w-80 h-80 bg-primary/5 rounded-full blur-3xl" />
-        <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-accent/5 rounded-full blur-3xl" />
-        <div className="absolute top-1/4 right-1/4 w-64 h-64 bg-primary/3 rounded-full blur-2xl" />
-      </div>
-
-      <Card className="w-full max-w-md relative backdrop-blur-sm border-border/50 shadow-2xl">
+    <div className="min-h-screen flex items-center justify-center bg-white p-4" dir="rtl">
+      <Card className="w-full max-w-md relative bg-white border-2 border-amber-400/40 rounded-2xl shadow-2xl">
         <CardHeader className="text-center pb-2">
-          <div className="mx-auto mb-4 w-20 h-20 rounded-2xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/25 rotate-3 hover:rotate-0 transition-transform duration-300">
-            <Lock className="w-10 h-10 text-primary-foreground" />
+          <div className="mx-auto mb-4 w-20 h-20 rounded-2xl bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center shadow-lg shadow-amber-500/25 rotate-3 hover:rotate-0 transition-transform duration-300">
+            <Lock className="w-10 h-10 text-white" />
           </div>
-           <CardTitle className="text-3xl font-frank">
+          <CardTitle className="text-3xl font-frank text-gray-900">
             {isForgotPassword ? "שכחתי סיסמה" : isSignUp ? "הרשמה" : "ברוכים הבאים"}
           </CardTitle>
-          <CardDescription className="text-base font-assistant">
+          <CardDescription className="text-base font-assistant text-gray-700">
             {isForgotPassword ? "נשלח לך קישור לאיפוס" : isSignUp ? "צור חשבון חדש להתחלה" : "התחבר לחשבון שלך"}
           </CardDescription>
         </CardHeader>
@@ -128,7 +121,7 @@ const Login = () => {
               <Button
                 type="button"
                 variant="outline"
-                className="w-full h-12 text-base font-medium gap-3 border-border/60 hover:bg-secondary/50 transition-all duration-200"
+                className="w-full h-12 text-base font-medium gap-3 border-gray-300 hover:bg-gray-50 hover:border-amber-400/50 transition-all duration-200 text-gray-800"
                 onClick={handleGoogleLogin}
                 disabled={isLoading}
               >
@@ -138,16 +131,16 @@ const Login = () => {
                   <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
                   <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
                 </svg>
-                המשך עם Google
+                <span className="text-gray-800">המשך עם Google</span>
               </Button>
 
               {/* Divider */}
               <div className="relative">
                 <div className="absolute inset-0 flex items-center">
-                  <span className="w-full border-t border-border/50" />
+                  <span className="w-full border-t border-amber-400/30" />
                 </div>
                 <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-card px-3 text-muted-foreground font-assistant">או</span>
+                  <span className="bg-white px-3 text-gray-500 font-assistant">או</span>
                 </div>
               </div>
             </>
@@ -156,13 +149,13 @@ const Login = () => {
           {/* Email/Password Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="relative">
-              <Mail className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Mail className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
               <Input
                 type="email"
                 placeholder="כתובת אימייל"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="h-12 pr-10 text-base font-assistant"
+                className="h-12 pr-10 text-base font-assistant border-gray-300 focus:border-amber-500 focus:ring-amber-500/20 text-gray-900 placeholder:text-gray-400"
                 required
                 dir="ltr"
               />
@@ -171,13 +164,13 @@ const Login = () => {
             {/* Password field - hidden in forgot password mode */}
             {!isForgotPassword && (
               <div className="relative">
-                <KeyRound className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <KeyRound className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
                 <Input
                   type={showPassword ? "text" : "password"}
                   placeholder="סיסמה"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="h-12 pr-10 pl-10 text-base font-assistant"
+                  className="h-12 pr-10 pl-10 text-base font-assistant border-gray-300 focus:border-amber-500 focus:ring-amber-500/20 text-gray-900 placeholder:text-gray-400"
                   required
                   dir="ltr"
                   minLength={6}
@@ -185,7 +178,7 @@ const Login = () => {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 transition-colors"
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -200,15 +193,16 @@ const Login = () => {
                     id="rememberMe"
                     checked={rememberMe}
                     onCheckedChange={(checked) => setRememberMe(checked === true)}
+                    className="border-gray-400 data-[state=checked]:bg-amber-500 data-[state=checked]:border-amber-500"
                   />
-                  <Label htmlFor="rememberMe" className="text-sm font-assistant text-muted-foreground cursor-pointer">
+                  <Label htmlFor="rememberMe" className="text-sm font-assistant text-gray-700 cursor-pointer">
                     זכור אותי
                   </Label>
                 </div>
                 <button
                   type="button"
                   onClick={() => setIsForgotPassword(true)}
-                  className="text-sm text-primary hover:underline font-assistant"
+                  className="text-sm text-amber-600 hover:text-amber-700 hover:underline font-assistant"
                 >
                   שכחתי סיסמה
                 </button>
@@ -217,7 +211,7 @@ const Login = () => {
 
             <Button
               type="submit"
-              className="w-full h-12 text-base font-medium bg-gradient-to-l from-primary to-accent hover:opacity-90 transition-opacity shadow-lg shadow-primary/20"
+              className="w-full h-12 text-base font-medium bg-gradient-to-l from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 transition-all shadow-lg shadow-amber-500/25 text-white"
               size="lg"
               disabled={isLoading}
             >
@@ -234,12 +228,12 @@ const Login = () => {
           </form>
 
           {/* Toggle Sign Up / Sign In / Back from forgot */}
-          <p className="text-center text-sm text-muted-foreground font-assistant">
+          <p className="text-center text-sm text-gray-600 font-assistant">
             {isForgotPassword ? (
               <button
                 type="button"
                 onClick={() => setIsForgotPassword(false)}
-                className="text-primary font-semibold hover:underline"
+                className="text-amber-600 font-semibold hover:text-amber-700 hover:underline"
               >
                 חזרה להתחברות
               </button>
@@ -249,7 +243,7 @@ const Login = () => {
                 <button
                   type="button"
                   onClick={() => setIsSignUp(!isSignUp)}
-                  className="text-primary font-semibold hover:underline"
+                  className="text-amber-600 font-semibold hover:text-amber-700 hover:underline"
                 >
                   {isSignUp ? "התחבר" : "הרשם עכשיו"}
                 </button>
