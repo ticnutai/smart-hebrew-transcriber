@@ -506,19 +506,15 @@ const TextEditor = () => {
 
   return (
     <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>}>
-    <div className="min-h-screen bg-background p-4 md:p-8" dir="rtl">
-      <div className="max-w-7xl mx-auto space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div className="text-right flex-1">
-            <h1 className="text-4xl font-bold mb-2 bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
-              עריכת טקסט מתקדמת
-            </h1>
-            <p className="text-muted-foreground">
-              ערוך, שפר והשווה את הטקסט שלך עם כלים מתקדמים
-            </p>
+    <div className="min-h-screen bg-background p-3 md:p-6 lg:p-8" dir="rtl">
+      <div className="max-w-[90rem] mx-auto space-y-4">
+        {/* Compact Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl font-semibold tracking-tight">עריכת טקסט</h1>
+            <span className="text-xs text-muted-foreground hidden sm:inline">ערוך · שפר · השווה</span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             {/* Column view selector */}
             <div className="flex items-center border rounded-md overflow-hidden">
               {[
@@ -530,11 +526,11 @@ const TextEditor = () => {
                   key={cols}
                   variant={columns === cols ? "default" : "ghost"}
                   size="icon"
-                  className="h-8 w-8 rounded-none"
+                  className="h-7 w-7 rounded-none"
                   onClick={() => setColumns(cols)}
                   title={label}
                 >
-                  <Icon className="h-4 w-4" />
+                  <Icon className="h-3.5 w-3.5" />
                 </Button>
               ))}
             </div>
@@ -549,68 +545,67 @@ const TextEditor = () => {
               onLineHeightChange={setLineHeight}
             />
             <Button 
-              variant="outline" 
+              variant="ghost" 
               size="icon"
+              className="h-7 w-7"
               onClick={() => navigate("/")}
               title="חזרה לדף הראשי"
             >
-              <Home className="h-4 w-4" />
+              <Home className="h-3.5 w-3.5" />
             </Button>
           </div>
         </div>
 
-        {/* AI Quick Actions */}
+        {/* Unified action bar — AI quick actions + save, single compact row */}
         {text.trim() && (
-          <div className="flex gap-2 flex-wrap p-3 rounded-lg border bg-muted/30">
-            <span className="text-sm text-muted-foreground self-center ml-2">פעולות מהירות:</span>
+          <div className="flex items-center gap-1.5 flex-wrap py-2 px-3 rounded-lg border bg-muted/20">
+            <Button
+              variant="default"
+              size="sm"
+              className="h-7 text-xs gap-1"
+              onClick={() => handleAiQuickAction('fix_and_split')}
+              disabled={!!aiAction}
+            >
+              {aiAction === 'fix_and_split' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+              תקן + פסקאות
+            </Button>
             <Button
               variant="outline"
               size="sm"
+              className="h-7 text-xs gap-1"
               onClick={() => handleAiQuickAction('fix_errors')}
               disabled={!!aiAction}
             >
-              {aiAction === 'fix_errors' ? <Loader2 className="w-4 h-4 ml-1 animate-spin" /> : <SpellCheck className="w-4 h-4 ml-1" />}
+              {aiAction === 'fix_errors' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <SpellCheck className="w-3.5 h-3.5" />}
               תקן שגיאות
             </Button>
             <Button
               variant="outline"
               size="sm"
+              className="h-7 text-xs gap-1"
               onClick={() => handleAiQuickAction('split_paragraphs')}
               disabled={!!aiAction}
             >
-              {aiAction === 'split_paragraphs' ? <Loader2 className="w-4 h-4 ml-1 animate-spin" /> : <SplitSquareVertical className="w-4 h-4 ml-1" />}
-              חלק לפסקאות
+              {aiAction === 'split_paragraphs' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <SplitSquareVertical className="w-3.5 h-3.5" />}
+              פסקאות
             </Button>
+            <div className="w-px h-5 bg-border mx-1 hidden sm:block" />
             <Button
               variant="default"
               size="sm"
-              onClick={() => handleAiQuickAction('fix_and_split')}
-              disabled={!!aiAction}
-            >
-              {aiAction === 'fix_and_split' ? <Loader2 className="w-4 h-4 ml-1 animate-spin" /> : <Wand2 className="w-4 h-4 ml-1" />}
-              תקן + חלק לפסקאות
-            </Button>
-          </div>
-        )}
-
-        {/* Always-visible transcript save actions */}
-        {text.trim() && (
-          <div className="flex gap-2 flex-wrap p-3 rounded-lg border bg-background">
-            <span className="text-sm text-muted-foreground self-center ml-2">שמירה לתמלול:</span>
-            <Button
-              variant="default"
-              size="sm"
+              className="h-7 text-xs gap-1"
               onClick={() => handleSaveAndReplaceOriginal(text, 'manual', 'עורך טקסט', 'שמירה ידנית')}
             >
-              <Save className="w-4 h-4 ml-1" />
+              <Save className="w-3.5 h-3.5" />
               שמור והחלף מקור
             </Button>
             <Button
               variant="outline"
               size="sm"
+              className="h-7 text-xs gap-1"
               onClick={() => handleDuplicateAndSave(text, 'manual', 'עורך טקסט', 'שכפול ידני')}
             >
-              <Copy className="w-4 h-4 ml-1" />
+              <Copy className="w-3.5 h-3.5" />
               שכפל ושמור
             </Button>
           </div>
@@ -618,27 +613,31 @@ const TextEditor = () => {
 
         {/* Main Content */}
         <Tabs defaultValue="edit" className="w-full" dir="rtl">
-          <TabsList className="grid w-full grid-cols-4 md:grid-cols-7 lg:grid-cols-15 mb-6">
-            <TabsTrigger value="player">🎧 נגן</TabsTrigger>
-            <TabsTrigger value="edit">עריכת טקסט</TabsTrigger>
-            <TabsTrigger value="speakers">👥 זיהוי דוברים</TabsTrigger>
-            <TabsTrigger value="templates">תבניות</TabsTrigger>
-            <TabsTrigger value="ai">עריכה עם AI</TabsTrigger>
-            <TabsTrigger value="pipeline">צינור עיבוד</TabsTrigger>
-            <TabsTrigger value="prompts">ספריית פרומפטים</TabsTrigger>
-            <TabsTrigger value="ollama">🖥️ Ollama</TabsTrigger>
-            <TabsTrigger value="learning">🧠 למידה</TabsTrigger>
-            <TabsTrigger value="vocab">📖 מילון</TabsTrigger>
-            <TabsTrigger value="summary">📊 סיכום</TabsTrigger>
-            <TabsTrigger value="ab">⚡ A/B</TabsTrigger>
-            <TabsTrigger value="analytics">📈 אנליטיקה</TabsTrigger>
-            <TabsTrigger value="compare">השוואה</TabsTrigger>
-            <TabsTrigger value="history">היסטוריה</TabsTrigger>
+          {/* Primary tabs — core workflow */}
+          <TabsList className="flex w-full flex-wrap h-auto gap-0.5 p-1 mb-1">
+            <TabsTrigger value="player" className="flex-1 min-w-[5rem] text-xs sm:text-sm py-1.5">🎧 נגן</TabsTrigger>
+            <TabsTrigger value="edit" className="flex-1 min-w-[5rem] text-xs sm:text-sm py-1.5">עריכת טקסט</TabsTrigger>
+            <TabsTrigger value="speakers" className="flex-1 min-w-[5rem] text-xs sm:text-sm py-1.5">👥 זיהוי דוברים</TabsTrigger>
+            <TabsTrigger value="templates" className="flex-1 min-w-[5rem] text-xs sm:text-sm py-1.5">תבניות</TabsTrigger>
+            <TabsTrigger value="ai" className="flex-1 min-w-[5rem] text-xs sm:text-sm py-1.5">עריכה עם AI</TabsTrigger>
+            <TabsTrigger value="pipeline" className="flex-1 min-w-[5rem] text-xs sm:text-sm py-1.5">צינור עיבוד</TabsTrigger>
+            <TabsTrigger value="prompts" className="flex-1 min-w-[5rem] text-xs sm:text-sm py-1.5">ספריית פרומפטים</TabsTrigger>
+          </TabsList>
+          {/* Secondary tabs — tools & settings */}
+          <TabsList className="flex w-full flex-wrap h-auto gap-0.5 p-1 bg-muted/50 mb-4">
+            <TabsTrigger value="ollama" className="flex-1 min-w-[4.5rem] text-xs py-1">🖥️ Ollama</TabsTrigger>
+            <TabsTrigger value="learning" className="flex-1 min-w-[4.5rem] text-xs py-1">🧠 למידה</TabsTrigger>
+            <TabsTrigger value="vocab" className="flex-1 min-w-[4.5rem] text-xs py-1">📖 מילון</TabsTrigger>
+            <TabsTrigger value="summary" className="flex-1 min-w-[4.5rem] text-xs py-1">📊 סיכום</TabsTrigger>
+            <TabsTrigger value="ab" className="flex-1 min-w-[4.5rem] text-xs py-1">⚡ A/B</TabsTrigger>
+            <TabsTrigger value="analytics" className="flex-1 min-w-[4.5rem] text-xs py-1">📈 אנליטיקה</TabsTrigger>
+            <TabsTrigger value="compare" className="flex-1 min-w-[4.5rem] text-xs py-1">השוואה</TabsTrigger>
+            <TabsTrigger value="history" className="flex-1 min-w-[4.5rem] text-xs py-1">היסטוריה</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="player" className="space-y-4">
+          <TabsContent value="player" className="space-y-5">
             <LazyErrorBoundary label="נגן מסונכרן">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <SyncAudioPlayer
                 audioUrl={audioUrl}
                 wordTimings={wordTimings}
@@ -659,7 +658,7 @@ const TextEditor = () => {
             </LazyErrorBoundary>
           </TabsContent>
 
-          <TabsContent value="edit" className="space-y-4">
+          <TabsContent value="edit" className="space-y-5">
             <div
               style={{
                 fontSize: `${fontSize}px`,
@@ -681,13 +680,13 @@ const TextEditor = () => {
             </div>
           </TabsContent>
 
-          <TabsContent value="speakers" className="space-y-4">
+          <TabsContent value="speakers" className="space-y-5">
             <LazyErrorBoundary label="זיהוי דוברים">
               <SpeakerDiarization serverUrl="/whisper" initialAudioBlob={audioBlob} initialAudioName={audioFileName} initialText={text} />
             </LazyErrorBoundary>
           </TabsContent>
 
-          <TabsContent value="templates" className="space-y-4">
+          <TabsContent value="templates" className="space-y-5">
             <LazyErrorBoundary label="תבניות עריכה"><EditingTemplates
               text={text}
               onApply={(newText, templateName) => {
@@ -696,7 +695,7 @@ const TextEditor = () => {
             /></LazyErrorBoundary>
           </TabsContent>
 
-          <TabsContent value="ai" className="space-y-4">
+          <TabsContent value="ai" className="space-y-5">
             <div
               style={{
                 fontSize: `${fontSize}px`,
@@ -720,7 +719,7 @@ const TextEditor = () => {
             </div>
           </TabsContent>
 
-          <TabsContent value="compare" className="space-y-4">
+          <TabsContent value="compare" className="space-y-5">
             {versions.length >= 2 ? (
               <LazyErrorBoundary label="השוואה מתקדמת"><AdvancedDiffView 
                 versions={versions}
@@ -739,7 +738,7 @@ const TextEditor = () => {
             )}
           </TabsContent>
 
-          <TabsContent value="pipeline" className="space-y-4">
+          <TabsContent value="pipeline" className="space-y-5">
             <LazyErrorBoundary label="צינור עריכה"><EditPipeline
               text={text}
               onTextChange={(newText, source, customPrompt) => {
@@ -749,7 +748,7 @@ const TextEditor = () => {
             /></LazyErrorBoundary>
           </TabsContent>
 
-          <TabsContent value="prompts" className="space-y-4">
+          <TabsContent value="prompts" className="space-y-5">
             <LazyErrorBoundary label="ספריית פרומפטים"><PromptLibrary
               text={text}
               onTextChange={(newText, source, customPrompt) => {
@@ -759,30 +758,30 @@ const TextEditor = () => {
             /></LazyErrorBoundary>
           </TabsContent>
 
-          <TabsContent value="ollama" className="space-y-4">
+          <TabsContent value="ollama" className="space-y-5">
             <LazyErrorBoundary label="Ollama"><OllamaManager /></LazyErrorBoundary>
           </TabsContent>
 
-          <TabsContent value="learning" className="space-y-4">
+          <TabsContent value="learning" className="space-y-5">
             <LazyErrorBoundary label="למידת תיקונים"><CorrectionLearningPanel /></LazyErrorBoundary>
           </TabsContent>
-          <TabsContent value="vocab" className="space-y-4">
+          <TabsContent value="vocab" className="space-y-5">
             <LazyErrorBoundary label="אוצר מילים"><VocabularyPanel /></LazyErrorBoundary>
           </TabsContent>
 
-          <TabsContent value="summary" className="space-y-4">
+          <TabsContent value="summary" className="space-y-5">
             <LazyErrorBoundary label="סיכום"><AutoSummaryCard text={text} /></LazyErrorBoundary>
             <LazyErrorBoundary label="סיכום AI"><TranscriptSummary transcript={text} /></LazyErrorBoundary>
           </TabsContent>
 
-          <TabsContent value="ab" className="space-y-4">
+          <TabsContent value="ab" className="space-y-5">
             <LazyErrorBoundary label="השוואת מנועים"><EngineCompare text={text} /></LazyErrorBoundary>
           </TabsContent>
 
-          <TabsContent value="analytics" className="space-y-4">
+          <TabsContent value="analytics" className="space-y-5">
             <LazyErrorBoundary label="אנליטיקס"><AnalyticsDashboard /></LazyErrorBoundary>
           </TabsContent>
-          <TabsContent value="history" className="space-y-4">
+          <TabsContent value="history" className="space-y-5">
             <LazyErrorBoundary label="היסטוריית עריכה"><TextEditHistory 
               versions={versions}
               onSelectVersion={handleVersionSelect}
@@ -795,13 +794,14 @@ const TextEditor = () => {
         </Tabs>
 
         {/* Back Button */}
-        <div className="flex justify-center pt-6 border-t">
+        <div className="flex justify-center pt-4 mt-2 border-t">
           <Button
-            variant="outline"
+            variant="ghost"
+            size="sm"
             onClick={() => navigate("/")}
-            className="gap-2"
+            className="gap-1.5 text-muted-foreground hover:text-foreground"
           >
-            <ArrowRight className="w-4 h-4" />
+            <ArrowRight className="w-3.5 h-3.5" />
             חזרה לעמוד הראשי
           </Button>
         </div>
