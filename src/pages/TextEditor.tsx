@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, lazy, Suspense, useCallback } from "react";
+import { useState, useEffect, useRef, lazy, Suspense, useCallback, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -60,6 +60,33 @@ const sourceLabels: Record<string, string> = {
   'ai-speakers': 'זיהוי דוברים',
   'ai-tone': 'שינוי טון',
 };
+
+const KNOWN_SOURCES = new Set<TextVersion['source']>([
+  'original',
+  'manual',
+  'ai-improve',
+  'ai-sources',
+  'ai-readable',
+  'ai-custom',
+  'ai-fix',
+  'ai-grammar',
+  'ai-punctuation',
+  'ai-paragraphs',
+  'ai-bullets',
+  'ai-headings',
+  'ai-expand',
+  'ai-shorten',
+  'ai-summarize',
+  'ai-translate',
+  'ai-speakers',
+  'ai-tone',
+]);
+
+function toKnownSource(source: string): TextVersion['source'] {
+  return KNOWN_SOURCES.has(source as TextVersion['source'])
+    ? (source as TextVersion['source'])
+    : 'manual';
+}
 
 const TextEditor = () => {
   const navigate = useNavigate();
@@ -406,6 +433,28 @@ const TextEditor = () => {
   
 
   const [aiAction, setAiAction] = useState<string | null>(null);
+  const [showCompareAi, setShowCompareAi] = useState(false);
+
+  const compareVersions = useMemo<TextVersion[]>(() => {
+    const byId = new Map<string, TextVersion>();
+
+    for (const v of versions) {
+      byId.set(v.id, v);
+    }
+
+    for (const cv of cloudVersions) {
+      if (byId.has(cv.id)) continue;
+      byId.set(cv.id, {
+        id: cv.id,
+        text: cv.text,
+        timestamp: new Date(cv.created_at),
+        source: toKnownSource(cv.source),
+        customPrompt: cv.action_label || cv.engine_label || undefined,
+      });
+    }
+
+    return Array.from(byId.values()).sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+  }, [versions, cloudVersions]);
 
   const handleAiQuickAction = async (action: 'fix_errors' | 'split_paragraphs' | 'fix_and_split') => {
     if (!text.trim()) {
@@ -826,9 +875,23 @@ const TextEditor = () => {
           </TabsContent>
 
           <TabsContent value="compare" className="space-y-5">
-            {versions.length >= 2 ? (
+            <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 px-3 py-2">
+              <p className="text-xs text-muted-foreground">
+                במסך הזה אפשר גם להשוות בין כל הגרסאות (מקומי + ענן) וגם להריץ עריכת AI ישירות.
+              </p>
+              <Button
+                variant={showCompareAi ? "default" : "outline"}
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => setShowCompareAi((v) => !v)}
+              >
+                {showCompareAi ? "הסתר עריכת AI" : "עריכת AI במסך ההשוואה"}
+              </Button>
+            </div>
+
+            {compareVersions.length >= 2 ? (
               <LazyErrorBoundary label="השוואה מתקדמת"><AdvancedDiffView 
-                versions={versions}
+                versions={compareVersions}
                 fontSize={fontSize}
                 fontFamily={fontFamily}
                 textColor={textColor}
@@ -840,6 +903,29 @@ const TextEditor = () => {
             ) : (
               <div className="text-center py-12 text-muted-foreground">
                 יש צורך בלפחות שתי גרסאות כדי להשוות
+              </div>
+            )}
+
+            {showCompareAi && (
+              <div
+                style={{
+                  fontSize: `${fontSize}px`,
+                  fontFamily: fontFamily,
+                  color: textColor,
+                  lineHeight: lineHeight,
+                }}
+              >
+                <LazyErrorBoundary label="עורך AI בתוך השוואה"><AIEditorDual
+                  text={text}
+                  onTextChange={(newText, source, customPrompt) => {
+                    setText(newText);
+                    addVersion(newText, source as TextVersion['source'], customPrompt);
+                  }}
+                  onSaveVersion={handleSaveVersion}
+                  onSaveAndReplaceOriginal={handleSaveAndReplaceOriginal}
+                  onDuplicateAndSave={handleDuplicateAndSave}
+                  onSyncToPlayer={handleSyncToPlayer}
+                /></LazyErrorBoundary>
               </div>
             )}
           </TabsContent>

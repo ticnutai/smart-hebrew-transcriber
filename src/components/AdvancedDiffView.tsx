@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -51,6 +51,21 @@ export const AdvancedDiffView = ({
   const [leftId, setLeftId] = useState(versions[0]?.id || '');
   const [rightId, setRightId] = useState(versions[versions.length - 1]?.id || '');
   const [viewMode, setViewMode] = useState<'side-by-side' | 'unified' | 'stats'>('side-by-side');
+
+  useEffect(() => {
+    if (!versions.length) {
+      setLeftId('');
+      setRightId('');
+      return;
+    }
+
+    if (!leftId || !versions.some((v) => v.id === leftId)) {
+      setLeftId(versions[0].id);
+    }
+    if (!rightId || !versions.some((v) => v.id === rightId)) {
+      setRightId(versions[versions.length - 1].id);
+    }
+  }, [versions, leftId, rightId]);
 
   const leftVersion = versions.find(v => v.id === leftId);
   const rightVersion = versions.find(v => v.id === rightId);
