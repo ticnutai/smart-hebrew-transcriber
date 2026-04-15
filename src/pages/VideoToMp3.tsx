@@ -32,7 +32,6 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -936,25 +935,25 @@ export default function VideoToMp3() {
 
       {/* Post-conversion prompt dialog */}
       <Dialog open={!!promptJob} onOpenChange={(open) => !open && setPromptJob(null)}>
-        <DialogContent className="sm:max-w-md" dir="rtl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <CheckCircle2 className="w-5 h-5 text-green-500" />
+        <DialogContent className="sm:max-w-lg" dir="rtl">
+          <DialogHeader className="text-center sm:text-right">
+            <DialogTitle className="flex items-center gap-2 justify-center sm:justify-start text-lg">
+              <CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" />
               ההמרה הושלמה!
             </DialogTitle>
-            <DialogDescription className="text-right">
-              <span className="font-medium">{promptJob ? getOutputFileName(promptJob.fileName, promptJob.outputFormat) : ""}</span>
+            <DialogDescription className="text-center sm:text-right mt-1">
+              <span className="font-medium break-all">{promptJob ? getOutputFileName(promptJob.fileName, promptJob.outputFormat) : ""}</span>
               {promptJob?.outputBlob && (
                 <span className="text-muted-foreground"> ({formatBytes(promptJob.outputBlob.size)})</span>
               )}
             </DialogDescription>
           </DialogHeader>
-          <div className="text-sm text-muted-foreground">
+          <p className="text-sm text-muted-foreground text-center sm:text-right">
             מה תרצה לעשות עם הקובץ?
-          </div>
-          <DialogFooter className="flex-col sm:flex-row gap-2 sm:gap-2">
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2">
             <Button
-              className="gap-2 flex-1"
+              className="gap-2 w-full"
               disabled={!promptJob || saveAndTranscribeBusyId === promptJob?.id}
               onClick={() => {
                 if (promptJob) void handleSaveAndTranscribe(promptJob);
@@ -968,7 +967,8 @@ export default function VideoToMp3() {
               שמור + תמלל + ענן
             </Button>
             <Button
-              className="gap-2 flex-1"
+              className="gap-2 w-full"
+              variant="secondary"
               onClick={() => {
                 if (promptJob) handleTranscribe(promptJob);
               }}
@@ -978,7 +978,7 @@ export default function VideoToMp3() {
             </Button>
             <Button
               variant="outline"
-              className="gap-2 flex-1"
+              className="gap-2 w-full"
               onClick={() => {
                 if (promptJob) handleSaveMp3(promptJob);
               }}
@@ -986,7 +986,7 @@ export default function VideoToMp3() {
               <Save className="w-4 h-4" />
               שמור קובץ
             </Button>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
 
