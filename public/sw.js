@@ -6,7 +6,6 @@ const STATIC_ASSETS = [
   '/favicon.ico',
   '/pwa-192.svg',
   '/pwa-512.svg',
-  '/offline.html',
 ];
 
 // Offline fallback page (inline)
@@ -48,8 +47,14 @@ const OFFLINE_HTML = `<!DOCTYPE html>
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(async (cache) => {
-      // Cache static assets
-      await cache.addAll(STATIC_ASSETS);
+      // Cache static assets one by one so one missing file won't fail SW install
+      for (const asset of STATIC_ASSETS) {
+        try {
+          await cache.add(asset);
+        } catch {
+          // Keep install alive even if one optional asset fails
+        }
+      }
       // Store offline page
       await cache.put('/offline.html', new Response(OFFLINE_HTML, {
         headers: { 'Content-Type': 'text/html; charset=utf-8' }

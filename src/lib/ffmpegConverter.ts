@@ -9,7 +9,7 @@
 
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { toBlobURL, fetchFile } from "@ffmpeg/util";
-import { chooseConversionPath, convertOnServer } from "./conversionRouter";
+import { chooseConversionPath, convertOnServer, isServerAvailable } from "./conversionRouter";
 
 export type JobStatus = "queued" | "loading" | "converting" | "done" | "error";
 export type OutputFormat = "mp3" | "opus" | "aac";
@@ -456,7 +456,18 @@ async function runConversion(job: ConversionJob) {
   }
 
   job.startedAt = Date.now();
-  const path = await chooseConversionPath(file.size);
+  let path = await chooseConversionPath(file.size);
+
+  // OPUS encoding is less reliable in browser WASM on some devices.
+  // If server FFmpeg is available, prefer it for OPUS.
+  if (job.outputFormat === "opus" && path === "browser") {
+    try {
+      const serverReady = await isServerAvailable();
+      if (serverReady) path = "server";
+    } catch {
+      // keep browser path as fallback
+    }
+  }
 
   if (path === "server") {
     const ok = await runServerConversion(job);
@@ -470,6 +481,15 @@ async function runConversion(job: ConversionJob) {
   }
 
   await runWasmConversion(job);
+
+  if (job.status === "error" && job.outputFormat === "opus") {
+    const msg = (job.error || "").toLowerCase();
+    if (msg.includes("libopus") || msg.includes("unknown encoder") || msg.includes("encoder") || msg.includes("not found")) {
+      job.error = "OPUS נכשל במנוע הדפדפן (encoder לא זמין). נסה להפעיל שרת מקומי ולהמיר שוב.";
+      notifyAll(job);
+      await persistJob(job);
+    }
+  }
 }
 
 // ─── Queue with parallel dispatch ────────────────────────────────────────────
