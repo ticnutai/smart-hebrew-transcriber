@@ -371,6 +371,15 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
                   className="gap-1.5 text-xs h-7"
                   onClick={async (e) => {
                     e.preventDefault();
+                    if (window.location.protocol === 'https:') {
+                      toast({
+                        title: '🔒 הדפדפן חוסם גישה ל-localhost',
+                        description: 'באתר מאובטח (HTTPS) יש להגדיר כתובת שרת מרוחקת או להריץ את האפליקציה מקומית.',
+                        variant: 'destructive',
+                      });
+                      setAdvancedOpen(true);
+                      return;
+                    }
                     setIsStarting(true);
                     // 1. Try the launcher service (port 8764) — has PNA + CORS headers
                     try {
@@ -442,6 +451,13 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
                 className="gap-1.5 text-xs h-7 text-destructive border-destructive/40 hover:bg-destructive/10"
                 onClick={async (e) => {
                   e.preventDefault();
+                  if (isNonLocalHost && window.location.protocol === 'https:') {
+                    await shutdownServer();
+                    setIsStarting(false);
+                    stopPolling();
+                    toast({ title: 'החיבור נוקה', description: 'כיבוי שרת מקומי מתוך דפדפן מאובטח חסום על ידי הדפדפן.' });
+                    return;
+                  }
                   // Try launcher stop (works from Lovable via PNA)
                   try {
                     await fetch('http://localhost:8764/stop', {

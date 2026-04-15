@@ -101,8 +101,21 @@ export const useLocalServer = () => {
   const getBaseUrl = () => {
     // Prefer decrypted in-memory value (handles encrypted CloudKeySync values)
     const decrypted = getApiKey('whisper_server_url');
-    if (decrypted) return normalizeServerUrl(decrypted);
-    return normalizeServerUrl(localStorage.getItem('whisper_server_url'));
+    const configured = normalizeServerUrl(decrypted || localStorage.getItem('whisper_server_url'));
+
+    // On hosted HTTPS pages, direct localhost calls can be blocked by browser PNA/CORS.
+    // Prefer same-origin proxy path when user configured loopback URL.
+    if (typeof window !== 'undefined') {
+      const host = window.location.hostname;
+      const isLocalPage = host === 'localhost' || host === '127.0.0.1';
+      const isHostedHttps = window.location.protocol === 'https:' && !isLocalPage;
+      const isLoopbackTarget = configured.includes('localhost:3000') || configured.includes('127.0.0.1:3000');
+      if (isHostedHttps && isLoopbackTarget) {
+        return DEFAULT_SERVER_URL;
+      }
+    }
+
+    return configured;
   };
 
   const getApiHeaders = (): Record<string, string> => {

@@ -21,6 +21,14 @@ import {
   type CutSegment,
   type CutResult,
 } from "@/lib/audioCutEngine";
+import {
+  clearEnhanceQueueCompleted,
+  getEnhanceQueueJobs,
+  onEnhanceQueueUpdate,
+  removeEnhanceQueueJob,
+  submitEnhanceJob,
+  type EnhanceQueueJob,
+} from "@/lib/audioEnhanceQueue";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -264,12 +272,14 @@ function CutJobCard({
   job,
   onRemove,
   onDownloadAll,
+  onEnhanceAll,
   onTranscribeResult,
   onEnhanceResult,
 }: {
   job: CutJob;
   onRemove: (id: string) => void;
   onDownloadAll: (job: CutJob) => void;
+  onEnhanceAll: (job: CutJob) => void;
   onTranscribeResult: (result: CutResult) => void;
   onEnhanceResult: (result: CutResult) => void;
 }) {
@@ -335,6 +345,17 @@ function CutJobCard({
                 onClick={() => onDownloadAll(job)}
               >
                 <FolderDown className="w-3.5 h-3.5" />
+              </Button>
+            )}
+            {job.status === "done" && job.results.length > 0 && (
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7"
+                title="שפר את כל הקטעים ברקע"
+                onClick={() => onEnhanceAll(job)}
+              >
+                <Sparkles className="w-3.5 h-3.5" />
               </Button>
             )}
             {job.results.length > 0 && (
@@ -425,6 +446,7 @@ export default function AdvancedCutPanel({
 
   // Jobs
   const [cutJobs, setCutJobs] = useState<CutJob[]>([]);
+  const [enhanceQueueJobs, setEnhanceQueueJobs] = useState<EnhanceQueueJob[]>(() => getEnhanceQueueJobs());
 
   // Set initial file
   useEffect(() => {
@@ -462,6 +484,12 @@ export default function AdvancedCutPanel({
       }
     });
     return unsub;
+  }, []);
+
+  useEffect(() => {
+    return onEnhanceQueueUpdate((nextJobs) => {
+      setEnhanceQueueJobs(nextJobs);
+    });
   }, []);
 
   const loadSource = useCallback(async (file: File, label?: string) => {
@@ -595,6 +623,31 @@ export default function AdvancedCutPanel({
     void removePersistedCutJob(id);
   }, []);
 
+  const inferOutputFormat = useCallback((fileName: string): "mp3" | "opus" | "aac" => {
+    const lower = fileName.toLowerCase();
+    if (lower.endsWith(".opus")) return "opus";
+    if (lower.endsWith(".m4a") || lower.endsWith(".aac")) return "aac";
+    return "mp3";
+  }, []);
+
+  const handleEnhanceAllResults = useCallback((job: CutJob) => {
+    let queued = 0;
+    for (const result of job.results) {
+      submitEnhanceJob(result.file, {
+        preset: "ai_voice",
+        outputFormat: inferOutputFormat(result.file.name),
+      });
+      queued += 1;
+    }
+
+    if (queued > 0) {
+      toast({
+        title: "שיפור אצווה לחיתוך התחיל",
+        description: `${queued} קטעים נוספו לתור שיפור רקע`,
+      });
+    }
+  }, [inferOutputFormat]);
+
   const handleTranscribeResult = useCallback(
     (result: CutResult) => {
       navigate("/transcribe", { state: { file: result.file } });
@@ -615,6 +668,13 @@ export default function AdvancedCutPanel({
     done: cutJobs.filter((j) => j.status === "done").length,
     active: cutJobs.filter((j) => j.status === "cutting" || j.status === "decoding").length,
     queued: cutJobs.filter((j) => j.status === "queued").length,
+  };
+  const enhanceQueueStats = {
+    total: enhanceQueueJobs.length,
+    active: enhanceQueueJobs.filter((j) => j.status === "enhancing").length,
+    queued: enhanceQueueJobs.filter((j) => j.status === "queued").length,
+    done: enhanceQueueJobs.filter((j) => j.status === "done").length,
+    errors: enhanceQueueJobs.filter((j) => j.status === "error").length,
   };
 
   return (
@@ -944,12 +1004,114 @@ export default function AdvancedCutPanel({
                     job={job}
                     onRemove={handleRemoveJob}
                     onDownloadAll={handleDownloadAll}
+                    onEnhanceAll={handleEnhanceAllResults}
                     onTranscribeResult={handleTranscribeResult}
                     onEnhanceResult={setEnhanceTarget}
                   />
                 ))}
               </div>
             </ScrollArea>
+          </CardContent>
+        </Card>
+      )}
+
+      {enhanceQueueStats.total > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-primary" />
+                תור שיפור איכות ({enhanceQueueStats.total})
+              </span>
+              <div className="flex items-center gap-1">
+                {enhanceQueueStats.active > 0 && (
+                  <Badge variant="default" className="gap-1 text-[10px]">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    {enhanceQueueStats.active} משפרים
+                  </Badge>
+                )}
+                {enhanceQueueStats.queued > 0 && (
+                  <Badge variant="outline" className="text-[10px]">
+                    {enhanceQueueStats.queued} בתור
+                  </Badge>
+                )}
+                {(enhanceQueueStats.done > 0 || enhanceQueueStats.errors > 0) && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs gap-1 text-muted-foreground"
+                    onClick={clearEnhanceQueueCompleted}
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    נקה הסתיימו
+                  </Button>
+                )}
+              </div>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-1.5">
+              {enhanceQueueJobs.slice(0, 12).map((job) => (
+                <div key={job.id} className="flex items-center justify-between gap-2 border rounded-lg px-2 py-1.5">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-medium truncate">{job.sourceName}</p>
+                    <p className="text-[10px] text-muted-foreground">
+                      {job.preset === "ai_voice" ? "AI Voice" : "Auto EQ"} • {job.outputFormat.toUpperCase()}
+                      {job.error ? ` • ${job.error}` : ""}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {job.status === "queued" && <Badge variant="outline" className="text-[10px]">בתור</Badge>}
+                    {job.status === "enhancing" && (
+                      <Badge variant="default" className="gap-1 text-[10px]">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        משפר
+                      </Badge>
+                    )}
+                    {job.status === "error" && <Badge variant="destructive" className="text-[10px]">שגיאה</Badge>}
+                    {job.status === "done" && job.outputFile && (
+                      <>
+                        <Badge variant="secondary" className="text-[10px]">הושלם</Badge>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7"
+                          onClick={() => navigate("/transcribe", { state: { file: job.outputFile } })}
+                        >
+                          <Mic className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7"
+                          onClick={() => {
+                            if (!job.outputFile) return;
+                            const url = URL.createObjectURL(job.outputFile);
+                            const a = document.createElement("a");
+                            a.href = url;
+                            a.download = job.outputFile.name;
+                            a.click();
+                            URL.revokeObjectURL(url);
+                          }}
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                        </Button>
+                      </>
+                    )}
+                    {job.status !== "enhancing" && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                        onClick={() => removeEnhanceQueueJob(job.id)}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
           </CardContent>
         </Card>
       )}

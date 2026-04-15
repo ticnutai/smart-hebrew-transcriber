@@ -37,6 +37,7 @@ export const CorrectionLearningPanel = () => {
   } = useCorrectionLearning();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showAll, setShowAll] = useState(false);
+  const [noteFilter, setNoteFilter] = useState<'all' | 'with-note' | 'without-note'>('all');
 
   const handleExport = () => {
     const json = exportData();
@@ -71,7 +72,13 @@ export const CorrectionLearningPanel = () => {
     toast({ title: "נמחק", description: "כל התיקונים הנלמדים נמחקו" });
   };
 
-  const displayCorrections = showAll ? corrections : corrections.slice(0, 20);
+  const filteredCorrections = corrections.filter((c) => {
+    if (noteFilter === 'with-note') return !!c.note?.trim();
+    if (noteFilter === 'without-note') return !c.note?.trim();
+    return true;
+  });
+
+  const displayCorrections = showAll ? filteredCorrections : filteredCorrections.slice(0, 20);
 
   return (
     <Card className="bg-[#1a1a2e]/90 border-white/10 text-white">
@@ -138,42 +145,74 @@ export const CorrectionLearningPanel = () => {
             <div className="text-sm font-medium text-white/70 flex items-center justify-between">
               <span className="flex items-center gap-1">
                 <Sparkles className="w-3.5 h-3.5" />
-                תיקונים ({corrections.length})
+                תיקונים ({filteredCorrections.length}/{corrections.length})
               </span>
-              {corrections.length > 20 && (
+              {filteredCorrections.length > 20 && (
                 <Button variant="ghost" size="sm" className="text-xs h-6"
                   onClick={() => setShowAll(!showAll)}>
-                  {showAll ? 'הצג פחות' : `הצג הכל (${corrections.length})`}
+                  {showAll ? 'הצג פחות' : `הצג הכל (${filteredCorrections.length})`}
                 </Button>
               )}
+            </div>
+
+            <div className="flex flex-wrap gap-1">
+              <Button
+                variant={noteFilter === 'all' ? 'secondary' : 'ghost'}
+                size="sm"
+                className="h-6 text-[11px]"
+                onClick={() => setNoteFilter('all')}
+              >
+                הכל
+              </Button>
+              <Button
+                variant={noteFilter === 'with-note' ? 'secondary' : 'ghost'}
+                size="sm"
+                className="h-6 text-[11px]"
+                onClick={() => setNoteFilter('with-note')}
+              >
+                עם הסבר
+              </Button>
+              <Button
+                variant={noteFilter === 'without-note' ? 'secondary' : 'ghost'}
+                size="sm"
+                className="h-6 text-[11px]"
+                onClick={() => setNoteFilter('without-note')}
+              >
+                בלי הסבר
+              </Button>
             </div>
 
             <ScrollArea className="h-[200px]">
               <div className="space-y-1">
                 {displayCorrections.map((c, i) => (
                   <div key={`${c.original}-${c.corrected}-${i}`}
-                    className="flex items-center gap-2 px-2 py-1.5 rounded bg-white/5 hover:bg-white/10 group text-sm">
-                    <Badge variant="outline" className={`text-[10px] ${CATEGORY_COLORS[c.category] || ''}`}>
-                      {CATEGORY_LABELS[c.category] || c.category}
-                    </Badge>
-                    <span className="text-red-300/80 line-through truncate max-w-[120px]" dir="rtl"
-                      title={c.original}>
-                      {c.original || '(ריק)'}
-                    </span>
-                    <ArrowRight className="w-3 h-3 text-white/30 shrink-0" />
-                    <span className="text-green-300/80 truncate max-w-[120px]" dir="rtl"
-                      title={c.corrected}>
-                      {c.corrected || '(ריק)'}
-                    </span>
-                    <span className="text-white/30 text-[10px] mr-auto">
-                      ×{c.frequency}
-                    </span>
-                    <Progress value={c.confidence * 100} className="w-10 h-1" />
-                    <Button variant="ghost" size="sm"
-                      className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 text-red-400"
-                      onClick={() => removeCorrection(c.original, c.corrected)}>
-                      <Trash2 className="w-3 h-3" />
-                    </Button>
+                    className="px-2 py-1.5 rounded bg-white/5 hover:bg-white/10 group text-sm space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className={`text-[10px] ${CATEGORY_COLORS[c.category] || ''}`}>
+                        {CATEGORY_LABELS[c.category] || c.category}
+                      </Badge>
+                      <span className="text-red-300/80 line-through truncate max-w-[120px]" dir="rtl"
+                        title={c.original}>
+                        {c.original || '(ריק)'}
+                      </span>
+                      <ArrowRight className="w-3 h-3 text-white/30 shrink-0" />
+                      <span className="text-green-300/80 truncate max-w-[120px]" dir="rtl"
+                        title={c.corrected}>
+                        {c.corrected || '(ריק)'}
+                      </span>
+                      <span className="text-white/30 text-[10px] mr-auto">
+                        ×{c.frequency}
+                      </span>
+                      <Progress value={c.confidence * 100} className="w-10 h-1" />
+                      <Button variant="ghost" size="sm"
+                        className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 text-red-400"
+                        onClick={() => removeCorrection(c.original, c.corrected)}>
+                        <Trash2 className="w-3 h-3" />
+                      </Button>
+                    </div>
+                    {c.note && (
+                      <p className="text-[11px] text-white/60 pr-1">הסבר: {c.note}</p>
+                    )}
                   </div>
                 ))}
               </div>
@@ -181,11 +220,15 @@ export const CorrectionLearningPanel = () => {
           </div>
         )}
 
-        {corrections.length === 0 && (
+        {filteredCorrections.length === 0 && (
           <div className="text-center py-6 text-white/40">
             <Brain className="w-8 h-8 mx-auto mb-2 opacity-50" />
-            <p className="text-sm">עדיין אין תיקונים נלמדים</p>
-            <p className="text-xs mt-1">ערוך תמלולים והמערכת תלמד אוטומטית</p>
+            <p className="text-sm">
+              {corrections.length === 0 ? 'עדיין אין תיקונים נלמדים' : 'אין תוצאות לפי הסינון שבחרת'}
+            </p>
+            <p className="text-xs mt-1">
+              {corrections.length === 0 ? 'ערוך תמלולים והמערכת תלמד אוטומטית' : 'נסה לעבור לסינון אחר'}
+            </p>
           </div>
         )}
 

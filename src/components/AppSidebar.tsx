@@ -47,6 +47,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { label: "דשבורד", icon: LayoutDashboard, path: "/" },
   { label: "תמלול", icon: Mic, path: "/transcribe" },
+  { label: "סטודיו קול", icon: Waves, path: "/voice-studio" },
   { label: "תיקיות", icon: FolderOpen, path: "/folders" },
   { label: "עורך טקסט", icon: FileText, path: "/text-editor" },
   { label: "בנצ'מארק", icon: BarChart3, path: "/benchmark" },

@@ -10,6 +10,7 @@ import {
   type EnhancementOutputFormat,
   type EnhancementPreset,
 } from "@/lib/audioEnhancement";
+import { submitEnhanceJob } from "@/lib/audioEnhanceQueue";
 
 interface AudioEnhanceDialogProps {
   open: boolean;
@@ -154,6 +155,15 @@ export default function AudioEnhanceDialog({
     }
   };
 
+  const enqueueEnhancement = () => {
+    if (!file) return;
+    submitEnhanceJob(file, { preset, outputFormat });
+    toast({
+      title: "נוסף לתור שיפור רקע",
+      description: `${file.name} • ${preset === "ai_voice" ? "AI Voice" : "Auto EQ"}`,
+    });
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-3xl" dir="rtl">
@@ -250,6 +260,15 @@ export default function AudioEnhanceDialog({
           >
             {isEnhancing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
             שפר בלבד
+          </Button>
+          <Button
+            variant="outline"
+            className="gap-2 flex-1"
+            disabled={!file || isEnhancing}
+            onClick={enqueueEnhancement}
+          >
+            <Sparkles className="w-4 h-4" />
+            הוסף לתור רקע
           </Button>
           {onTranscribe && file && (
             <Button

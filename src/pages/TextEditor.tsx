@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RichTextEditor } from "@/components/RichTextEditor";
+import { PlayerTranscriptEditor } from "@/components/PlayerTranscriptEditor";
 import { debugLog } from "@/lib/debugLogger";
 import type { TextVersion } from "@/components/TextEditHistory";
 import type { WordTiming } from "@/components/SyncAudioPlayer";
@@ -79,6 +80,7 @@ const TextEditor = () => {
   const ollama = useOllama();
   const { learn: learnCorrections, applyCorrections } = useCorrectionLearning();
   const originalTextRef = useRef<string>("");
+  const ownedAudioUrlRef = useRef<string | null>(null);
   
   // Cloud-synced style settings
   const { preferences, updatePreference } = useCloudPreferences();
@@ -106,7 +108,12 @@ const TextEditor = () => {
     try {
       const entry = await db.audioBlobs.get('last_audio');
       if (entry?.blob) {
+        if (ownedAudioUrlRef.current) {
+          URL.revokeObjectURL(ownedAudioUrlRef.current);
+          ownedAudioUrlRef.current = null;
+        }
         const url = URL.createObjectURL(entry.blob);
+        ownedAudioUrlRef.current = url;
         setAudioUrl(url);
         setAudioBlob(entry.blob);
         setAudioFileName(entry.name || '');
@@ -115,9 +122,27 @@ const TextEditor = () => {
     } catch { /* Dexie not available */ }
   }, []);
 
+  const setOwnedAudioFromBlob = useCallback((blob: Blob, name?: string) => {
+    if (ownedAudioUrlRef.current) {
+      URL.revokeObjectURL(ownedAudioUrlRef.current);
+      ownedAudioUrlRef.current = null;
+    }
+    const nextUrl = URL.createObjectURL(blob);
+    ownedAudioUrlRef.current = nextUrl;
+    setAudioUrl(nextUrl);
+    setAudioBlob(blob);
+    if (name) setAudioFileName(name);
+  }, []);
+
   useEffect(() => {
     debugLog.info('TextEditor', '📝 TextEditor mounted');
-    return () => debugLog.info('TextEditor', '📝 TextEditor unmounted');
+    return () => {
+      if (ownedAudioUrlRef.current) {
+        URL.revokeObjectURL(ownedAudioUrlRef.current);
+        ownedAudioUrlRef.current = null;
+      }
+      debugLog.info('TextEditor', '📝 TextEditor unmounted');
+    };
   }, []);
 
   // Always try to load audio blob from Dexie for SpeakerDiarization passthrough
@@ -209,16 +234,20 @@ const TextEditor = () => {
     if (location.state?.audioUrl) {
       const url = location.state.audioUrl as string;
       if (url.startsWith('blob:')) {
-        // Blob URLs only support GET (HEAD fails), so use a minimal range GET to verify
-        fetch(url).then((resp) => {
-          if (resp.ok || resp.status === 206) {
-            resp.body?.cancel(); // Don't download the whole file
-            setAudioUrl(url);
-          }
-        }).catch(() => {
-          // Blob URL expired — try recovering from Dexie
-          tryRecoverAudioFromDexie();
-        });
+        // Clone blob URL into an owned URL so playback survives source-route cleanup.
+        fetch(url)
+          .then(async (resp) => {
+            if (!resp.ok && resp.status !== 206) throw new Error('blob fetch failed');
+            const blob = await resp.blob();
+            setOwnedAudioFromBlob(blob, location.state?.audioFileName || undefined);
+            try {
+              await db.audioBlobs.put({ id: 'last_audio', blob, type: blob.type, name: location.state?.audioFileName || audioFileName || 'audio', saved_at: Date.now() });
+            } catch { /* Dexie not available */ }
+          })
+          .catch(() => {
+            // Blob URL expired — try recovering from Dexie
+            tryRecoverAudioFromDexie();
+          });
       } else {
         setAudioUrl(url);
       }
@@ -255,7 +284,7 @@ const TextEditor = () => {
       } catch { /* corrupted */ }
     }
 
-  }, [location.state]);
+  }, [location.state, tryRecoverAudioFromDexie, setOwnedAudioFromBlob, getAudioUrl, audioFileName]);
 
   // Auto-save text and versions to localStorage + debounce cloud save
   const cloudSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -386,6 +415,10 @@ const TextEditor = () => {
       }
     }, 2000);
   }, [learnCorrections]);
+
+  const handlePlayerEditorChange = useCallback((newText: string) => {
+    handleEditorChange(newText);
+  }, [handleEditorChange]);
 
   const buildSyncedTimings = useCallback((editedText: string): WordTiming[] | null => {
     if (!wordTimings.length) return null;
@@ -655,6 +688,11 @@ const TextEditor = () => {
                 syncEnabled={syncEnabled}
               />
             </div>
+            <PlayerTranscriptEditor
+              originalText={originalTextRef.current || ""}
+              editedText={text}
+              onEditedTextChange={handlePlayerEditorChange}
+            />
             </LazyErrorBoundary>
           </TabsContent>
 

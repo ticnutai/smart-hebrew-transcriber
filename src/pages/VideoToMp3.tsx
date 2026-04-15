@@ -14,6 +14,14 @@ import {
   type ConversionJob,
   type OutputFormat,
 } from "@/lib/ffmpegConverter";
+import {
+  clearEnhanceQueueCompleted,
+  getEnhanceQueueJobs,
+  onEnhanceQueueUpdate,
+  removeEnhanceQueueJob,
+  submitEnhanceJob,
+  type EnhanceQueueJob,
+} from "@/lib/audioEnhanceQueue";
 import { isServerAvailable } from "@/lib/conversionRouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -297,6 +305,7 @@ export default function VideoToMp3() {
   const [ffmpegReady, setFfmpegReady] = useState(false);
   const [promptJob, setPromptJob] = useState<ConversionJob | null>(null);
   const [enhanceTarget, setEnhanceTarget] = useState<ConversionJob | null>(null);
+  const [enhanceQueueJobs, setEnhanceQueueJobs] = useState<EnhanceQueueJob[]>(() => getEnhanceQueueJobs());
   const [saveAndTranscribeBusyId, setSaveAndTranscribeBusyId] = useState<string | null>(null);
   const [autoTranscribe, setAutoTranscribe] = useState(false);
   const [activeTab, setActiveTab] = useState<"convert" | "cut">("convert");
@@ -374,6 +383,12 @@ export default function VideoToMp3() {
     return unsub;
   }, [autoTranscribe, toOutputFile, navigate]);
 
+  useEffect(() => {
+    return onEnhanceQueueUpdate((nextJobs) => {
+      setEnhanceQueueJobs(nextJobs);
+    });
+  }, []);
+
   // Cleanup blob URLs on unmount
   useEffect(() => {
     return () => {
@@ -438,6 +453,49 @@ export default function VideoToMp3() {
       return prev.filter((j) => j.status !== "done" && j.status !== "error");
     });
   }, []);
+
+  const handleEnhanceAllConverted = useCallback(() => {
+    const convertible = jobs.filter((j) => j.status === "done");
+    let queued = 0;
+    for (const job of convertible) {
+      const outputFile = toOutputFile(job);
+      if (!outputFile) continue;
+      submitEnhanceJob(outputFile, {
+        preset: "ai_voice",
+        outputFormat: job.outputFormat,
+      });
+      queued += 1;
+    }
+
+    if (queued === 0) {
+      toast({
+        title: "אין קבצים זמינים לשיפור",
+        description: "יש להשלים המרה לפני הוספה לתור שיפור",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    toast({
+      title: "שיפור אצווה התחיל",
+      description: `${queued} קבצים נכנסו לתור שיפור רקע`,
+    });
+  }, [jobs, toOutputFile]);
+
+  const handleDownloadEnhancedQueueJob = useCallback((job: EnhanceQueueJob) => {
+    if (!job.outputFile) return;
+    const url = URL.createObjectURL(job.outputFile);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = job.outputFile.name;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, []);
+
+  const handleTranscribeEnhancedQueueJob = useCallback((job: EnhanceQueueJob) => {
+    if (!job.outputFile) return;
+    navigate("/transcribe", { state: { file: job.outputFile } });
+  }, [navigate]);
 
   // Navigate to transcription page with the converted MP3
   const handleTranscribe = useCallback((job: ConversionJob) => {
@@ -551,6 +609,13 @@ export default function VideoToMp3() {
     errors: jobs.filter((j) => j.status === "error").length,
   };
   const doneJobs = jobs.filter((j) => j.status === "done" && !!j.outputBlob);
+  const enhanceQueueStats = {
+    total: enhanceQueueJobs.length,
+    active: enhanceQueueJobs.filter((j) => j.status === "enhancing").length,
+    queued: enhanceQueueJobs.filter((j) => j.status === "queued").length,
+    done: enhanceQueueJobs.filter((j) => j.status === "done").length,
+    errors: enhanceQueueJobs.filter((j) => j.status === "error").length,
+  };
 
   return (
     <div className="container max-w-4xl mx-auto py-6 px-4 space-y-6" dir="rtl">
@@ -696,6 +761,12 @@ export default function VideoToMp3() {
                 )}
               </div>
               <div className="flex items-center gap-2">
+                {stats.done > 0 && (
+                  <Button variant="secondary" size="sm" onClick={handleEnhanceAllConverted} className="gap-1">
+                    <Sparkles className="w-4 h-4" />
+                    שפר הכל ברקע
+                  </Button>
+                )}
                 {stats.done > 1 && (
                   <Button variant="outline" size="sm" onClick={handleDownloadAll} className="gap-1">
                     <FolderDown className="w-4 h-4" />
@@ -730,6 +801,88 @@ export default function VideoToMp3() {
                 ))}
               </div>
             </ScrollArea>
+          )}
+
+          {enhanceQueueStats.total > 0 && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-primary" />
+                    תור שיפור איכות ({enhanceQueueStats.total})
+                  </span>
+                  <div className="flex items-center gap-1">
+                    {enhanceQueueStats.active > 0 && (
+                      <Badge variant="default" className="gap-1 text-[10px]">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        {enhanceQueueStats.active} משפרים
+                      </Badge>
+                    )}
+                    {enhanceQueueStats.queued > 0 && (
+                      <Badge variant="outline" className="text-[10px]">
+                        {enhanceQueueStats.queued} בתור
+                      </Badge>
+                    )}
+                    {(enhanceQueueStats.done > 0 || enhanceQueueStats.errors > 0) && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs text-muted-foreground"
+                        onClick={clearEnhanceQueueCompleted}
+                      >
+                        נקה הסתיימו
+                      </Button>
+                    )}
+                  </div>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-1.5">
+                  {enhanceQueueJobs.slice(0, 12).map((job) => (
+                    <div key={job.id} className="flex items-center justify-between gap-2 border rounded-lg px-2 py-1.5">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-medium truncate">{job.sourceName}</p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {job.preset === "ai_voice" ? "AI Voice" : "Auto EQ"} • {job.outputFormat.toUpperCase()}
+                          {job.error ? ` • ${job.error}` : ""}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        {job.status === "queued" && <Badge variant="outline" className="text-[10px]">בתור</Badge>}
+                        {job.status === "enhancing" && (
+                          <Badge variant="default" className="gap-1 text-[10px]">
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                            משפר
+                          </Badge>
+                        )}
+                        {job.status === "error" && <Badge variant="destructive" className="text-[10px]">שגיאה</Badge>}
+                        {job.status === "done" && (
+                          <>
+                            <Badge variant="secondary" className="text-[10px]">הושלם</Badge>
+                            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleTranscribeEnhancedQueueJob(job)}>
+                              <Mic className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleDownloadEnhancedQueueJob(job)}>
+                              <Download className="w-3.5 h-3.5" />
+                            </Button>
+                          </>
+                        )}
+                        {job.status !== "enhancing" && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                            onClick={() => removeEnhanceQueueJob(job.id)}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
           )}
 
           {/* Empty State */}

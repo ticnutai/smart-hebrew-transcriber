@@ -105,9 +105,14 @@ const Index = () => {
   const { transcripts, isLoading: isCloudLoading, saveTranscript, updateTranscript, deleteTranscript, deleteAll, isCloud, getAudioUrl } = useCloudTranscripts();
   const { jobs, submitJob, submitBatchJobs, retryJob, deleteJob } = useTranscriptionJobs();
   const localQueue = useLocalTranscriptionQueue();
+  const serverConnectedRef = useRef(serverConnected);
   const { addRecord: addAnalyticsRecord } = useTranscriptionAnalytics();
   const perfMonitor = usePerfMonitor();
   const [showPerfPanel, setShowPerfPanel] = useState(false);
+
+  useEffect(() => {
+    serverConnectedRef.current = serverConnected;
+  }, [serverConnected]);
 
   // Helper: set transcript from engine result (also stores original for diff)
   const setTranscriptFromEngine = useCallback((text: string) => {
@@ -208,6 +213,8 @@ const Index = () => {
 
     // Process next item from persistent queue
     const processNextQueueItem = async () => {
+      // Stop processing loop immediately once server is no longer reachable.
+      if (!serverConnectedRef.current || engine !== 'local-server') return;
       if (localQueue.processingRef.current) return;
       const next = localQueue.getNextPending();
       if (!next) return;
@@ -232,13 +239,18 @@ const Index = () => {
         const timeoutPromise = new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error('QUEUE_TIMEOUT')), timeoutMs)
         );
-        await Promise.race([
+        const outcome = await Promise.race([
           bgTask.run(`local-server \u2014 ${next.fileName}`, async () => {
-            await transcribeWithLocalServer(file, next.audioUrl);
+            return await transcribeWithLocalServer(file, next.audioUrl, undefined, { fromQueue: true });
           }),
           timeoutPromise,
         ]);
-        await localQueue.updateItemStatus(next.id, 'completed');
+        if (outcome === 'queued') {
+          await localQueue.updateItemStatus(next.id, 'pending');
+          return;
+        } else {
+          await localQueue.updateItemStatus(next.id, 'completed');
+        }
       } catch (err) {
         const msg = err instanceof Error && err.message === 'QUEUE_TIMEOUT'
           ? 'תמלול חרג מזמן מקסימלי (10 דקות)'
@@ -246,8 +258,10 @@ const Index = () => {
         await localQueue.updateItemStatus(next.id, 'failed', msg);
       } finally {
         localQueue.processingRef.current = false;
-        // Auto-advance to next pending item
-        setTimeout(processNextQueueItem, 500);
+        // Auto-advance only when still connected and in CUDA server mode.
+        if (serverConnectedRef.current && engine === 'local-server') {
+          setTimeout(processNextQueueItem, 1200);
+        }
       }
     };
 
@@ -1075,10 +1089,20 @@ const Index = () => {
     }
   };
 
-  const transcribeWithLocalServer = async (file: File, fileAudioUrl?: string, resumeFrom?: { startFrom: number; existingText: string; existingWords: Array<{word: string, start: number, end: number}> }) => {
+  const transcribeWithLocalServer = async (
+    file: File,
+    fileAudioUrl?: string,
+    resumeFrom?: { startFrom: number; existingText: string; existingWords: Array<{word: string, start: number, end: number}> },
+    opts?: { fromQueue?: boolean },
+  ): Promise<'done' | 'queued'> => {
     // Fresh connection check before transcription (serverConnected state may be stale)
     const isUp = await checkConnection();
     if (!isUp) {
+      if (opts?.fromQueue) {
+        // Already in queue — do not duplicate items or create loops.
+        startPolling(2000);
+        return 'queued';
+      }
       // Add to persistent queue (survives refresh)
       const queueId = await localQueue.addToQueue(file, fileAudioUrl || '');
       startPolling(2000);
@@ -1087,7 +1111,7 @@ const Index = () => {
         description: `${file.name} ממתין — התמלול יתחיל אוטומטית כשהשרת יעלה`,
       });
       debugLog.info('Queue', `File queued for CUDA transcription: ${file.name} (${queueId})`);
-      return;
+      return 'queued';
     }
 
     try {
@@ -1118,12 +1142,50 @@ const Index = () => {
         toast({ title: "⚡ מצב מקבילי", description: "מעלה אודיו + טוען מודל במקביל" });
       }
 
-      const result = await transcribeFn(file, preferredModel, lang, (partial) => {
+      let result = await transcribeFn(file, preferredModel, lang, (partial) => {
         // Update live as segments arrive
         setTranscript(partial.text);
         setWordTimings(partial.wordTimings);
         debugLog.info('CUDA Stream', `${partial.progress}% — ${partial.wordTimings.length} מילים`);
       }, resumeFrom, cudaOptions);
+
+      const isHebrewDominant = (txt: string) => {
+        const letters = txt.replace(/\s+/g, '');
+        if (!letters.length) return false;
+        const heCount = (txt.match(/[\u0590-\u05FF]/g) || []).length;
+        return heCount / letters.length >= 0.35;
+      };
+      const hasHeavyRepetition = (txt: string) => /\b(\S+)(?:\s+\1){6,}\b/.test(txt);
+
+      const suspiciousAutoOutput =
+        !resumeFrom &&
+        lang === 'auto' &&
+        (
+          (result.language && result.language !== 'he' && !isHebrewDominant(result.text)) ||
+          hasHeavyRepetition(result.text)
+        );
+
+      if (suspiciousAutoOutput) {
+        debugLog.warn('CUDA Server', `Suspicious auto-language output (detected=${result.language}) — retrying with forced he`);
+        toast({
+          title: 'זוהה תמלול חשוד',
+          description: 'מבצע ניסיון נוסף עם עברית כפויה ואיכות גבוהה',
+        });
+
+        const retryOptions: CudaOptions = {
+          ...cudaOptions,
+          preset: 'accurate',
+          beamSize: Math.max(2, cudaOptions.beamSize || 2),
+          noConditionOnPrevious: false,
+          vadAggressive: false,
+        };
+
+        const retryResult = await transcribeFn(file, preferredModel, 'he', undefined, undefined, retryOptions);
+        if (retryResult.text && retryResult.text.length > result.text.length * 0.5) {
+          result = retryResult;
+        }
+      }
+
       const timings = result.wordTimings || [];
       setTranscriptFromEngine(result.text);
       setWordTimings(timings);
@@ -1174,10 +1236,11 @@ const Index = () => {
       setTimeout(() => {
         navigate('/text-editor', { state: { text: result.text, audioUrl: fileAudioUrl, wordTimings: timings, transcriptId: lastSavedTranscriptIdRef.current } });
       }, 1000);
+      return 'done';
     } catch (error) {
       if (error instanceof Error && error.message === 'CANCELLED') {
         toast({ title: "תמלול הופסק", description: "התמלול בוטל על ידי המשתמש" });
-        return;
+        return 'done';
       }
       debugLog.error('CUDA Server', 'Transcription failed', error instanceof Error ? error.message : error);
       addAnalyticsRecord({

@@ -17,6 +17,8 @@ export interface CorrectionEntry {
   original: string;
   /** Corrected text fragment */
   corrected: string;
+  /** Optional explanation/meaning for learning only context */
+  note?: string;
   /** How many times this correction was applied */
   frequency: number;
   /** Source engine that produced the error */

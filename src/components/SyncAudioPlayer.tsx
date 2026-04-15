@@ -168,8 +168,10 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
   // Audio graph nodes
   const gainNodeRef = useRef<GainNode | null>(null);
   const highpassRef = useRef<BiquadFilterNode | null>(null);
+  const lowpassRef = useRef<BiquadFilterNode | null>(null);
   const voiceBoostRef = useRef<BiquadFilterNode | null>(null);
   const compressorRef = useRef<DynamicsCompressorNode | null>(null);
+  const humNotchRef = useRef<BiquadFilterNode | null>(null);
   // Multi-band EQ nodes
   const deSibilanceRef = useRef<BiquadFilterNode | null>(null);
   const deRumbleRef = useRef<BiquadFilterNode | null>(null);
@@ -229,9 +231,12 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
 
   // Advanced manual overrides
   const [manualHighpass, setManualHighpass] = useState(80);
+  const [manualLowpass, setManualLowpass] = useState(16000);
   const [manualVoiceBoost, setManualVoiceBoost] = useState(0);
   const [manualGate, setManualGate] = useState(0);
   const [manualCompRatio, setManualCompRatio] = useState(1);
+  const [humNotchEnabled, setHumNotchEnabled] = useState(false);
+  const [humNotchFreq, setHumNotchFreq] = useState<'50' | '60' | '100' | '120'>('50');
   const isManualMode = presetId === 'manual';
 
   // Current word index for sync
@@ -262,6 +267,13 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
     highpass.frequency.value = 80;
     highpass.Q.value = 0.7;
     highpassRef.current = highpass;
+
+    // Lowpass (hiss reduction)
+    const lowpass = ctx.createBiquadFilter();
+    lowpass.type = 'lowpass';
+    lowpass.frequency.value = 20000;
+    lowpass.Q.value = 0.7;
+    lowpassRef.current = lowpass;
 
     // Voice presence boost (peaking EQ at 3kHz)
     const voiceBoost = ctx.createBiquadFilter();
@@ -310,15 +322,24 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
     compressor.release.value = 0.25;
     compressorRef.current = compressor;
 
+    // Hum notch (50/60Hz and harmonics)
+    const humNotch = ctx.createBiquadFilter();
+    humNotch.type = 'notch';
+    humNotch.frequency.value = 50;
+    humNotch.Q.value = 8;
+    humNotchRef.current = humNotch;
+
     // Analyser
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 2048;
     analyserRef.current = analyser;
 
-    // Chain: source → deRumble → highpass → voiceBoost → deSibilance → presence → warmth → compressor → gain → analyser → output
+    // Chain: source → deRumble → highpass → lowpass → humNotch → voiceBoost → deSibilance → presence → warmth → compressor → gain → analyser → output
     source.connect(deRumble);
     deRumble.connect(highpass);
-    highpass.connect(voiceBoost);
+    highpass.connect(lowpass);
+    lowpass.connect(humNotch);
+    humNotch.connect(voiceBoost);
     voiceBoost.connect(deSibilance);
     deSibilance.connect(presence);
     presence.connect(warmth);
@@ -334,6 +355,7 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
 
     const p = isManualMode ? null : currentPreset;
     const hp = p ? p.highpassFreq : manualHighpass;
+    const lp = p ? p.lowpassFreq : manualLowpass;
     const vbGain = p ? p.voiceBoostGain : manualVoiceBoost;
     const vbQ = p ? p.voiceBoostQ : 1;
     const cThresh = p ? p.compThreshold : -50 + (manualCompRatio > 1 ? -(manualCompRatio * 3) : 0);
@@ -343,6 +365,9 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
     const cRelease = p ? p.compRelease : 0.2;
 
     highpassRef.current.frequency.value = hp;
+    if (lowpassRef.current) {
+      lowpassRef.current.frequency.value = lp;
+    }
     if (voiceBoostRef.current) {
       voiceBoostRef.current.gain.value = vbGain;
       voiceBoostRef.current.Q.value = vbQ;
@@ -368,7 +393,18 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
     if (warmthRef.current) {
       warmthRef.current.gain.value = (p?.warmth) ? 3 : 0;
     }
-  }, [presetId, currentPreset, isManualMode, manualHighpass, manualVoiceBoost, manualGate, manualCompRatio]);
+  }, [presetId, currentPreset, isManualMode, manualHighpass, manualLowpass, manualVoiceBoost, manualGate, manualCompRatio]);
+
+  useEffect(() => {
+    if (!humNotchRef.current) return;
+    if (humNotchEnabled) {
+      humNotchRef.current.frequency.value = Number(humNotchFreq);
+      humNotchRef.current.Q.value = 10;
+    } else {
+      humNotchRef.current.frequency.value = 10;
+      humNotchRef.current.Q.value = 0.0001;
+    }
+  }, [humNotchEnabled, humNotchFreq]);
 
   // ─── Waveform Visualization ──────────────────────────────────
   const drawWaveform = useCallback(() => {
@@ -1029,6 +1065,19 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
 
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between">
+                      <span className="text-xs">חתך היי (Lowpass)</span>
+                      <span className="text-xs font-mono tabular-nums">{manualLowpass}Hz</span>
+                    </div>
+                    <Slider value={[manualLowpass]} min={6000} max={20000} step={250}
+                      onValueChange={([v]) => {
+                        setManualLowpass(v);
+                        if (isManualMode && lowpassRef.current) lowpassRef.current.frequency.value = v;
+                      }}
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
                       <span className="text-xs">חיזוק קול</span>
                       <span className="text-xs font-mono tabular-nums">{manualVoiceBoost > 0 ? '+' : ''}{manualVoiceBoost}dB</span>
                     </div>
@@ -1061,6 +1110,27 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                     <Slider value={[manualGate]} min={-80} max={0} step={5}
                       onValueChange={([v]) => setManualGate(v)}
                     />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs">סינון זמזום חשמל (Notch)</span>
+                      <Switch checked={humNotchEnabled} onCheckedChange={setHumNotchEnabled} />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-muted-foreground">תדר:</span>
+                      <Select value={humNotchFreq} onValueChange={(v) => setHumNotchFreq(v as '50' | '60' | '100' | '120')}>
+                        <SelectTrigger className="h-7 w-28 text-xs">
+                          <SelectValue placeholder="בחר תדר" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="50">50Hz</SelectItem>
+                          <SelectItem value="60">60Hz</SelectItem>
+                          <SelectItem value="100">100Hz</SelectItem>
+                          <SelectItem value="120">120Hz</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                 </div>
               )}
