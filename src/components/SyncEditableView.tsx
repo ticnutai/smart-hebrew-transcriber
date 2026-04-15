@@ -109,16 +109,18 @@ export const SyncEditableView = ({
             <Clock className="w-3 h-3 ml-1" />
             {formatTime(currentTime)}
           </Badge>
+          <Badge variant="secondary" className="text-xs">
+            {currentWordIndex + 1} / {wordTimings.length}
+          </Badge>
           <Button
             variant={isEditing ? "default" : "outline"}
             size="sm"
-            className="h-6 px-2 text-[10px]"
+            className="h-7 px-2 text-xs"
             onClick={() => isEditing ? handleSave() : setIsEditing(true)}
           >
             {isEditing ? 'שמור' : 'ערוך'}
           </Button>
         </div>
-      </div>
 
       {isEditing ? (
         <textarea
