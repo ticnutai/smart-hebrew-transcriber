@@ -233,44 +233,107 @@ function SegmentPreviewList({
   );
 }
 
-// ─── Cut result card ─────────────────────────────────────────────────────────
+// ─── Cut result card (enhanced with rename, folder, delete, save) ────────────
 
 function CutResultRow({
   result,
   onDownload,
   onTranscribe,
   onEnhance,
+  onDelete,
+  onSaveToHistory,
 }: {
   result: CutResult;
   onDownload: () => void;
   onTranscribe: () => void;
   onEnhance: () => void;
+  onDelete: () => void;
+  onSaveToHistory: (name: string, folder: string) => void;
 }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editName, setEditName] = useState(result.label);
+  const [folder, setFolder] = useState("");
+  const [showFolder, setShowFolder] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const handleSaveName = () => {
+    setIsEditing(false);
+  };
+
+  const handleSaveToHistory = () => {
+    onSaveToHistory(editName, folder);
+    setSaved(true);
+    toast({ title: "נשמר להיסטוריה", description: editName });
+  };
+
   return (
-    <div className="flex items-center gap-2 border rounded-lg p-2">
-      <AudioPreview file={result.file} />
-      <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium truncate">{result.label}</div>
-        <div className="text-[11px] text-muted-foreground">
-          {formatTime(result.startSec)} → {formatTime(result.endSec)} •{" "}
-          {formatTime(result.durationSec)} • {formatBytes(result.sizeBytes)}
+    <div className="border rounded-lg p-2.5 space-y-1.5 bg-card/50">
+      <div className="flex items-center gap-2">
+        <AudioPreview file={result.file} />
+        <div className="flex-1 min-w-0">
+          {isEditing ? (
+            <div className="flex items-center gap-1">
+              <Input
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                className="h-7 text-sm"
+                dir="rtl"
+                autoFocus
+                onKeyDown={(e) => e.key === "Enter" && handleSaveName()}
+              />
+              <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={handleSaveName}>
+                <Check className="w-3.5 h-3.5 text-green-500" />
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1">
+              <div className="text-sm font-medium truncate" dir="rtl">{editName}</div>
+              <Button size="icon" variant="ghost" className="h-6 w-6 shrink-0 opacity-60 hover:opacity-100" onClick={() => setIsEditing(true)}>
+                <Pencil className="w-3 h-3" />
+              </Button>
+            </div>
+          )}
+          <div className="text-[11px] text-muted-foreground" dir="rtl">
+            {formatTime(result.startSec)} → {formatTime(result.endSec)} •{" "}
+            {formatTime(result.durationSec)} • {formatBytes(result.sizeBytes)}
+          </div>
+        </div>
+        <div className="flex items-center gap-0.5 shrink-0">
+          <Button size="icon" variant="ghost" className="h-7 w-7" title="שמור להיסטוריה" onClick={handleSaveToHistory} disabled={saved}>
+            {saved ? <CheckCircle2 className="w-3.5 h-3.5 text-green-500" /> : <Save className="w-3.5 h-3.5" />}
+          </Button>
+          <Button size="icon" variant="ghost" className="h-7 w-7" title="תיקייה" onClick={() => setShowFolder(!showFolder)}>
+            <FolderOpen className="w-3.5 h-3.5" />
+          </Button>
+          <Button size="icon" variant="ghost" className="h-7 w-7" title="שפר איכות" onClick={onEnhance}>
+            <Sparkles className="w-3.5 h-3.5" />
+          </Button>
+          <Button size="icon" variant="ghost" className="h-7 w-7" title="תמלל" onClick={onTranscribe}>
+            <Mic className="w-3.5 h-3.5" />
+          </Button>
+          <Button size="icon" variant="ghost" className="h-7 w-7" title="הורד" onClick={onDownload}>
+            <Download className="w-3.5 h-3.5" />
+          </Button>
+          <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-destructive" title="מחק" onClick={onDelete}>
+            <Trash2 className="w-3.5 h-3.5" />
+          </Button>
         </div>
       </div>
-      <div className="flex items-center gap-1">
-        <Button size="icon" variant="ghost" className="h-7 w-7" title="שפר איכות" onClick={onEnhance}>
-          <Sparkles className="w-3.5 h-3.5" />
-        </Button>
-        <Button size="icon" variant="ghost" className="h-7 w-7" title="תמלל" onClick={onTranscribe}>
-          <Mic className="w-3.5 h-3.5" />
-        </Button>
-        <Button size="icon" variant="ghost" className="h-7 w-7" title="הורד" onClick={onDownload}>
-          <Download className="w-3.5 h-3.5" />
-        </Button>
-      </div>
+      {showFolder && (
+        <div className="flex items-center gap-2 pr-8" dir="rtl">
+          <FolderOpen className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+          <Input
+            value={folder}
+            onChange={(e) => setFolder(e.target.value)}
+            placeholder="שם תיקייה..."
+            className="h-7 text-xs flex-1"
+            dir="rtl"
+          />
+        </div>
+      )}
     </div>
   );
 }
-
 // ─── Cut Job Card ────────────────────────────────────────────────────────────
 
 function CutJobCard({
