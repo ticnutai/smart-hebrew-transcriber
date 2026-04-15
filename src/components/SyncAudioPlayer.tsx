@@ -967,9 +967,61 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
     };
   }, [isPlaying, drawWaveform]);
 
+  // ─── Initialize advanced processing modules ──────────────────
+  useEffect(() => {
+    const ctx = audioContextRef.current;
+    const source = sourceRef.current;
+    const gain = gainNodeRef.current;
+    if (!ctx || !source || !gain) return;
+
+    // Lazy-import and initialize modules
+    (async () => {
+      const [rnnoiseModule, spectralModule, vadModule, deHumModule, lufsModule] = await Promise.all([
+        import('@/lib/rnnoiseProcessor'),
+        import('@/lib/spectralGate'),
+        import('@/lib/voiceActivityDetection'),
+        import('@/lib/deHum'),
+        import('@/lib/loudnessNorm'),
+      ]);
+
+      // These modules connect input→processing→output internally
+      // We use the analyser as a tap point (non-destructive)
+      if (!aiDenoiseRef.current) {
+        aiDenoiseRef.current = rnnoiseModule.createNoiseSuppressionChain(ctx, gain, ctx.destination);
+      }
+      if (!spectralGateRef.current) {
+        spectralGateRef.current = spectralModule.createSpectralGate(ctx, gain, ctx.destination);
+      }
+      if (!vadRef.current) {
+        const vad = vadModule.createVAD(ctx, gain, ctx.destination);
+        vad.onStateChange((state) => {
+          setVadIsSpeech(state.isSpeech);
+        });
+        vadRef.current = vad;
+      }
+      if (!deHumRef.current) {
+        deHumRef.current = deHumModule.createDeHum(ctx, gain, ctx.destination);
+      }
+      if (!lufsRef.current) {
+        const lufs = lufsModule.createLoudnessNorm(ctx, gain, ctx.destination);
+        lufs.onUpdate((state) => {
+          setLufsMomentary(state.momentary);
+          setLufsShortTerm(state.shortTerm);
+          setLufsIntegrated(state.integrated);
+        });
+        lufsRef.current = lufs;
+      }
+    })();
+  }, [isPlaying]); // Re-check when playing starts (audio context gets created)
+
   // ─── Cleanup AudioContext on unmount ─────────────────────────
   useEffect(() => {
     return () => {
+      aiDenoiseRef.current?.destroy();
+      spectralGateRef.current?.destroy();
+      vadRef.current?.destroy();
+      deHumRef.current?.destroy();
+      lufsRef.current?.destroy();
       if (audioContextRef.current) {
         audioContextRef.current.close();
         audioContextRef.current = null;
