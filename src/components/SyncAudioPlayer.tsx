@@ -262,6 +262,19 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
   const [isExpanded, setIsExpanded] = useState(false);
   const [showEnhance, setShowEnhance] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [outputGain, setOutputGain] = useState(1.0); // 0.0 to 3.0 (multiply)
+  const [showEqualizer, setShowEqualizer] = useState(true);
+  // 5-band parametric EQ user controls (dB, -12 to +12)
+  const [eqBass, setEqBass] = useState(0);
+  const [eqLowMid, setEqLowMid] = useState(0);
+  const [eqMid, setEqMid] = useState(0);
+  const [eqHighMid, setEqHighMid] = useState(0);
+  const [eqTreble, setEqTreble] = useState(0);
+  const eqBassRef = useRef<BiquadFilterNode | null>(null);
+  const eqLowMidRef = useRef<BiquadFilterNode | null>(null);
+  const eqMidRef = useRef<BiquadFilterNode | null>(null);
+  const eqHighMidRef = useRef<BiquadFilterNode | null>(null);
+  const eqTrebleRef = useRef<BiquadFilterNode | null>(null);
 
   // A-B focused processing (speed + enhancement on selected segment only)
   const [focusEnabled, setFocusEnabled] = useState(false);
