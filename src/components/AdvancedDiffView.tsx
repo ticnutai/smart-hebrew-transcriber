@@ -19,6 +19,8 @@ interface AdvancedDiffViewProps {
   onApplyVersion?: (text: string) => void;
 }
 
+type VersionFilter = "all" | "ai" | "manual" | "original" | "cloud" | "local";
+
 const sourceLabels: Record<TextVersion['source'], string> = {
   original: 'מקורי',
   manual: 'עריכה ידנית',
@@ -51,6 +53,17 @@ export const AdvancedDiffView = ({
   const [leftId, setLeftId] = useState(versions[0]?.id || '');
   const [rightId, setRightId] = useState(versions[versions.length - 1]?.id || '');
   const [viewMode, setViewMode] = useState<'side-by-side' | 'unified' | 'stats'>('side-by-side');
+  const [versionFilter, setVersionFilter] = useState<VersionFilter>("all");
+
+  const selectableVersions = useMemo(() => {
+    const isCloudVersion = (v: TextVersion) => v.id.includes("-") && v.id.length >= 30;
+    if (versionFilter === "all") return versions;
+    if (versionFilter === "ai") return versions.filter((v) => v.source.startsWith("ai-"));
+    if (versionFilter === "manual") return versions.filter((v) => v.source === "manual");
+    if (versionFilter === "original") return versions.filter((v) => v.source === "original");
+    if (versionFilter === "cloud") return versions.filter((v) => isCloudVersion(v));
+    return versions.filter((v) => !isCloudVersion(v));
+  }, [versions, versionFilter]);
 
   useEffect(() => {
     if (!versions.length) {
@@ -66,6 +79,16 @@ export const AdvancedDiffView = ({
       setRightId(versions[versions.length - 1].id);
     }
   }, [versions, leftId, rightId]);
+
+  useEffect(() => {
+    if (!selectableVersions.length) return;
+    if (!selectableVersions.some((v) => v.id === leftId)) {
+      setLeftId(selectableVersions[0].id);
+    }
+    if (!selectableVersions.some((v) => v.id === rightId)) {
+      setRightId(selectableVersions[selectableVersions.length - 1].id);
+    }
+  }, [selectableVersions, leftId, rightId]);
 
   const leftVersion = versions.find(v => v.id === leftId);
   const rightVersion = versions.find(v => v.id === rightId);
@@ -158,12 +181,27 @@ export const AdvancedDiffView = ({
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+          <div className="flex items-center gap-2 md:col-span-2">
+            <Badge variant="secondary" className="shrink-0 text-xs">סינון</Badge>
+            <Select value={versionFilter} onValueChange={(v) => setVersionFilter(v as VersionFilter)}>
+              <SelectTrigger className="text-xs h-8 max-w-[220px]" dir="rtl"><SelectValue /></SelectTrigger>
+              <SelectContent dir="rtl">
+                <SelectItem value="all" className="text-xs">הכול</SelectItem>
+                <SelectItem value="ai" className="text-xs">רק AI</SelectItem>
+                <SelectItem value="manual" className="text-xs">רק ידני</SelectItem>
+                <SelectItem value="original" className="text-xs">רק מקור</SelectItem>
+                <SelectItem value="cloud" className="text-xs">רק ענן</SelectItem>
+                <SelectItem value="local" className="text-xs">רק מקומי</SelectItem>
+              </SelectContent>
+            </Select>
+            <span className="text-[11px] text-muted-foreground">{selectableVersions.length} גרסאות זמינות לבחירה</span>
+          </div>
           <div className="flex items-center gap-2">
             <Badge variant="outline" className="shrink-0 text-xs">בסיס</Badge>
             <Select value={leftId} onValueChange={setLeftId}>
               <SelectTrigger className="text-xs h-8" dir="rtl"><SelectValue /></SelectTrigger>
               <SelectContent dir="rtl">
-                {versions.map(v => (
+                {selectableVersions.map(v => (
                   <SelectItem key={v.id} value={v.id} className="text-xs">{getLabel(v)}</SelectItem>
                 ))}
               </SelectContent>
@@ -174,7 +212,7 @@ export const AdvancedDiffView = ({
             <Select value={rightId} onValueChange={setRightId}>
               <SelectTrigger className="text-xs h-8" dir="rtl"><SelectValue /></SelectTrigger>
               <SelectContent dir="rtl">
-                {versions.map(v => (
+                {selectableVersions.map(v => (
                   <SelectItem key={v.id} value={v.id} className="text-xs">{getLabel(v)}</SelectItem>
                 ))}
               </SelectContent>
