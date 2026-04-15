@@ -1459,6 +1459,286 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
           </div>
         </div>
 
+        {/* ─── Noise Reduction / Enhancement Panel (ABOVE player) ── */}
+        {showEnhance && (
+          <>
+            <Separator />
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-primary no-theme-icon" />
+                  הפחתת רעש חכמה
+                </p>
+                <div className="flex items-center gap-2">
+                  <Label className="text-[11px] text-muted-foreground">השוואת מקור A/B</Label>
+                  <Switch checked={isBypassEnhancement} onCheckedChange={setIsBypassEnhancement} />
+                  <Badge variant="outline" className="text-xs">
+                    {isBypassEnhancement ? 'מקור (Bypass)' : presetId === 'off' ? 'כבוי' : currentPreset.nameHe}
+                  </Badge>
+                </div>
+              </div>
+
+              {/* Strength slider */}
+              <div className="space-y-1.5 rounded-lg border bg-muted/20 p-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs">איכות מול בטיחות דיבור</span>
+                  <span className="text-xs font-mono tabular-nums">{enhancementStrength}%</span>
+                </div>
+                <Slider value={[enhancementStrength]} min={0} max={100} step={1} onValueChange={([v]) => setEnhancementStrength(v)} />
+                <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                  <span>שומר טבעיות</span>
+                  <span>ניקוי אגרסיבי</span>
+                </div>
+              </div>
+
+              {/* Output Gain (volume boost after processing) */}
+              <div className="space-y-1.5 rounded-lg border bg-muted/20 p-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium flex items-center gap-1">
+                    <Volume2 className="w-3.5 h-3.5 no-theme-icon" />
+                    הגברת עוצמה (פיצוי אחרי עיבוד)
+                  </span>
+                  <span className="text-xs font-mono tabular-nums">{Math.round(outputGain * 100)}%</span>
+                </div>
+                <Slider value={[outputGain]} min={0} max={3} step={0.05} onValueChange={([v]) => setOutputGain(v)} />
+                <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                  <span>שקט</span>
+                  <span>רגיל (100%)</span>
+                  <span>הגברה מקסימלית (300%)</span>
+                </div>
+              </div>
+
+              {/* User preset save */}
+              <div className="space-y-1.5 rounded-lg border bg-muted/20 p-2">
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    value={userPresetName}
+                    onChange={(e) => setUserPresetName(e.target.value)}
+                    placeholder="שם לפריסט אישי"
+                    className="h-7 text-xs"
+                  />
+                  <Button size="sm" className="h-7 px-2 text-xs" onClick={saveCurrentAsUserPreset} disabled={!userPresetName.trim()}>
+                    <Save className="w-3 h-3 ml-1 no-theme-icon" />
+                    שמור
+                  </Button>
+                </div>
+                {userPresets.length > 0 && (
+                  <div className="space-y-1 max-h-24 overflow-y-auto">
+                    {userPresets.map((preset) => (
+                      <div key={preset.id} className="flex items-center gap-1">
+                        <Button variant="outline" size="sm" className="h-6 px-2 text-[11px] flex-1 justify-start" onClick={() => applyUserPreset(preset)}>
+                          {preset.name}
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => removeUserPreset(preset.id)} title="מחק פריסט">
+                          <Trash2 className="w-3 h-3 no-theme-icon" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Preset Grid */}
+              <div className="grid grid-cols-4 gap-1.5">
+                {NOISE_PRESETS.map(p => {
+                  const Icon = p.icon;
+                  const isActive = presetId === p.id;
+                  return (
+                    <Tooltip key={p.id}>
+                      <TooltipTrigger asChild>
+                        <button
+                          className={`flex flex-col items-center gap-1 py-2 px-1 rounded-lg border text-xs transition-all
+                            ${isActive ? 'bg-primary text-primary-foreground border-primary shadow-md scale-[1.02]' : 'border-border hover:bg-muted'}
+                          `}
+                          onClick={() => setPresetId(p.id)}
+                        >
+                          <Icon className={`w-4 h-4 no-theme-icon ${isActive ? '' : 'text-muted-foreground'}`} />
+                          <span className="font-medium leading-tight">{p.nameHe}</span>
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="text-xs">{p.description}</TooltipContent>
+                    </Tooltip>
+                  );
+                })}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      className={`flex flex-col items-center gap-1 py-2 px-1 rounded-lg border text-xs transition-all
+                        ${isManualMode ? 'bg-primary text-primary-foreground border-primary shadow-md scale-[1.02]' : 'border-border hover:bg-muted'}
+                      `}
+                      onClick={() => setPresetId('manual')}
+                    >
+                      <Settings2 className={`w-4 h-4 no-theme-icon ${isManualMode ? '' : 'text-muted-foreground'}`} />
+                      <span className="font-medium leading-tight">ידני</span>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="text-xs">שליטה ידנית מלאה</TooltipContent>
+                </Tooltip>
+              </div>
+
+              {/* Preset active info */}
+              {presetId !== 'off' && !isManualMode && (
+                <div className="text-xs text-muted-foreground bg-muted/30 rounded-lg p-2 flex items-start gap-2">
+                  <Brain className="w-3.5 h-3.5 mt-0.5 shrink-0 text-primary no-theme-icon" />
+                  <div>
+                    <span className="font-medium">{currentPreset.description}</span>
+                    <span className="mx-1">—</span>
+                    {currentPreset.deRumble && <Badge variant="outline" className="text-[10px] ml-1">חתך רעש נמוך</Badge>}
+                    {currentPreset.deSibilance && <Badge variant="outline" className="text-[10px] ml-1">החלקת שין</Badge>}
+                    {currentPreset.presenceBoost && <Badge variant="outline" className="text-[10px] ml-1">חיזוק נוכחות</Badge>}
+                    {currentPreset.warmth && <Badge variant="outline" className="text-[10px] ml-1">חמימות</Badge>}
+                  </div>
+                </div>
+              )}
+
+              {/* ─── 5-Band Parametric EQ ──────────────────────── */}
+              <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
+                <p className="text-xs font-semibold flex items-center gap-1.5">
+                  <AudioLines className="w-3.5 h-3.5 text-primary no-theme-icon" />
+                  אקולייזר מקצועי (5 פסים)
+                </p>
+                <div className="grid grid-cols-5 gap-2">
+                  {[
+                    { label: 'בס', freq: '80Hz', value: eqBass, set: setEqBass },
+                    { label: 'נמוך-אמצע', freq: '300Hz', value: eqLowMid, set: setEqLowMid },
+                    { label: 'אמצע', freq: '1kHz', value: eqMid, set: setEqMid },
+                    { label: 'גבוה-אמצע', freq: '3.5kHz', value: eqHighMid, set: setEqHighMid },
+                    { label: 'טרבל', freq: '10kHz', value: eqTreble, set: setEqTreble },
+                  ].map((band) => (
+                    <div key={band.freq} className="flex flex-col items-center gap-1">
+                      <span className="text-[10px] font-mono text-muted-foreground">{band.value > 0 ? '+' : ''}{band.value}dB</span>
+                      <div className="h-20 flex items-center">
+                        <Slider
+                          orientation="vertical"
+                          value={[band.value]}
+                          min={-12}
+                          max={12}
+                          step={0.5}
+                          onValueChange={([v]) => band.set(v)}
+                          className="h-full"
+                        />
+                      </div>
+                      <span className="text-[9px] font-medium">{band.label}</span>
+                      <span className="text-[8px] text-muted-foreground">{band.freq}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex justify-center">
+                  <Button variant="ghost" size="sm" className="h-6 px-3 text-[10px]" onClick={() => {
+                    setEqBass(0); setEqLowMid(0); setEqMid(0); setEqHighMid(0); setEqTreble(0);
+                  }}>
+                    אפס אקולייזר
+                  </Button>
+                </div>
+              </div>
+
+              {/* Advanced / Manual Controls */}
+              {(isManualMode || showAdvanced) && (
+                <div className="space-y-3 bg-muted/20 rounded-lg p-3 border">
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs">חתך בסים (Highpass)</span>
+                      <span className="text-xs font-mono tabular-nums">{manualHighpass}Hz</span>
+                    </div>
+                    <Slider value={[manualHighpass]} min={20} max={400} step={10}
+                      onValueChange={([v]) => { setManualHighpass(v); if (isManualMode && highpassRef.current) highpassRef.current.frequency.value = v; }}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs">חתך היי (Lowpass)</span>
+                      <span className="text-xs font-mono tabular-nums">{manualLowpass}Hz</span>
+                    </div>
+                    <Slider value={[manualLowpass]} min={6000} max={20000} step={250}
+                      onValueChange={([v]) => { setManualLowpass(v); if (isManualMode && lowpassRef.current) lowpassRef.current.frequency.value = v; }}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs">חיזוק קול</span>
+                      <span className="text-xs font-mono tabular-nums">{manualVoiceBoost > 0 ? '+' : ''}{manualVoiceBoost}dB</span>
+                    </div>
+                    <Slider value={[manualVoiceBoost]} min={0} max={12} step={0.5}
+                      onValueChange={([v]) => { setManualVoiceBoost(v); if (isManualMode && voiceBoostRef.current) voiceBoostRef.current.gain.value = v; }}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs">דחיסה (Compression)</span>
+                      <span className="text-xs font-mono tabular-nums">{manualCompRatio}:1</span>
+                    </div>
+                    <Slider value={[manualCompRatio]} min={1} max={12} step={0.5}
+                      onValueChange={([v]) => {
+                        setManualCompRatio(v);
+                        if (isManualMode && compressorRef.current) {
+                          compressorRef.current.ratio.value = v;
+                          compressorRef.current.threshold.value = -50 + (v > 1 ? -(v * 3) : 0);
+                        }
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs">סף שער רעש (Gate)</span>
+                      <span className="text-xs font-mono tabular-nums">{manualGate === 0 ? 'כבוי' : `${manualGate}dB`}</span>
+                    </div>
+                    <Slider value={[manualGate]} min={-80} max={0} step={5}
+                      onValueChange={([v]) => setManualGate(v)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs">סינון זמזום חשמל (Notch)</span>
+                      <Switch checked={humNotchEnabled} onCheckedChange={setHumNotchEnabled} />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-muted-foreground">תדר:</span>
+                      <Select value={humNotchFreq} onValueChange={(v) => setHumNotchFreq(v as '50' | '60' | '100' | '120')}>
+                        <SelectTrigger className="h-7 w-28 text-xs">
+                          <SelectValue placeholder="בחר תדר" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="50">50Hz</SelectItem>
+                          <SelectItem value="60">60Hz</SelectItem>
+                          <SelectItem value="100">100Hz</SelectItem>
+                          <SelectItem value="120">120Hz</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {!isManualMode && presetId !== 'off' && (
+                <Button variant="ghost" size="sm" className="w-full text-xs gap-1" onClick={() => setShowAdvanced(!showAdvanced)}>
+                  {showAdvanced ? <ChevronUp className="w-3 h-3 no-theme-icon" /> : <ChevronDown className="w-3 h-3 no-theme-icon" />}
+                  {showAdvanced ? 'הסתר פרטים טכניים' : 'הצג פרטים טכניים'}
+                </Button>
+              )}
+
+              {showAdvanced && !isManualMode && presetId !== 'off' && (
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[10px] text-muted-foreground bg-muted/20 rounded-lg p-2 font-mono">
+                  <span>Highpass: {currentPreset.highpassFreq}Hz</span>
+                  <span>Voice: +{currentPreset.voiceBoostGain}dB</span>
+                  <span>Comp: {currentPreset.compRatio}:1 @{currentPreset.compThreshold}dB</span>
+                  <span>Gate: {currentPreset.gateThreshold === 0 ? 'Off' : `${currentPreset.gateThreshold}dB`}</span>
+                  <span>Attack: {currentPreset.compAttack * 1000}ms</span>
+                  <span>Release: {currentPreset.compRelease * 1000}ms</span>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* ─── Frequency Spectrum Equalizer Visualization ─────── */}
+        {showEqualizer && (
+          <canvas
+            ref={eqCanvasRef}
+            className="w-full rounded-lg"
+            style={{ height: isExpanded ? 80 : 48, background: 'rgba(15, 23, 42, 0.4)' }}
+          />
+        )}
+
         {/* ─── Static Waveform (peaks + speaker colors + playhead) ── */}
         <canvas
           ref={staticCanvasRef}
@@ -1466,7 +1746,7 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
           style={{ height: isExpanded ? 120 : 80 }}
           onClick={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();
-            const x = rect.right - e.clientX; // RTL: right = start
+            const x = rect.right - e.clientX;
             seekTo((x / rect.width) * effectiveDuration);
           }}
         />
@@ -1479,7 +1759,7 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
             height={isExpanded ? 50 : 32}
             onClick={(e) => {
               const rect = e.currentTarget.getBoundingClientRect();
-              const x = rect.right - e.clientX; // RTL: right = start
+              const x = rect.right - e.clientX;
               seekTo((x / rect.width) * effectiveDuration);
             }}
           />
@@ -1535,12 +1815,7 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
           )}
 
           <Tooltip><TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 px-2 text-xs font-mono min-w-[46px]"
-              onClick={() => setShowSpeedControl((v) => !v)}
-            >
+            <Button variant="ghost" size="sm" className="h-8 px-2 text-xs font-mono min-w-[46px]" onClick={() => setShowSpeedControl((v) => !v)}>
               {speed.toFixed(2).replace(/\.00$/, '')}x
             </Button>
           </TooltipTrigger><TooltipContent>מהירות ניגון (לחץ לפתיחת סליידר)</TooltipContent></Tooltip>
@@ -1560,13 +1835,7 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
             <Slider value={[speed]} min={0.5} max={2} step={0.01} onValueChange={([v]) => setPlaybackSpeed(v)} />
             <div className="flex flex-wrap gap-1 justify-end">
               {QUICK_SPEED_OPTIONS.map((opt) => (
-                <Button
-                  key={opt}
-                  variant={Math.abs(speed - opt) < 0.001 ? 'default' : 'outline'}
-                  size="sm"
-                  className="h-6 px-2 text-[11px] font-mono"
-                  onClick={() => setPlaybackSpeed(opt)}
-                >
+                <Button key={opt} variant={Math.abs(speed - opt) < 0.001 ? 'default' : 'outline'} size="sm" className="h-6 px-2 text-[11px] font-mono" onClick={() => setPlaybackSpeed(opt)}>
                   {opt}x
                 </Button>
               ))}
@@ -1589,7 +1858,6 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                 <Switch checked={focusEnabled} onCheckedChange={setFocusEnabled} />
               </div>
             </div>
-
             <Slider
               value={[focusStart, Math.max(focusStart + 0.1, focusEnd)]}
               min={0}
@@ -1602,42 +1870,25 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                 setFocusEnd(end);
               }}
             />
-
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
               <div className="flex gap-1">
                 <Button variant="outline" size="sm" className="h-6 px-2" onClick={markFocusStartFromCurrent}>קבע A מהמיקום הנוכחי</Button>
                 <Button variant="outline" size="sm" className="h-6 px-2" onClick={markFocusEndFromCurrent}>קבע B מהמיקום הנוכחי</Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-6 px-2"
-                  onClick={exportFocusedProcessedSegment}
-                  disabled={!hasValidFocusRange}
-                >
+                <Button variant="outline" size="sm" className="h-6 px-2" onClick={exportFocusedProcessedSegment} disabled={!hasValidFocusRange}>
                   <Scissors className="w-3 h-3 ml-1 no-theme-icon" />
                   ייצוא קטע מעובד
                 </Button>
               </div>
               <div className="flex gap-1">
                 <Button variant="ghost" size="sm" className="h-6 px-2" onClick={() => seekTo(focusStart)}>נגן מ-A</Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 px-2"
-                  onClick={() => {
-                    setFocusStart(0);
-                    setFocusEnd(Math.max(0.1, effectiveDuration || 1));
-                  }}
-                >
+                <Button variant="ghost" size="sm" className="h-6 px-2" onClick={() => { setFocusStart(0); setFocusEnd(Math.max(0.1, effectiveDuration || 1)); }}>
                   אפס טווח
                 </Button>
               </div>
             </div>
-
             <p className="text-[11px] text-muted-foreground">
               כש"מצב ממוקד" פעיל, שינויי מהירות והפחתת רעש חלים רק בתוך הטווח שנבחר.
             </p>
-
             {problemSegments.length > 0 && (
               <div className="space-y-1 rounded-md border bg-background/70 p-2">
                 <p className="text-[11px] font-medium flex items-center gap-1">
@@ -1675,240 +1926,6 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
           <Slider value={[isMuted ? 0 : volume]} max={1} step={0.05} onValueChange={handleVolumeChange} className="w-28" />
           <span className="text-xs text-muted-foreground tabular-nums">{Math.round((isMuted ? 0 : volume) * 100)}%</span>
         </div>
-
-        {/* ─── Noise Reduction / Enhancement Panel ──────────── */}
-        {showEnhance && (
-          <>
-            <Separator />
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold flex items-center gap-1.5">
-                  <Sparkles className="w-4 h-4 text-green-500 no-theme-icon" />
-                  הפחתת רעש חכמה
-                </p>
-                <div className="flex items-center gap-2">
-                  <Label className="text-[11px] text-muted-foreground">השוואת מקור A/B</Label>
-                  <Switch checked={isBypassEnhancement} onCheckedChange={setIsBypassEnhancement} />
-                  <Badge variant="outline" className="text-xs">
-                    {isBypassEnhancement ? 'מקור (Bypass)' : presetId === 'off' ? 'כבוי' : currentPreset.nameHe}
-                  </Badge>
-                </div>
-              </div>
-
-              <div className="space-y-1.5 rounded-lg border bg-muted/20 p-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs">איכות מול בטיחות דיבור</span>
-                  <span className="text-xs font-mono tabular-nums">{enhancementStrength}%</span>
-                </div>
-                <Slider value={[enhancementStrength]} min={0} max={100} step={1} onValueChange={([v]) => setEnhancementStrength(v)} />
-                <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-                  <span>שומר טבעיות</span>
-                  <span>ניקוי אגרסיבי</span>
-                </div>
-              </div>
-
-              <div className="space-y-1.5 rounded-lg border bg-muted/20 p-2">
-                <div className="flex items-center gap-1.5">
-                  <Input
-                    value={userPresetName}
-                    onChange={(e) => setUserPresetName(e.target.value)}
-                    placeholder="שם לפריסט אישי"
-                    className="h-7 text-xs"
-                  />
-                  <Button size="sm" className="h-7 px-2 text-xs" onClick={saveCurrentAsUserPreset} disabled={!userPresetName.trim()}>
-                    <Save className="w-3 h-3 ml-1 no-theme-icon" />
-                    שמור
-                  </Button>
-                </div>
-                {userPresets.length > 0 && (
-                  <div className="space-y-1 max-h-24 overflow-y-auto">
-                    {userPresets.map((preset) => (
-                      <div key={preset.id} className="flex items-center gap-1">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-6 px-2 text-[11px] flex-1 justify-start"
-                          onClick={() => applyUserPreset(preset)}
-                        >
-                          {preset.name}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6"
-                          onClick={() => removeUserPreset(preset.id)}
-                          title="מחק פריסט"
-                        >
-                          <Trash2 className="w-3 h-3 no-theme-icon" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Preset Grid */}
-              <div className="grid grid-cols-4 gap-1.5">
-                {NOISE_PRESETS.map(p => {
-                  const Icon = p.icon;
-                  const isActive = presetId === p.id;
-                  return (
-                    <Tooltip key={p.id}>
-                      <TooltipTrigger asChild>
-                        <button
-                          className={`flex flex-col items-center gap-1 py-2 px-1 rounded-lg border text-xs transition-all
-                            ${isActive ? 'bg-primary text-primary-foreground border-primary shadow-md scale-[1.02]' : 'border-border hover:bg-muted'}
-                          `}
-                          onClick={() => setPresetId(p.id)}
-                        >
-                          <Icon className={`w-4 h-4 no-theme-icon ${isActive ? '' : 'text-muted-foreground'}`} />
-                          <span className="font-medium leading-tight">{p.nameHe}</span>
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent side="bottom" className="text-xs">{p.description}</TooltipContent>
-                    </Tooltip>
-                  );
-                })}
-
-                {/* Manual mode button */}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      className={`flex flex-col items-center gap-1 py-2 px-1 rounded-lg border text-xs transition-all
-                        ${isManualMode ? 'bg-primary text-primary-foreground border-primary shadow-md scale-[1.02]' : 'border-border hover:bg-muted'}
-                      `}
-                      onClick={() => setPresetId('manual')}
-                    >
-                      <Settings2 className={`w-4 h-4 no-theme-icon ${isManualMode ? '' : 'text-muted-foreground'}`} />
-                      <span className="font-medium leading-tight">ידני</span>
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" className="text-xs">שליטה ידנית מלאה</TooltipContent>
-                </Tooltip>
-              </div>
-
-              {/* Preset active info */}
-              {presetId !== 'off' && !isManualMode && (
-                <div className="text-xs text-muted-foreground bg-muted/30 rounded-lg p-2 flex items-start gap-2">
-                  <Brain className="w-3.5 h-3.5 mt-0.5 text-green-500 shrink-0 no-theme-icon" />
-                  <div>
-                    <span className="font-medium">{currentPreset.description}</span>
-                    <span className="mx-1">—</span>
-                    {currentPreset.deRumble && <Badge variant="outline" className="text-[10px] ml-1">חתך רעש נמוך</Badge>}
-                    {currentPreset.deSibilance && <Badge variant="outline" className="text-[10px] ml-1">החלקת שין</Badge>}
-                    {currentPreset.presenceBoost && <Badge variant="outline" className="text-[10px] ml-1">חיזוק נוכחות</Badge>}
-                    {currentPreset.warmth && <Badge variant="outline" className="text-[10px] ml-1">חמימות</Badge>}
-                  </div>
-                </div>
-              )}
-
-              {/* Advanced / Manual Controls */}
-              {(isManualMode || showAdvanced) && (
-                <div className="space-y-3 bg-muted/20 rounded-lg p-3 border">
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs">חתך בסים (Highpass)</span>
-                      <span className="text-xs font-mono tabular-nums">{manualHighpass}Hz</span>
-                    </div>
-                    <Slider value={[manualHighpass]} min={20} max={400} step={10}
-                      onValueChange={([v]) => { setManualHighpass(v); if (isManualMode && highpassRef.current) highpassRef.current.frequency.value = v; }}
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs">חתך היי (Lowpass)</span>
-                      <span className="text-xs font-mono tabular-nums">{manualLowpass}Hz</span>
-                    </div>
-                    <Slider value={[manualLowpass]} min={6000} max={20000} step={250}
-                      onValueChange={([v]) => {
-                        setManualLowpass(v);
-                        if (isManualMode && lowpassRef.current) lowpassRef.current.frequency.value = v;
-                      }}
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs">חיזוק קול</span>
-                      <span className="text-xs font-mono tabular-nums">{manualVoiceBoost > 0 ? '+' : ''}{manualVoiceBoost}dB</span>
-                    </div>
-                    <Slider value={[manualVoiceBoost]} min={0} max={12} step={0.5}
-                      onValueChange={([v]) => { setManualVoiceBoost(v); if (isManualMode && voiceBoostRef.current) voiceBoostRef.current.gain.value = v; }}
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs">דחיסה (Compression)</span>
-                      <span className="text-xs font-mono tabular-nums">{manualCompRatio}:1</span>
-                    </div>
-                    <Slider value={[manualCompRatio]} min={1} max={12} step={0.5}
-                      onValueChange={([v]) => {
-                        setManualCompRatio(v);
-                        if (isManualMode && compressorRef.current) {
-                          compressorRef.current.ratio.value = v;
-                          compressorRef.current.threshold.value = -50 + (v > 1 ? -(v * 3) : 0);
-                        }
-                      }}
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs">סף שער רעש (Gate)</span>
-                      <span className="text-xs font-mono tabular-nums">{manualGate === 0 ? 'כבוי' : `${manualGate}dB`}</span>
-                    </div>
-                    <Slider value={[manualGate]} min={-80} max={0} step={5}
-                      onValueChange={([v]) => setManualGate(v)}
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs">סינון זמזום חשמל (Notch)</span>
-                      <Switch checked={humNotchEnabled} onCheckedChange={setHumNotchEnabled} />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] text-muted-foreground">תדר:</span>
-                      <Select value={humNotchFreq} onValueChange={(v) => setHumNotchFreq(v as '50' | '60' | '100' | '120')}>
-                        <SelectTrigger className="h-7 w-28 text-xs">
-                          <SelectValue placeholder="בחר תדר" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="50">50Hz</SelectItem>
-                          <SelectItem value="60">60Hz</SelectItem>
-                          <SelectItem value="100">100Hz</SelectItem>
-                          <SelectItem value="120">120Hz</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Toggle advanced view for preset mode */}
-              {!isManualMode && presetId !== 'off' && (
-                <Button variant="ghost" size="sm" className="w-full text-xs gap-1" onClick={() => setShowAdvanced(!showAdvanced)}>
-                  {showAdvanced ? <ChevronUp className="w-3 h-3 no-theme-icon" /> : <ChevronDown className="w-3 h-3 no-theme-icon" />}
-                  {showAdvanced ? 'הסתר פרטים טכניים' : 'הצג פרטים טכניים'}
-                </Button>
-              )}
-
-              {/* Show preset params when advanced is open in preset mode */}
-              {showAdvanced && !isManualMode && presetId !== 'off' && (
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[10px] text-muted-foreground bg-muted/20 rounded-lg p-2 font-mono">
-                  <span>Highpass: {currentPreset.highpassFreq}Hz</span>
-                  <span>Voice: +{currentPreset.voiceBoostGain}dB</span>
-                  <span>Comp: {currentPreset.compRatio}:1 @{currentPreset.compThreshold}dB</span>
-                  <span>Gate: {currentPreset.gateThreshold === 0 ? 'Off' : `${currentPreset.gateThreshold}dB`}</span>
-                  <span>Attack: {currentPreset.compAttack * 1000}ms</span>
-                  <span>Release: {currentPreset.compRelease * 1000}ms</span>
-                </div>
-              )}
-            </div>
-          </>
-        )}
 
         {/* ─── Synced Transcript (inline mini view) ─────────── */}
         {wordTimings.length > 0 && isSyncEnabled && (
