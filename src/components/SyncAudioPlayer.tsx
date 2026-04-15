@@ -16,6 +16,7 @@ import {
   ShieldCheck, Mic, SlidersHorizontal, Sparkles, Brain,
   Wind, Radio, Filter, Settings2, ChevronDown, ChevronUp,
   Save, Trash2, AlertTriangle, Scissors,
+  Gauge, Activity, Power, Search, BarChart3,
 } from "lucide-react";
 
 export interface WordTiming {
