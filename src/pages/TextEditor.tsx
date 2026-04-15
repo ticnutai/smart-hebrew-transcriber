@@ -644,26 +644,38 @@ const TextEditor = () => {
         {/* Main Content */}
         <Tabs defaultValue="edit" className="w-full" dir="rtl">
           {/* Primary tabs — core workflow */}
-          <TabsList className="flex w-full flex-wrap h-auto gap-0.5 p-1 mb-1">
-            <TabsTrigger value="player" className="flex-1 min-w-[5rem] text-xs sm:text-sm py-1.5">🎧 נגן</TabsTrigger>
-            <TabsTrigger value="edit" className="flex-1 min-w-[5rem] text-xs sm:text-sm py-1.5">עריכת טקסט</TabsTrigger>
-            <TabsTrigger value="speakers" className="flex-1 min-w-[5rem] text-xs sm:text-sm py-1.5">👥 זיהוי דוברים</TabsTrigger>
-            <TabsTrigger value="templates" className="flex-1 min-w-[5rem] text-xs sm:text-sm py-1.5">תבניות</TabsTrigger>
-            <TabsTrigger value="ai" className="flex-1 min-w-[5rem] text-xs sm:text-sm py-1.5">עריכה עם AI</TabsTrigger>
-            <TabsTrigger value="pipeline" className="flex-1 min-w-[5rem] text-xs sm:text-sm py-1.5">צינור עיבוד</TabsTrigger>
-            <TabsTrigger value="prompts" className="flex-1 min-w-[5rem] text-xs sm:text-sm py-1.5">ספריית פרומפטים</TabsTrigger>
-          </TabsList>
-          {/* Secondary tabs — tools & settings */}
-          <TabsList className="flex w-full flex-wrap h-auto gap-0.5 p-1 bg-muted/50 mb-4">
-            <TabsTrigger value="ollama" className="flex-1 min-w-[4.5rem] text-xs py-1">🖥️ Ollama</TabsTrigger>
-            <TabsTrigger value="learning" className="flex-1 min-w-[4.5rem] text-xs py-1">🧠 למידה</TabsTrigger>
-            <TabsTrigger value="vocab" className="flex-1 min-w-[4.5rem] text-xs py-1">📖 מילון</TabsTrigger>
-            <TabsTrigger value="summary" className="flex-1 min-w-[4.5rem] text-xs py-1">📊 סיכום</TabsTrigger>
-            <TabsTrigger value="ab" className="flex-1 min-w-[4.5rem] text-xs py-1">⚡ A/B</TabsTrigger>
-            <TabsTrigger value="analytics" className="flex-1 min-w-[4.5rem] text-xs py-1">📈 אנליטיקה</TabsTrigger>
-            <TabsTrigger value="compare" className="flex-1 min-w-[4.5rem] text-xs py-1">השוואה</TabsTrigger>
-            <TabsTrigger value="history" className="flex-1 min-w-[4.5rem] text-xs py-1">היסטוריה</TabsTrigger>
-          </TabsList>
+          {(() => {
+            const orderedPrimary = tabOrder
+              .filter((id) => visibleTabs.includes(id))
+              .map((id) => ALL_TABS.find((t) => t.id === id))
+              .filter((t): t is TabConfig => !!t && t.group === "primary");
+            const orderedSecondary = tabOrder
+              .filter((id) => visibleTabs.includes(id))
+              .map((id) => ALL_TABS.find((t) => t.id === id))
+              .filter((t): t is TabConfig => !!t && t.group === "secondary");
+            return (
+              <>
+                {orderedPrimary.length > 0 && (
+                  <TabsList className="flex w-full flex-wrap h-auto gap-1 p-1.5 mb-2">
+                    {orderedPrimary.map((tab) => (
+                      <TabsTrigger key={tab.id} value={tab.id} className="flex-1 min-w-[5rem] text-xs sm:text-sm py-2 px-3 rounded-lg">
+                        {tab.emoji && <span className="ml-1">{tab.emoji}</span>}{tab.label}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                )}
+                {orderedSecondary.length > 0 && (
+                  <TabsList className="flex w-full flex-wrap h-auto gap-1 p-1.5 bg-muted/40 mb-6 rounded-lg">
+                    {orderedSecondary.map((tab) => (
+                      <TabsTrigger key={tab.id} value={tab.id} className="flex-1 min-w-[4.5rem] text-xs py-1.5 px-2 rounded-md">
+                        {tab.emoji && <span className="ml-1">{tab.emoji}</span>}{tab.label}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                )}
+              </>
+            );
+          })()}
 
           <TabsContent value="player" className="space-y-5">
             <LazyErrorBoundary label="נגן מסונכרן">
