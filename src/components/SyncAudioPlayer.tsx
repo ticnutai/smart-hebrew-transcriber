@@ -347,6 +347,34 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
   const [userPresets, setUserPresets] = useState<UserNoisePreset[]>([]);
   const [userPresetName, setUserPresetName] = useState('');
 
+  // ─── Advanced Audio Processing State ─────────────────────────
+  const [aiDenoiseEnabled, setAiDenoiseEnabled] = useState(false);
+  const [aiDenoiseStrength, setAiDenoiseStrength] = useState(70);
+  const [spectralGateEnabled, setSpectralGateEnabled] = useState(false);
+  const [spectralGateReduction, setSpectralGateReduction] = useState(-12);
+  const [isLearningNoise, setIsLearningNoise] = useState(false);
+  const [hasNoiseProfile, setHasNoiseProfile] = useState(false);
+  const [vadEnabled, setVadEnabled] = useState(false);
+  const [vadAutoMute, setVadAutoMute] = useState(false);
+  const [vadIsSpeech, setVadIsSpeech] = useState(false);
+  const [vadThreshold, setVadThreshold] = useState(0.015);
+  const [deHumEnabled, setDeHumEnabled] = useState(false);
+  const [deHumDetectedFreq, setDeHumDetectedFreq] = useState<50 | 60 | null>(null);
+  const [deHumHarmonics, setDeHumHarmonics] = useState(4);
+  const [lufsEnabled, setLufsEnabled] = useState(false);
+  const [lufsNormalize, setLufsNormalize] = useState(false);
+  const [lufsTarget, setLufsTarget] = useState(-16);
+  const [lufsMomentary, setLufsMomentary] = useState(-Infinity);
+  const [lufsShortTerm, setLufsShortTerm] = useState(-Infinity);
+  const [lufsIntegrated, setLufsIntegrated] = useState(-Infinity);
+
+  // Refs for advanced processing modules
+  const aiDenoiseRef = useRef<ReturnType<typeof import('@/lib/rnnoiseProcessor').createNoiseSuppressionChain> | null>(null);
+  const spectralGateRef = useRef<ReturnType<typeof import('@/lib/spectralGate').createSpectralGate> | null>(null);
+  const vadRef = useRef<ReturnType<typeof import('@/lib/voiceActivityDetection').createVAD> | null>(null);
+  const deHumRef = useRef<ReturnType<typeof import('@/lib/deHum').createDeHum> | null>(null);
+  const lufsRef = useRef<ReturnType<typeof import('@/lib/loudnessNorm').createLoudnessNorm> | null>(null);
+
   // Current word index for sync
   const currentWordIndex = useMemo(() => {
     if (!isSyncEnabled || !wordTimings.length) return -1;
