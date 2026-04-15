@@ -2044,7 +2044,16 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                     <AudioLines className="w-3.5 h-3.5 text-primary no-theme-icon" />
                     מיקסר מקצועי (אקולייזר + עיבוד)
                   </p>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant={showAdvancedDialog ? "default" : "outline"}
+                      size="sm"
+                      className="h-7 px-3 text-xs gap-1.5"
+                      onClick={() => setShowAdvancedDialog(true)}
+                    >
+                      <Settings2 className="w-3.5 h-3.5 no-theme-icon" />
+                      מתקדם
+                    </Button>
                     <button
                       className={`p-1 rounded text-[10px] transition-all ${!eqVerticalView ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'}`}
                       onClick={() => setEqVerticalView(false)}
