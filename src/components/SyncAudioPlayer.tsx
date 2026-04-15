@@ -270,6 +270,7 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
   const [eqMid, setEqMid] = useState(0);
   const [eqHighMid, setEqHighMid] = useState(0);
   const [eqTreble, setEqTreble] = useState(0);
+  const [eqVerticalView, setEqVerticalView] = useState(true);
   const eqBassRef = useRef<BiquadFilterNode | null>(null);
   const eqLowMidRef = useRef<BiquadFilterNode | null>(null);
   const eqMidRef = useRef<BiquadFilterNode | null>(null);
