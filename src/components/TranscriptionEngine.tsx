@@ -184,116 +184,76 @@ export const TranscriptionEngine = memo(({ selected, onChange, sourceLanguage, o
   }, [startPolling]);
 
   return (
-    <Card className="p-6" dir="rtl">
-      <h2 className="text-xl font-semibold mb-4 text-right">בחר מנוע תמלול</h2>
+    <Card className="p-5 shadow-sm border-border/60" dir="rtl">
+      <h2 className="text-base font-semibold mb-3 text-right text-foreground">בחר מנוע תמלול</h2>
       
-      <div className="mb-4">
-        <h3 className="text-sm font-semibold mb-2 text-right text-muted-foreground">מנועים אונליין (5)</h3>
+      <div className="mb-3">
+        <h3 className="text-xs font-medium mb-2 text-right text-muted-foreground tracking-wide">☁️ מנועים אונליין</h3>
         <RadioGroup value={selected} onValueChange={(value) => onChange(value as Engine)}>
-          <div className="grid grid-cols-3 gap-3">
-            <Label 
-              htmlFor="groq" 
-              className={`flex flex-col items-center justify-center p-4 border-2 rounded-lg cursor-pointer transition-all hover:border-primary ${
-                selected === 'groq' ? 'border-primary bg-primary/5' : 'border-border'
-              }`}
-            >
-              <RadioGroupItem value="groq" id="groq" className="sr-only" />
-              <Zap className="w-8 h-8 text-blue-900 mb-2" />
-              <span className="font-medium text-sm">Groq</span>
-              <span className="text-[10px] text-muted-foreground mt-0.5">whisper-large-v3-turbo</span>
-            </Label>
-
-            <Label 
-              htmlFor="openai" 
-              className={`flex flex-col items-center justify-center p-4 border-2 rounded-lg cursor-pointer transition-all hover:border-primary ${
-                selected === 'openai' ? 'border-primary bg-primary/5' : 'border-border'
-              }`}
-            >
-              <RadioGroupItem value="openai" id="openai" className="sr-only" />
-              <Globe className="w-8 h-8 text-blue-900 mb-2" />
-              <span className="font-medium text-sm">OpenAI</span>
-              <span className="text-[10px] text-muted-foreground mt-0.5">whisper-1</span>
-            </Label>
-
-            <Label 
-              htmlFor="google" 
-              className={`flex flex-col items-center justify-center p-4 border-2 rounded-lg cursor-pointer transition-all hover:border-primary ${
-                selected === 'google' ? 'border-primary bg-primary/5' : 'border-border'
-              }`}
-            >
-              <RadioGroupItem value="google" id="google" className="sr-only" />
-              <Chrome className="w-8 h-8 text-blue-900 mb-2" />
-              <span className="font-medium text-sm">Google</span>
-              <span className="text-[10px] text-muted-foreground mt-0.5">Speech-to-Text</span>
-            </Label>
-
-            <Label 
-              htmlFor="assemblyai" 
-              className={`flex flex-col items-center justify-center p-4 border-2 rounded-lg cursor-pointer transition-all hover:border-primary ${
-                selected === 'assemblyai' ? 'border-primary bg-primary/5' : 'border-border'
-              }`}
-            >
-              <RadioGroupItem value="assemblyai" id="assemblyai" className="sr-only" />
-              <Mic className="w-8 h-8 text-blue-900 mb-2" />
-              <span className="font-medium text-sm">AssemblyAI</span>
-              <span className="text-[10px] text-muted-foreground mt-0.5">Universal</span>
-            </Label>
-
-            <Label 
-              htmlFor="deepgram" 
-              className={`flex flex-col items-center justify-center p-4 border-2 rounded-lg cursor-pointer transition-all hover:border-primary ${
-                selected === 'deepgram' ? 'border-primary bg-primary/5' : 'border-border'
-              }`}
-            >
-              <RadioGroupItem value="deepgram" id="deepgram" className="sr-only" />
-              <Waves className="w-8 h-8 text-blue-900 mb-2" />
-              <span className="font-medium text-sm">Deepgram</span>
-              <span className="text-[10px] text-muted-foreground mt-0.5">nova-2</span>
-            </Label>
+          <div className="grid grid-cols-5 gap-2">
+            {([
+              { id: 'groq' as Engine, icon: Zap, label: 'Groq', sub: 'whisper-large-v3-turbo' },
+              { id: 'openai' as Engine, icon: Globe, label: 'OpenAI', sub: 'whisper-1' },
+              { id: 'google' as Engine, icon: Chrome, label: 'Google', sub: 'Speech-to-Text' },
+              { id: 'assemblyai' as Engine, icon: Mic, label: 'AssemblyAI', sub: 'Universal' },
+              { id: 'deepgram' as Engine, icon: Waves, label: 'Deepgram', sub: 'nova-2' },
+            ] as const).map(({ id, icon: Icon, label, sub }) => (
+              <Label
+                key={id}
+                htmlFor={id}
+                className={`flex flex-col items-center justify-center p-2.5 border rounded-xl cursor-pointer transition-all duration-150 hover:border-primary/60 hover:shadow-sm ${
+                  selected === id ? 'border-primary bg-primary/5 shadow-sm ring-1 ring-primary/20' : 'border-border/50 bg-card'
+                }`}
+              >
+                <RadioGroupItem value={id} id={id} className="sr-only" />
+                <Icon className="w-5 h-5 mb-1.5 text-primary/80" />
+                <span className="font-medium text-xs leading-tight">{label}</span>
+                <span className="text-[9px] text-muted-foreground mt-0.5 leading-tight">{sub}</span>
+              </Label>
+            ))}
           </div>
         </RadioGroup>
       </div>
 
       <div>
-        <h3 className="text-sm font-semibold mb-2 text-right text-muted-foreground">מנועים מקומיים (אופליין)</h3>
+        <h3 className="text-xs font-medium mb-2 text-right text-muted-foreground tracking-wide">🖥️ מנועים מקומיים</h3>
         <RadioGroup value={selected} onValueChange={(value) => onChange(value as Engine)}>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-2">
             <Label 
               htmlFor="local-server" 
-              className={`flex flex-col items-center justify-center p-4 border-2 rounded-lg cursor-pointer transition-all hover:border-primary relative ${
-                selected === 'local-server' ? 'border-primary bg-primary/5' : 'border-border'
+              className={`flex flex-col items-center justify-center p-2.5 border rounded-xl cursor-pointer transition-all duration-150 hover:border-primary/60 hover:shadow-sm relative ${
+                selected === 'local-server' ? 'border-primary bg-primary/5 shadow-sm ring-1 ring-primary/20' : 'border-border/50 bg-card'
               }`}
             >
               <RadioGroupItem value="local-server" id="local-server" className="sr-only" />
-              {/* Connection status indicator */}
-              <div className="absolute top-2 left-2">
+              <div className="absolute top-1.5 left-1.5">
                 {isConnected ? (
-                  <CheckCircle2 className="w-4 h-4 text-green-500" />
+                  <CheckCircle2 className="w-3 h-3 text-green-500" />
                 ) : isStarting ? (
-                  <Loader2 className="w-4 h-4 text-amber-500 animate-spin" />
+                  <Loader2 className="w-3 h-3 text-amber-500 animate-spin" />
                 ) : (
-                  <XCircle className="w-4 h-4 text-red-400" />
+                  <XCircle className="w-3 h-3 text-red-400/70" />
                 )}
               </div>
-              <Server className="w-8 h-8 text-blue-900 mb-2" />
-              <span className="font-medium text-sm">שרת CUDA 🖥️</span>
-              <span className="text-xs text-muted-foreground mt-1">GPU + ivrit-ai + faster-whisper</span>
-              <Badge variant="secondary" className="mt-1 text-[10px]">
+              <Server className="w-5 h-5 mb-1.5 text-primary/80" />
+              <span className="font-medium text-xs">שרת CUDA 🖥️</span>
+              <span className="text-[9px] text-muted-foreground mt-0.5">GPU + ivrit-ai + faster-whisper</span>
+              <Badge variant="secondary" className="mt-1 text-[9px] px-1.5 py-0 h-4">
                 מומלץ לעברית 🇮🇱
               </Badge>
             </Label>
 
             <Label 
               htmlFor="local" 
-              className={`flex flex-col items-center justify-center p-4 border-2 rounded-lg cursor-pointer transition-all hover:border-primary ${
-                selected === 'local' ? 'border-primary bg-primary/5' : 'border-border'
+              className={`flex flex-col items-center justify-center p-2.5 border rounded-xl cursor-pointer transition-all duration-150 hover:border-primary/60 hover:shadow-sm ${
+                selected === 'local' ? 'border-primary bg-primary/5 shadow-sm ring-1 ring-primary/20' : 'border-border/50 bg-card'
               }`}
             >
               <RadioGroupItem value="local" id="local" className="sr-only" />
-              <Cpu className="w-8 h-8 text-blue-900 mb-2" />
-              <span className="font-medium text-sm">דפדפן (ONNX)</span>
-              <span className="text-xs text-muted-foreground mt-1">IndexedDB / WebGPU</span>
-              <Badge variant="secondary" className="mt-1 text-[10px]">
+              <Cpu className="w-5 h-5 mb-1.5 text-primary/80" />
+              <span className="font-medium text-xs">דפדפן (ONNX)</span>
+              <span className="text-[9px] text-muted-foreground mt-0.5">IndexedDB / WebGPU</span>
+              <Badge variant="secondary" className="mt-1 text-[9px] px-1.5 py-0 h-4">
                 מודל: {getLocalModelLabel()}
               </Badge>
             </Label>
