@@ -7,10 +7,13 @@ import { SyncAudioPlayer } from "@/components/SyncAudioPlayer";
 import { toast } from "@/hooks/use-toast";
 import {
   enhanceAudioOnServer,
+  recommendEnhancementForTranscription,
+  type EnhancementRecommendation,
   type EnhancementOutputFormat,
   type EnhancementPreset,
 } from "@/lib/audioEnhancement";
 import { submitEnhanceJob } from "@/lib/audioEnhanceQueue";
+import { extractAudioSegment, probeAudioDurationSec } from "@/lib/audioSegment";
 
 interface AudioEnhanceDialogProps {
   open: boolean;
@@ -55,6 +58,13 @@ export default function AudioEnhanceDialog({
   const [isEnhancing, setIsEnhancing] = useState(false);
   const [enhancedFile, setEnhancedFile] = useState<File | null>(null);
   const [enhancedUrl, setEnhancedUrl] = useState<string | null>(null);
+  const [scopeMode, setScopeMode] = useState<"full" | "part">("full");
+  const [partStartSec, setPartStartSec] = useState("0");
+  const [partDurationSec, setPartDurationSec] = useState("120");
+  const [sourceDurationSec, setSourceDurationSec] = useState<number | null>(null);
+  const [isRecommending, setIsRecommending] = useState(false);
+  const [recommendation, setRecommendation] = useState<EnhancementRecommendation | null>(null);
+  const [recommendLanguage, setRecommendLanguage] = useState<"he" | "auto">("he");
 
   useEffect(() => {
     setOutputFormat(defaultOutputFormat);
@@ -72,6 +82,16 @@ export default function AudioEnhanceDialog({
       return null;
     });
   }, [file, preset, outputFormat, open]);
+
+  useEffect(() => {
+    if (!open || !file) {
+      setSourceDurationSec(null);
+      return;
+    }
+    probeAudioDurationSec(file)
+      .then((d) => setSourceDurationSec(d))
+      .catch(() => setSourceDurationSec(null));
+  }, [open, file]);
 
   useEffect(() => {
     if (!file || !open) {
@@ -118,7 +138,14 @@ export default function AudioEnhanceDialog({
     if (!file) return;
     setIsEnhancing(true);
     try {
-      const result = await enhanceAudioOnServer(file, {
+      const inputFile = await (async () => {
+        if (scopeMode === "full") return file;
+        const start = Math.max(0, Number(partStartSec) || 0);
+        const duration = Math.max(5, Number(partDurationSec) || 120);
+        return extractAudioSegment(file, start, start + duration);
+      })();
+
+      const result = await enhanceAudioOnServer(inputFile, {
         preset,
         outputFormat,
       });
@@ -157,11 +184,49 @@ export default function AudioEnhanceDialog({
 
   const enqueueEnhancement = () => {
     if (!file) return;
+    if (scopeMode === "part") {
+      toast({
+        title: "תור רקע תומך בקובץ מלא",
+        description: "לשיפור חלקי השתמש בכפתור שפר בלבד/שפר+שמור",
+      });
+      return;
+    }
     submitEnhanceJob(file, { preset, outputFormat });
-    toast({
-      title: "נוסף לתור שיפור רקע",
-      description: `${file.name} • ${preset === "ai_voice" ? "AI Voice" : "Auto EQ"}`,
-    });
+    toast({ title: "נוסף לתור שיפור רקע", description: `${file.name} • ${preset === "ai_voice" ? "AI Voice" : "Auto EQ"}` });
+  };
+
+  const runRecommendation = async () => {
+    if (!file) return;
+    setIsRecommending(true);
+    setRecommendation(null);
+    try {
+      const inputFile = scopeMode === "full"
+        ? file
+        : await extractAudioSegment(
+            file,
+            Math.max(0, Number(partStartSec) || 0),
+            Math.max(0, Number(partStartSec) || 0) + Math.max(5, Number(partDurationSec) || 120),
+          );
+
+      const rec = await recommendEnhancementForTranscription(inputFile, {
+        language: recommendLanguage,
+        outputFormat,
+      });
+      setRecommendation(rec);
+      setPreset(rec.bestPreset);
+      toast({
+        title: "התקבלה המלצה מקצועית",
+        description: `המלצה לתמלול: ${rec.bestPreset.toUpperCase()}`,
+      });
+    } catch (err: any) {
+      toast({
+        title: "ניתוח והמלצה נכשלו",
+        description: err?.message || "תקלה לא ידועה",
+        variant: "destructive",
+      });
+    } finally {
+      setIsRecommending(false);
+    }
   };
 
   return (
@@ -205,6 +270,59 @@ export default function AudioEnhanceDialog({
             <p className="text-xs text-muted-foreground">
               {PRESET_OPTIONS.find((p) => p.id === preset)?.description}
             </p>
+          </div>
+
+          <div className="space-y-2 border rounded-lg p-3 bg-muted/10">
+            <p className="text-sm font-medium">שיפור לתמלול: קובץ מלא או חלקי</p>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant={scopeMode === "full" ? "default" : "outline"} onClick={() => setScopeMode("full")}>קובץ מלא</Button>
+              <Button size="sm" variant={scopeMode === "part" ? "default" : "outline"} onClick={() => setScopeMode("part")}>רק חלק לבדיקה</Button>
+            </div>
+            {scopeMode === "part" && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div>
+                  <p className="text-[11px] text-muted-foreground mb-1">התחלה (שניות)</p>
+                  <input className="w-full h-8 rounded border bg-background px-2 text-sm" value={partStartSec} onChange={(e) => setPartStartSec(e.target.value)} />
+                </div>
+                <div>
+                  <p className="text-[11px] text-muted-foreground mb-1">משך (שניות)</p>
+                  <input className="w-full h-8 rounded border bg-background px-2 text-sm" value={partDurationSec} onChange={(e) => setPartDurationSec(e.target.value)} />
+                </div>
+                <div className="text-[11px] text-muted-foreground self-end">
+                  משך קובץ: {sourceDurationSec ? `${sourceDurationSec.toFixed(1)}s` : "לא זוהה"}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-2 border rounded-lg p-3 bg-primary/5">
+            <p className="text-sm font-medium">המלצה אוטומטית מקצועית לתמלול</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button size="sm" variant={recommendLanguage === "he" ? "default" : "outline"} onClick={() => setRecommendLanguage("he")}>עברית</Button>
+              <Button size="sm" variant={recommendLanguage === "auto" ? "default" : "outline"} onClick={() => setRecommendLanguage("auto")}>זיהוי אוטומטי</Button>
+              <Button size="sm" className="gap-2" onClick={() => void runRecommendation()} disabled={!file || isEnhancing || isRecommending}>
+                {isRecommending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                נתח והמלץ
+              </Button>
+            </div>
+            {recommendation && (
+              <div className="space-y-2 text-xs">
+                <p className="font-medium text-foreground">{recommendation.rationale}</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {recommendation.rows.map((r) => (
+                    <div key={r.preset} className="rounded border px-2 py-1.5 bg-background/70">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">{r.preset.toUpperCase()}</span>
+                        <span>ציון {r.score.toFixed(2)}</span>
+                      </div>
+                      <div className="text-muted-foreground mt-1">
+                        מילים: {r.wordCount} • ביטחון: {(r.avgProbability * 100).toFixed(1)}% • זמן: {r.processingTimeSec.toFixed(1)}s
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -265,7 +383,7 @@ export default function AudioEnhanceDialog({
             variant="outline"
             className="gap-2 w-full"
             disabled={!file || isEnhancing}
-            onClick={enqueueEnhancement}
+            onClick={() => enqueueEnhancement()}
           >
             <Sparkles className="w-4 h-4" />
             הוסף לתור רקע
