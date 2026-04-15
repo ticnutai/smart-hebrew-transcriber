@@ -567,6 +567,13 @@ const TextEditor = () => {
               onTextColorChange={setTextColor}
               onLineHeightChange={setLineHeight}
             />
+            <TabSettingsManager
+              allTabs={ALL_TABS}
+              visibleTabs={visibleTabs}
+              tabOrder={tabOrder}
+              onVisibilityChange={(v) => setTabSettings(prev => ({ ...prev, visible: v }))}
+              onOrderChange={(o) => setTabSettings(prev => ({ ...prev, order: o }))}
+            />
             <Button 
               variant="ghost" 
               size="icon"
