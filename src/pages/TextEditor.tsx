@@ -20,6 +20,7 @@ const EditPipeline = lazy(() => import("@/components/EditPipeline").then(m => ({
 const OllamaManager = lazy(() => import("@/components/OllamaManager").then(m => ({ default: m.OllamaManager })));
 const CorrectionLearningPanel = lazy(() => import("@/components/CorrectionLearningPanel").then(m => ({ default: m.CorrectionLearningPanel })));
 const SyncAudioPlayer = lazy(() => import("@/components/SyncAudioPlayer").then(m => ({ default: m.SyncAudioPlayer })));
+const SyncEditableView = lazy(() => import("@/components/SyncEditableView").then(m => ({ default: m.SyncEditableView })));
 const SyncTranscriptView = lazy(() => import("@/components/SyncTranscriptView").then(m => ({ default: m.SyncTranscriptView })));
 const VocabularyPanel = lazy(() => import("@/components/VocabularyPanel").then(m => ({ default: m.VocabularyPanel })));
 const AutoSummaryCard = lazy(() => import("@/components/AutoSummaryCard").then(m => ({ default: m.AutoSummaryCard })));
@@ -785,17 +786,21 @@ const TextEditor = () => {
             );
           })()}
 
-          <TabsContent value="player" className="space-y-5">
+          <TabsContent value="player" className="space-y-4">
             <LazyErrorBoundary label="נגן מסונכרן">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <SyncAudioPlayer
-                audioUrl={audioUrl}
-                wordTimings={wordTimings}
-                currentTime={playerTime}
-                onTimeUpdate={setPlayerTime}
-                syncEnabled={syncEnabled}
-                onSyncToggle={setSyncEnabled}
-              />
+            {/* Top section: Player + Audio Processing (SyncAudioPlayer handles both internally) */}
+            <SyncAudioPlayer
+              audioUrl={audioUrl}
+              wordTimings={wordTimings}
+              currentTime={playerTime}
+              onTimeUpdate={setPlayerTime}
+              syncEnabled={syncEnabled}
+              onSyncToggle={setSyncEnabled}
+            />
+
+            {/* Bottom section: Two synced transcript views side by side */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Right: Read-only synced transcript */}
               <SyncTranscriptView
                 wordTimings={wordTimings}
                 currentTime={playerTime}
@@ -804,12 +809,18 @@ const TextEditor = () => {
                 fontFamily={fontFamily}
                 syncEnabled={syncEnabled}
               />
+              {/* Left: Editable synced transcript */}
+              <SyncEditableView
+                wordTimings={wordTimings}
+                currentTime={playerTime}
+                text={text}
+                onTextChange={handlePlayerEditorChange}
+                onWordClick={(time) => setPlayerTime(time)}
+                fontSize={fontSize}
+                fontFamily={fontFamily}
+                syncEnabled={syncEnabled}
+              />
             </div>
-            <PlayerTranscriptEditor
-              originalText={originalTextRef.current || ""}
-              editedText={text}
-              onEditedTextChange={handlePlayerEditorChange}
-            />
             </LazyErrorBoundary>
           </TabsContent>
 
