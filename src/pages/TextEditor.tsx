@@ -640,7 +640,7 @@ const TextEditor = () => {
   return (
     <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>}>
     <div className="min-h-screen bg-background p-4 md:p-8 lg:p-10" dir="rtl">
-      <div className="max-w-[90rem] mx-auto space-y-6">
+      <div className="max-w-full mx-auto space-y-6">
         {/* Compact Header */}
         <div className="flex items-center justify-between pb-2">
           <div className="flex items-center gap-3">
