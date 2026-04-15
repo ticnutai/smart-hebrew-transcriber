@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
 import { useNavigate } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,7 +30,11 @@ import {
   Trash2,
   UploadCloud,
   WandSparkles,
+  X,
 } from "lucide-react";
+import { LazyErrorBoundary } from "@/components/LazyErrorBoundary";
+
+const SyncAudioPlayer = lazy(() => import("@/components/SyncAudioPlayer").then(m => ({ default: m.SyncAudioPlayer })));
 
 function formatBytes(bytes: number): string {
   if (!bytes || bytes <= 0) return "0 B";
@@ -49,6 +53,8 @@ export default function VoiceStudio() {
   const [dragActive, setDragActive] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [enhanceQueueJobs, setEnhanceQueueJobs] = useState<EnhanceQueueJob[]>(() => getEnhanceQueueJobs());
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const audioUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!folderInputRef.current) return;
@@ -62,16 +68,31 @@ export default function VoiceStudio() {
     });
   }, []);
 
+  // Create object URL when sourceFile changes
+  useEffect(() => {
+    if (audioUrlRef.current) {
+      URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = null;
+    }
+    if (sourceFile) {
+      const url = URL.createObjectURL(sourceFile);
+      audioUrlRef.current = url;
+      setAudioUrl(url);
+    } else {
+      setAudioUrl(null);
+    }
+    return () => {
+      if (audioUrlRef.current) {
+        URL.revokeObjectURL(audioUrlRef.current);
+        audioUrlRef.current = null;
+      }
+    };
+  }, [sourceFile]);
+
   const onPickFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
     setSourceFile(file);
     setSelectedFiles(file ? [file] : []);
-    if (file) {
-      toast({
-        title: "הקובץ נטען לסטודיו",
-        description: "לחץ על 'פתח חלון שיפור' כדי להתחיל שיפור מסודר",
-      });
-    }
     e.target.value = "";
   }, []);
 
@@ -116,10 +137,6 @@ export default function VoiceStudio() {
 
     setSelectedFiles(files);
     setSourceFile(files[0]);
-    toast({
-      title: "גרירה נקלטה בהצלחה",
-      description: `${files.length} פריטים נוספו לסטודיו`,
-    });
   }, []);
 
   const openFolderPicker = useCallback(() => {
@@ -157,7 +174,8 @@ export default function VoiceStudio() {
   );
 
   return (
-    <div className="container max-w-6xl mx-auto px-4 py-6 space-y-6" dir="rtl">
+    <div className="w-full max-w-full px-4 py-6 space-y-6" dir="rtl">
+      {/* Header */}
       <div className="relative overflow-hidden rounded-2xl border bg-gradient-to-l from-primary/10 via-background to-amber-50/70 p-5">
         <div className="absolute -top-10 -left-10 h-40 w-40 rounded-full bg-primary/10 blur-3xl" />
         <div className="absolute -bottom-10 -right-10 h-36 w-36 rounded-full bg-amber-300/20 blur-3xl" />
@@ -168,14 +186,13 @@ export default function VoiceStudio() {
               סטודיו קול
             </h1>
             <p className="text-sm md:text-base text-muted-foreground mt-1 max-w-3xl">
-              סביבת עבודה מתקדמת לשיפור איכות תמלול: גרירת קבצים ותיקיות, תצוגת טאבים חכמה, תור עיבוד ברקע וכלי מעבר מהיר.
+              סביבת עבודה מתקדמת לשיפור איכות תמלול: הפחתת רעש, אקולייזר, מיקסר מקצועי ופריסטים חכמים.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="secondary" className="gap-1"><WandSparkles className="w-3.5 h-3.5" /> AI + Auto EQ</Badge>
             <Badge variant="outline">Real-time Filters</Badge>
             <Badge variant="outline">Batch Queue</Badge>
-            <Badge variant="outline">Transcription Quality Tests</Badge>
           </div>
         </div>
       </div>
@@ -187,93 +204,94 @@ export default function VoiceStudio() {
           <TabsTrigger value="flows" className="rounded-lg data-[state=active]:shadow-sm">זרימות עבודה</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="enhance" className="mt-0">
+        <TabsContent value="enhance" className="mt-0 space-y-5">
+          {/* File Upload Section — compact when file loaded */}
           <Card className="border-2 border-primary/10 shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-primary" />
-                שיפור קובץ בקליק
-              </CardTitle>
-              <CardDescription>
-                גרור קובץ או תיקיה לאזור למטה, או בחר ידנית. לאחר מכן פתח את חלון השיפור לכל המצבים: AI Voice, ניקוי קלאסי ויצוא.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setDragActive(true);
-                }}
-                onDragLeave={(e) => {
-                  e.preventDefault();
-                  setDragActive(false);
-                }}
-                onDrop={onDropFiles}
-                className={`rounded-xl border-2 border-dashed p-6 text-center transition-all ${
-                  dragActive
-                    ? "border-primary bg-primary/10 scale-[1.01]"
-                    : "border-border bg-muted/20 hover:border-primary/50 hover:bg-muted/40"
-                }`}
-              >
-                <UploadCloud className="w-8 h-8 mx-auto mb-3 text-primary" />
-                <p className="text-sm font-medium">גרור לכאן קבצי אודיו/וידאו או תיקיה שלמה</p>
-                <p className="text-xs text-muted-foreground mt-1">תומך גם בבחירה מרובה ובתיקיות (Chrome/Edge)</p>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                <Button className="gap-2" onClick={() => fileInputRef.current?.click()}>
-                  <FileAudio className="w-4 h-4" />
-                  בחר קובץ
-                </Button>
-                <Button variant="outline" className="gap-2" onClick={() => fileInputRef.current?.click()}>
-                  <LayoutGrid className="w-4 h-4" />
-                  בחר כמה קבצים
-                </Button>
-                <Button variant="outline" className="gap-2" onClick={openFolderPicker}>
-                  <FolderUp className="w-4 h-4" />
-                  בחר תיקיה
-                </Button>
-                {sourceFile && (
-                  <Button variant="secondary" className="gap-2" onClick={() => setEnhanceDialogOpen(true)}>
-                    <Sparkles className="w-4 h-4" />
-                    פתח חלון שיפור
-                  </Button>
-                )}
-
-                <Input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="audio/*,video/*"
-                  multiple
-                  className="hidden"
-                  onChange={onPickManyFiles}
-                />
-                <Input
-                  ref={folderInputRef}
-                  type="file"
-                  multiple
-                  className="hidden"
-                  onChange={onPickFolder}
-                />
-              </div>
-
-              {sourceFile ? (
-                <div className="rounded-xl border bg-muted/20 p-4 space-y-2">
-                  <p className="text-sm font-semibold truncate">קובץ מקור פעיל: {sourceFile.name}</p>
-                  <p className="text-xs text-muted-foreground">{formatBytes(sourceFile.size)}</p>
-                  {selectedFiles.length > 1 && (
-                    <p className="text-xs text-muted-foreground">
-                      נבחרו {selectedFiles.length} קבצים • סה"כ {formatBytes(selectedTotalBytes)}
-                    </p>
-                  )}
-                </div>
+            <CardContent className="p-4 space-y-3">
+              {!sourceFile ? (
+                <>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Sparkles className="w-4 h-4 text-primary" />
+                    <h3 className="font-semibold text-sm">שיפור קובץ בקליק</h3>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    גרור קובץ או תיקיה לאזור למטה, או בחר ידנית. הנגן המקצועי עם כל כלי העיבוד ייפתח מיד.
+                  </p>
+                  <div
+                    onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+                    onDragLeave={(e) => { e.preventDefault(); setDragActive(false); }}
+                    onDrop={onDropFiles}
+                    className={`rounded-xl border-2 border-dashed p-8 text-center transition-all ${
+                      dragActive
+                        ? "border-primary bg-primary/10 scale-[1.01]"
+                        : "border-border bg-muted/20 hover:border-primary/50 hover:bg-muted/40"
+                    }`}
+                  >
+                    <UploadCloud className="w-10 h-10 mx-auto mb-3 text-primary" />
+                    <p className="text-sm font-medium">גרור לכאן קבצי אודיו/וידאו או תיקיה שלמה</p>
+                    <p className="text-xs text-muted-foreground mt-1">תומך גם בבחירה מרובה ובתיקיות (Chrome/Edge)</p>
+                  </div>
+                </>
               ) : (
-                <div className="rounded-lg border border-dashed p-5 text-center text-sm text-muted-foreground">
-                  עדיין לא נבחר קובץ. התחל בגרירה או בכפתורי הבחירה למעלה.
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <FileAudio className="w-4 h-4 text-primary shrink-0" />
+                    <span className="text-sm font-medium truncate">{sourceFile.name}</span>
+                    <span className="text-xs text-muted-foreground shrink-0">{formatBytes(sourceFile.size)}</span>
+                    {selectedFiles.length > 1 && (
+                      <Badge variant="outline" className="text-[10px] shrink-0">{selectedFiles.length} קבצים</Badge>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => setEnhanceDialogOpen(true)}>
+                      <Sparkles className="w-3.5 h-3.5" />
+                      שיפור מתקדם
+                    </Button>
+                    <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => navigate("/transcribe", { state: { file: sourceFile } })}>
+                      <Mic className="w-3.5 h-3.5" />
+                      תמלל
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setSourceFile(null); setSelectedFiles([]); }}>
+                      <X className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
                 </div>
               )}
+
+              <div className="flex flex-wrap gap-2">
+                <Button className="gap-2" size="sm" onClick={() => fileInputRef.current?.click()}>
+                  <FileAudio className="w-3.5 h-3.5" />
+                  בחר קובץ
+                </Button>
+                <Button variant="outline" size="sm" className="gap-2" onClick={() => fileInputRef.current?.click()}>
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  בחר כמה קבצים
+                </Button>
+                <Button variant="outline" size="sm" className="gap-2" onClick={openFolderPicker}>
+                  <FolderUp className="w-3.5 h-3.5" />
+                  בחר תיקיה
+                </Button>
+                <Input ref={fileInputRef} type="file" accept="audio/*,video/*" multiple className="hidden" onChange={onPickManyFiles} />
+                <Input ref={folderInputRef} type="file" multiple className="hidden" onChange={onPickFolder} />
+              </div>
             </CardContent>
           </Card>
+
+          {/* ═══ INLINE PLAYER WITH FULL MIXER ═══ */}
+          {sourceFile && audioUrl && (
+            <div className="rounded-2xl border border-border/40 bg-card/50 shadow-sm p-1">
+              <LazyErrorBoundary label="נגן סטודיו">
+                <Suspense fallback={<div className="p-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto" /></div>}>
+                  <SyncAudioPlayer
+                    audioUrl={audioUrl}
+                    wordTimings={[]}
+                    currentTime={0}
+                    onTimeUpdate={() => {}}
+                  />
+                </Suspense>
+              </LazyErrorBoundary>
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="batch" className="mt-0">
@@ -350,6 +368,7 @@ export default function VoiceStudio() {
         </TabsContent>
       </Tabs>
 
+      {/* Enhancement Queue */}
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center justify-between">
@@ -427,13 +446,11 @@ export default function VoiceStudio() {
         </CardContent>
       </Card>
 
+      {/* Keep dialog for advanced enhancement (server-side processing) */}
       <AudioEnhanceDialog
         open={enhanceDialogOpen}
         onOpenChange={(open) => {
           setEnhanceDialogOpen(open);
-          if (!open) {
-            setSourceFile(null);
-          }
         }}
         file={sourceFile}
         onTranscribe={(file) => navigate("/transcribe", { state: { file } })}
