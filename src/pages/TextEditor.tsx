@@ -786,17 +786,21 @@ const TextEditor = () => {
             );
           })()}
 
-          <TabsContent value="player" className="space-y-5">
+          <TabsContent value="player" className="space-y-4">
             <LazyErrorBoundary label="נגן מסונכרן">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <SyncAudioPlayer
-                audioUrl={audioUrl}
-                wordTimings={wordTimings}
-                currentTime={playerTime}
-                onTimeUpdate={setPlayerTime}
-                syncEnabled={syncEnabled}
-                onSyncToggle={setSyncEnabled}
-              />
+            {/* Top section: Player + Audio Processing (SyncAudioPlayer handles both internally) */}
+            <SyncAudioPlayer
+              audioUrl={audioUrl}
+              wordTimings={wordTimings}
+              currentTime={playerTime}
+              onTimeUpdate={setPlayerTime}
+              syncEnabled={syncEnabled}
+              onSyncToggle={setSyncEnabled}
+            />
+
+            {/* Bottom section: Two synced transcript views side by side */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Right: Read-only synced transcript */}
               <SyncTranscriptView
                 wordTimings={wordTimings}
                 currentTime={playerTime}
@@ -805,12 +809,18 @@ const TextEditor = () => {
                 fontFamily={fontFamily}
                 syncEnabled={syncEnabled}
               />
+              {/* Left: Editable synced transcript */}
+              <SyncEditableView
+                wordTimings={wordTimings}
+                currentTime={playerTime}
+                text={text}
+                onTextChange={handlePlayerEditorChange}
+                onWordClick={(time) => setPlayerTime(time)}
+                fontSize={fontSize}
+                fontFamily={fontFamily}
+                syncEnabled={syncEnabled}
+              />
             </div>
-            <PlayerTranscriptEditor
-              originalText={originalTextRef.current || ""}
-              editedText={text}
-              onEditedTextChange={handlePlayerEditorChange}
-            />
             </LazyErrorBoundary>
           </TabsContent>
 
