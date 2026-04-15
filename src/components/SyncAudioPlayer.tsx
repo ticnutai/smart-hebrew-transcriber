@@ -2273,265 +2273,277 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                 )}
               </div>
 
-              {/* ─── Advanced Audio Processing Panel ─── */}
-              <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
-                <p className="text-xs font-semibold flex items-center gap-1.5">
-                  <Brain className="w-3.5 h-3.5 text-primary no-theme-icon" />
-                  עיבוד מתקדם — AI והפחתת רעש
-                </p>
+              {/* Advanced Processing Dialog */}
+              <Dialog open={showAdvancedDialog} onOpenChange={setShowAdvancedDialog}>
+                <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto" dir="rtl">
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2 text-base">
+                      <Brain className="w-5 h-5 text-primary no-theme-icon" />
+                      עיבוד מתקדם — AI והפחתת רעש
+                    </DialogTitle>
+                  </DialogHeader>
 
-                {/* AI Denoise */}
-                <div className="space-y-2 rounded-md border bg-background/50 p-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium flex items-center gap-1">
-                      <Sparkles className="w-3.5 h-3.5 text-violet-500 no-theme-icon" />
-                      AI Denoise (דיכוי רעש חכם)
-                    </span>
-                    <Switch checked={aiDenoiseEnabled} onCheckedChange={(v) => {
-                      setAiDenoiseEnabled(v);
-                      if (v && aiDenoiseRef.current) aiDenoiseRef.current.enable();
-                      else if (aiDenoiseRef.current) aiDenoiseRef.current.disable();
-                    }} />
-                  </div>
-                  {aiDenoiseEnabled && (
-                    <div className="space-y-1">
+                  <div className="space-y-4">
+                    {/* AI Denoise */}
+                    <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
                       <div className="flex items-center justify-between">
-                        <span className="text-[11px] text-muted-foreground">עוצמת דיכוי</span>
-                        <span className="text-[11px] font-mono">{aiDenoiseStrength}%</span>
+                        <span className="text-sm font-medium flex items-center gap-1.5">
+                          <Sparkles className="w-4 h-4 text-violet-500 no-theme-icon" />
+                          AI Denoise (דיכוי רעש חכם)
+                        </span>
+                        <Switch checked={aiDenoiseEnabled} onCheckedChange={(v) => {
+                          setAiDenoiseEnabled(v);
+                          if (v && aiDenoiseRef.current) aiDenoiseRef.current.enable();
+                          else if (aiDenoiseRef.current) aiDenoiseRef.current.disable();
+                        }} />
                       </div>
-                      <Slider value={[aiDenoiseStrength]} min={10} max={100} step={5} onValueChange={([v]) => {
-                        setAiDenoiseStrength(v);
-                        if (aiDenoiseRef.current) aiDenoiseRef.current.setStrength(v / 100);
-                      }} />
-                      <p className="text-[10px] text-muted-foreground">לומד את פרופיל הרעש אוטומטית ומפחית אותו בזמן אמת</p>
+                      {aiDenoiseEnabled && (
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-muted-foreground">עוצמת דיכוי</span>
+                            <span className="text-xs font-mono">{aiDenoiseStrength}%</span>
+                          </div>
+                          <Slider value={[aiDenoiseStrength]} min={10} max={100} step={5} onValueChange={([v]) => {
+                            setAiDenoiseStrength(v);
+                            if (aiDenoiseRef.current) aiDenoiseRef.current.setStrength(v / 100);
+                          }} />
+                          <p className="text-[11px] text-muted-foreground">לומד את פרופיל הרעש אוטומטית ומפחית אותו בזמן אמת</p>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
 
-                {/* Spectral Gate */}
-                <div className="space-y-2 rounded-md border bg-background/50 p-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium flex items-center gap-1">
-                      <Search className="w-3.5 h-3.5 text-cyan-500 no-theme-icon" />
-                      שער ספקטרלי (Spectral Gate)
-                    </span>
-                    <Switch checked={spectralGateEnabled} onCheckedChange={(v) => {
-                      setSpectralGateEnabled(v);
-                      if (v && spectralGateRef.current) spectralGateRef.current.enable();
-                      else if (spectralGateRef.current) spectralGateRef.current.disable();
-                    }} />
-                  </div>
-                  {spectralGateEnabled && (
-                    <div className="space-y-1.5">
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 text-xs"
-                          disabled={isLearningNoise}
-                          onClick={async () => {
-                            if (!spectralGateRef.current) return;
-                            setIsLearningNoise(true);
-                            await spectralGateRef.current.startLearning(1500);
-                            setHasNoiseProfile(true);
-                            setIsLearningNoise(false);
-                          }}
-                        >
-                          {isLearningNoise ? '🔄 לומד...' : '🎯 למד רעש (1.5 שניות)'}
-                        </Button>
-                        {hasNoiseProfile && <Badge variant="secondary" className="text-[10px]">✓ פרופיל נלמד</Badge>}
-                      </div>
+                    {/* Spectral Gate */}
+                    <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
                       <div className="flex items-center justify-between">
-                        <span className="text-[11px] text-muted-foreground">עוצמת הפחתה</span>
-                        <span className="text-[11px] font-mono">{spectralGateReduction}dB</span>
+                        <span className="text-sm font-medium flex items-center gap-1.5">
+                          <Search className="w-4 h-4 text-cyan-500 no-theme-icon" />
+                          שער ספקטרלי (Spectral Gate)
+                        </span>
+                        <Switch checked={spectralGateEnabled} onCheckedChange={(v) => {
+                          setSpectralGateEnabled(v);
+                          if (v && spectralGateRef.current) spectralGateRef.current.enable();
+                          else if (spectralGateRef.current) spectralGateRef.current.disable();
+                        }} />
                       </div>
-                      <Slider value={[spectralGateReduction]} min={-30} max={0} step={1} onValueChange={([v]) => {
-                        setSpectralGateReduction(v);
-                        if (spectralGateRef.current) spectralGateRef.current.setReduction(v);
-                      }} />
-                      <p className="text-[10px] text-muted-foreground">השהה קטע שקט והקלק "למד רעש" — המערכת תלמד את טביעת האצבע של הרעש ותנכה אותו</p>
+                      {spectralGateEnabled && (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <Button variant="outline" size="sm" className="h-8 text-xs" disabled={isLearningNoise}
+                              onClick={async () => {
+                                if (!spectralGateRef.current) return;
+                                setIsLearningNoise(true);
+                                await spectralGateRef.current.startLearning(1500);
+                                setHasNoiseProfile(true);
+                                setIsLearningNoise(false);
+                              }}>
+                              {isLearningNoise ? '🔄 לומד...' : '🎯 למד רעש (1.5 שניות)'}
+                            </Button>
+                            {hasNoiseProfile && <Badge variant="secondary" className="text-[10px]">✓ פרופיל נלמד</Badge>}
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-muted-foreground">עוצמת הפחתה</span>
+                            <span className="text-xs font-mono">{spectralGateReduction}dB</span>
+                          </div>
+                          <Slider value={[spectralGateReduction]} min={-30} max={0} step={1} onValueChange={([v]) => {
+                            setSpectralGateReduction(v);
+                            if (spectralGateRef.current) spectralGateRef.current.setReduction(v);
+                          }} />
+                          <p className="text-[11px] text-muted-foreground">השהה קטע שקט והקלק "למד רעש" — המערכת תלמד את טביעת האצבע של הרעש ותנכה אותו</p>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
 
-                {/* De-Hum */}
-                <div className="space-y-2 rounded-md border bg-background/50 p-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium flex items-center gap-1">
-                      <Zap className="w-3.5 h-3.5 text-amber-500 no-theme-icon" />
-                      הסרת זמזום חשמל (De-Hum)
-                    </span>
-                    <Switch checked={deHumEnabled} onCheckedChange={(v) => {
-                      setDeHumEnabled(v);
-                      if (v && deHumRef.current) {
-                        deHumRef.current.enable();
-                        const freq = deHumRef.current.autoDetect();
-                        setDeHumDetectedFreq(freq);
-                      } else if (deHumRef.current) {
-                        deHumRef.current.disable();
-                      }
-                    }} />
-                  </div>
-                  {deHumEnabled && (
-                    <div className="space-y-1.5">
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 text-xs"
-                          onClick={() => {
-                            if (!deHumRef.current) return;
+                    {/* De-Hum */}
+                    <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium flex items-center gap-1.5">
+                          <Zap className="w-4 h-4 text-amber-500 no-theme-icon" />
+                          הסרת זמזום חשמל (De-Hum)
+                        </span>
+                        <Switch checked={deHumEnabled} onCheckedChange={(v) => {
+                          setDeHumEnabled(v);
+                          if (v && deHumRef.current) {
+                            deHumRef.current.enable();
                             const freq = deHumRef.current.autoDetect();
                             setDeHumDetectedFreq(freq);
-                          }}
-                        >
-                          🔍 זיהוי אוטומטי
-                        </Button>
-                        {deHumDetectedFreq && (
-                          <Badge variant="secondary" className="text-[10px]">זוהה: {deHumDetectedFreq}Hz</Badge>
-                        )}
-                        {!deHumDetectedFreq && (
-                          <Badge variant="outline" className="text-[10px]">לא זוהה זמזום</Badge>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[11px] text-muted-foreground">תדר ידני:</span>
-                        <Select value={String(deHumDetectedFreq || '50')} onValueChange={(v) => {
-                          const freq = Number(v) as 50 | 60;
-                          setDeHumDetectedFreq(freq);
-                          if (deHumRef.current) deHumRef.current.setFrequency(freq);
-                        }}>
-                          <SelectTrigger className="h-7 w-20 text-xs"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="50">50Hz</SelectItem>
-                            <SelectItem value="60">60Hz</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <span className="text-[11px] text-muted-foreground">הרמוניות:</span>
-                        <Slider value={[deHumHarmonics]} min={1} max={6} step={1} className="w-20" onValueChange={([v]) => {
-                          setDeHumHarmonics(v);
-                          if (deHumRef.current) deHumRef.current.setHarmonics(v);
+                          } else if (deHumRef.current) {
+                            deHumRef.current.disable();
+                          }
                         }} />
-                        <span className="text-[11px] font-mono">{deHumHarmonics}</span>
                       </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* VAD */}
-                <div className="space-y-2 rounded-md border bg-background/50 p-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium flex items-center gap-1">
-                      <Activity className="w-3.5 h-3.5 text-green-500 no-theme-icon" />
-                      זיהוי דיבור (VAD)
-                    </span>
-                    <div className="flex items-center gap-2">
-                      {vadEnabled && (
-                        <Badge variant={vadIsSpeech ? 'default' : 'outline'} className="text-[10px]">
-                          {vadIsSpeech ? '🗣️ דיבור' : '🔇 שקט'}
-                        </Badge>
+                      {deHumEnabled && (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <Button variant="outline" size="sm" className="h-8 text-xs"
+                              onClick={() => {
+                                if (!deHumRef.current) return;
+                                const freq = deHumRef.current.autoDetect();
+                                setDeHumDetectedFreq(freq);
+                              }}>
+                              🔍 זיהוי אוטומטי
+                            </Button>
+                            {deHumDetectedFreq && <Badge variant="secondary" className="text-[10px]">זוהה: {deHumDetectedFreq}Hz</Badge>}
+                            {!deHumDetectedFreq && <Badge variant="outline" className="text-[10px]">לא זוהה זמזום</Badge>}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-muted-foreground">תדר ידני:</span>
+                            <Select value={String(deHumDetectedFreq || '50')} onValueChange={(v) => {
+                              const freq = Number(v) as 50 | 60;
+                              setDeHumDetectedFreq(freq);
+                              if (deHumRef.current) deHumRef.current.setFrequency(freq);
+                            }}>
+                              <SelectTrigger className="h-7 w-20 text-xs"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="50">50Hz</SelectItem>
+                                <SelectItem value="60">60Hz</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <span className="text-xs text-muted-foreground">הרמוניות:</span>
+                            <Slider value={[deHumHarmonics]} min={1} max={6} step={1} className="w-24" onValueChange={([v]) => {
+                              setDeHumHarmonics(v);
+                              if (deHumRef.current) deHumRef.current.setHarmonics(v);
+                            }} />
+                            <span className="text-xs font-mono">{deHumHarmonics}</span>
+                          </div>
+                        </div>
                       )}
-                      <Switch checked={vadEnabled} onCheckedChange={(v) => {
-                        setVadEnabled(v);
-                        if (v && vadRef.current) vadRef.current.enable();
-                        else if (vadRef.current) vadRef.current.disable();
-                      }} />
                     </div>
-                  </div>
-                  {vadEnabled && (
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Label className="text-[11px] text-muted-foreground">השתקה אוטומטית של שקט</Label>
-                          <Switch checked={vadAutoMute} onCheckedChange={(v) => {
-                            setVadAutoMute(v);
-                            if (vadRef.current) vadRef.current.setAutoMute(v);
-                          }} />
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-[11px] text-muted-foreground">סף רגישות</span>
-                        <span className="text-[11px] font-mono">{(vadThreshold * 1000).toFixed(0)}</span>
-                      </div>
-                      <Slider value={[vadThreshold]} min={0.003} max={0.05} step={0.001} onValueChange={([v]) => {
-                        setVadThreshold(v);
-                        if (vadRef.current) vadRef.current.setThreshold(v);
-                      }} />
-                    </div>
-                  )}
-                </div>
 
-                {/* LUFS Meter */}
-                <div className="space-y-2 rounded-md border bg-background/50 p-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium flex items-center gap-1">
-                      <BarChart3 className="w-3.5 h-3.5 text-blue-500 no-theme-icon" />
-                      מד עוצמה LUFS
-                    </span>
-                    <Switch checked={lufsEnabled} onCheckedChange={(v) => {
-                      setLufsEnabled(v);
-                      if (v && lufsRef.current) lufsRef.current.start();
-                      else if (lufsRef.current) lufsRef.current.stop();
-                    }} />
-                  </div>
-                  {lufsEnabled && (
-                    <div className="space-y-1.5">
-                      <div className="grid grid-cols-3 gap-1 text-center">
-                        <div className="rounded border bg-muted/30 p-1">
-                          <div className="text-[9px] text-muted-foreground">רגעי</div>
-                          <div className="text-xs font-mono font-bold">{isFinite(lufsMomentary) ? lufsMomentary.toFixed(1) : '—'}</div>
-                        </div>
-                        <div className="rounded border bg-muted/30 p-1">
-                          <div className="text-[9px] text-muted-foreground">קצר</div>
-                          <div className="text-xs font-mono font-bold">{isFinite(lufsShortTerm) ? lufsShortTerm.toFixed(1) : '—'}</div>
-                        </div>
-                        <div className="rounded border bg-muted/30 p-1">
-                          <div className="text-[9px] text-muted-foreground">משולב</div>
-                          <div className="text-xs font-mono font-bold">{isFinite(lufsIntegrated) ? lufsIntegrated.toFixed(1) : '—'}</div>
-                        </div>
-                      </div>
+                    {/* VAD */}
+                    <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
                       <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium flex items-center gap-1.5">
+                          <Activity className="w-4 h-4 text-green-500 no-theme-icon" />
+                          זיהוי דיבור (VAD)
+                        </span>
                         <div className="flex items-center gap-2">
-                          <Label className="text-[11px] text-muted-foreground">נורמליזציה אוטומטית</Label>
-                          <Switch checked={lufsNormalize} onCheckedChange={(v) => {
-                            setLufsNormalize(v);
-                            if (v && lufsRef.current) lufsRef.current.enableNormalization();
-                            else if (lufsRef.current) lufsRef.current.disableNormalization();
+                          {vadEnabled && (
+                            <Badge variant={vadIsSpeech ? 'default' : 'outline'} className="text-[10px]">
+                              {vadIsSpeech ? '🗣️ דיבור' : '🔇 שקט'}
+                            </Badge>
+                          )}
+                          <Switch checked={vadEnabled} onCheckedChange={(v) => {
+                            setVadEnabled(v);
+                            if (v && vadRef.current) vadRef.current.enable();
+                            else if (vadRef.current) vadRef.current.disable();
                           }} />
                         </div>
                       </div>
-                      {lufsNormalize && (
+                      {vadEnabled && (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <Label className="text-xs text-muted-foreground">השתקה אוטומטית של שקט</Label>
+                            <Switch checked={vadAutoMute} onCheckedChange={(v) => {
+                              setVadAutoMute(v);
+                              if (vadRef.current) vadRef.current.setAutoMute(v);
+                            }} />
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-muted-foreground">סף רגישות</span>
+                            <span className="text-xs font-mono">{(vadThreshold * 1000).toFixed(0)}</span>
+                          </div>
+                          <Slider value={[vadThreshold]} min={0.003} max={0.05} step={0.001} onValueChange={([v]) => {
+                            setVadThreshold(v);
+                            if (vadRef.current) vadRef.current.setThreshold(v);
+                          }} />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* LUFS Meter */}
+                    <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium flex items-center gap-1.5">
+                          <BarChart3 className="w-4 h-4 text-blue-500 no-theme-icon" />
+                          מד עוצמה LUFS
+                        </span>
+                        <Switch checked={lufsEnabled} onCheckedChange={(v) => {
+                          setLufsEnabled(v);
+                          if (v && lufsRef.current) lufsRef.current.start();
+                          else if (lufsRef.current) lufsRef.current.stop();
+                        }} />
+                      </div>
+                      {lufsEnabled && (
+                        <div className="space-y-2">
+                          <div className="grid grid-cols-3 gap-2 text-center">
+                            <div className="rounded-lg border bg-muted/30 p-2">
+                              <div className="text-[10px] text-muted-foreground">רגעי</div>
+                              <div className="text-sm font-mono font-bold">{isFinite(lufsMomentary) ? lufsMomentary.toFixed(1) : '—'}</div>
+                            </div>
+                            <div className="rounded-lg border bg-muted/30 p-2">
+                              <div className="text-[10px] text-muted-foreground">קצר</div>
+                              <div className="text-sm font-mono font-bold">{isFinite(lufsShortTerm) ? lufsShortTerm.toFixed(1) : '—'}</div>
+                            </div>
+                            <div className="rounded-lg border bg-muted/30 p-2">
+                              <div className="text-[10px] text-muted-foreground">משולב</div>
+                              <div className="text-sm font-mono font-bold">{isFinite(lufsIntegrated) ? lufsIntegrated.toFixed(1) : '—'}</div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Label className="text-xs text-muted-foreground">נורמליזציה אוטומטית</Label>
+                            <Switch checked={lufsNormalize} onCheckedChange={(v) => {
+                              setLufsNormalize(v);
+                              if (v && lufsRef.current) lufsRef.current.enableNormalization();
+                              else if (lufsRef.current) lufsRef.current.disableNormalization();
+                            }} />
+                          </div>
+                          {lufsNormalize && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-muted-foreground">יעד:</span>
+                              <Select value={String(lufsTarget)} onValueChange={(v) => {
+                                const t = Number(v);
+                                setLufsTarget(t);
+                                if (lufsRef.current) lufsRef.current.setTarget(t);
+                              }}>
+                                <SelectTrigger className="h-7 w-32 text-xs"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="-14">-14 LUFS (שידור)</SelectItem>
+                                  <SelectItem value="-16">-16 LUFS (פודקאסט)</SelectItem>
+                                  <SelectItem value="-18">-18 LUFS (מוזיקה)</SelectItem>
+                                  <SelectItem value="-23">-23 LUFS (סטנדרט EU)</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Notch filter */}
+                    <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium">סינון זמזום חשמל (Notch)</span>
+                        <Switch checked={humNotchEnabled} onCheckedChange={setHumNotchEnabled} />
+                      </div>
+                      {humNotchEnabled && (
                         <div className="flex items-center gap-2">
-                          <span className="text-[11px] text-muted-foreground">יעד:</span>
-                          <Select value={String(lufsTarget)} onValueChange={(v) => {
-                            const t = Number(v);
-                            setLufsTarget(t);
-                            if (lufsRef.current) lufsRef.current.setTarget(t);
-                          }}>
-                            <SelectTrigger className="h-7 w-28 text-xs"><SelectValue /></SelectTrigger>
+                          <span className="text-xs text-muted-foreground">תדר:</span>
+                          <Select value={humNotchFreq} onValueChange={(v) => setHumNotchFreq(v as '50' | '60' | '100' | '120')}>
+                            <SelectTrigger className="h-7 w-28 text-xs"><SelectValue placeholder="בחר תדר" /></SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="-14">-14 LUFS (שידור)</SelectItem>
-                              <SelectItem value="-16">-16 LUFS (פודקאסט)</SelectItem>
-                              <SelectItem value="-18">-18 LUFS (מוזיקה)</SelectItem>
-                              <SelectItem value="-23">-23 LUFS (סטנדרט EU)</SelectItem>
+                              <SelectItem value="50">50Hz</SelectItem>
+                              <SelectItem value="60">60Hz</SelectItem>
+                              <SelectItem value="100">100Hz</SelectItem>
+                              <SelectItem value="120">120Hz</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
                       )}
                     </div>
-                  )}
+                  </div>
+                </DialogContent>
+              </Dialog>
+
+              {/* Active advanced features status badges */}
+              {(aiDenoiseEnabled || spectralGateEnabled || deHumEnabled || vadEnabled || lufsEnabled) && (
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {aiDenoiseEnabled && <Badge variant="secondary" className="text-[10px] gap-1"><Sparkles className="w-3 h-3 no-theme-icon" />AI Denoise</Badge>}
+                  {spectralGateEnabled && <Badge variant="secondary" className="text-[10px] gap-1"><Search className="w-3 h-3 no-theme-icon" />Spectral Gate</Badge>}
+                  {deHumEnabled && <Badge variant="secondary" className="text-[10px] gap-1"><Zap className="w-3 h-3 no-theme-icon" />De-Hum</Badge>}
+                  {vadEnabled && <Badge variant={vadIsSpeech ? 'default' : 'secondary'} className="text-[10px] gap-1"><Activity className="w-3 h-3 no-theme-icon" />{vadIsSpeech ? 'דיבור' : 'שקט'}</Badge>}
+                  {lufsEnabled && <Badge variant="secondary" className="text-[10px] gap-1"><BarChart3 className="w-3 h-3 no-theme-icon" />LUFS</Badge>}
                 </div>
-              </div>
-
-              {!isManualMode && presetId !== 'off' && (
-                <Button variant="ghost" size="sm" className="w-full text-xs gap-1" onClick={() => setShowAdvanced(!showAdvanced)}>
-                  {showAdvanced ? <ChevronUp className="w-3 h-3 no-theme-icon" /> : <ChevronDown className="w-3 h-3 no-theme-icon" />}
-                  {showAdvanced ? 'הסתר פרטים טכניים' : 'הצג פרטים טכניים'}
-                </Button>
               )}
-
-              {showAdvanced && !isManualMode && presetId !== 'off' && (
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[10px] text-muted-foreground bg-muted/20 rounded-lg p-2 font-mono">
                   <span>Highpass: {currentPreset.highpassFreq}Hz</span>
                   <span>Voice: +{currentPreset.voiceBoostGain}dB</span>
                   <span>Comp: {currentPreset.compRatio}:1 @{currentPreset.compThreshold}dB</span>
