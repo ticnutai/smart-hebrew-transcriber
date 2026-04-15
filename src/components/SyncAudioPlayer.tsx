@@ -498,6 +498,11 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
     const gain = ctx.createGain();
     gainNodeRef.current = gain;
 
+    // Output gain (post-processing volume boost)
+    const outGain = ctx.createGain();
+    outGain.gain.value = outputGain;
+    outputGainRef.current = outGain;
+
     // Highpass (rumble cut)
     const highpass = ctx.createBiquadFilter();
     highpass.type = 'highpass';
@@ -566,12 +571,32 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
     humNotch.Q.value = 8;
     humNotchRef.current = humNotch;
 
+    // 5-band parametric EQ
+    const makeEqBand = (freq: number, q: number, gainVal: number) => {
+      const f = ctx.createBiquadFilter();
+      f.type = 'peaking';
+      f.frequency.value = freq;
+      f.Q.value = q;
+      f.gain.value = gainVal;
+      return f;
+    };
+    const eBass = makeEqBand(80, 0.7, eqBass);
+    const eLowMid = makeEqBand(300, 1.0, eqLowMid);
+    const eMid = makeEqBand(1000, 1.0, eqMid);
+    const eHighMid = makeEqBand(3500, 1.0, eqHighMid);
+    const eTreble = makeEqBand(10000, 0.7, eqTreble);
+    eqBassRef.current = eBass;
+    eqLowMidRef.current = eLowMid;
+    eqMidRef.current = eMid;
+    eqHighMidRef.current = eHighMid;
+    eqTrebleRef.current = eTreble;
+
     // Analyser
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 2048;
     analyserRef.current = analyser;
 
-    // Chain: source → deRumble → highpass → lowpass → humNotch → voiceBoost → deSibilance → presence → warmth → compressor → gain → analyser → output
+    // Chain: source → deRumble → highpass → lowpass → humNotch → voiceBoost → deSibilance → presence → warmth → compressor → EQ bands → outputGain → gain → analyser → output
     source.connect(deRumble);
     deRumble.connect(highpass);
     highpass.connect(lowpass);
@@ -581,7 +606,13 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
     deSibilance.connect(presence);
     presence.connect(warmth);
     warmth.connect(compressor);
-    compressor.connect(gain);
+    compressor.connect(eBass);
+    eBass.connect(eLowMid);
+    eLowMid.connect(eMid);
+    eMid.connect(eHighMid);
+    eHighMid.connect(eTreble);
+    eTreble.connect(outGain);
+    outGain.connect(gain);
     gain.connect(analyser);
     analyser.connect(ctx.destination);
   }, []);
