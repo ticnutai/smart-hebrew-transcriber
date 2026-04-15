@@ -23,11 +23,13 @@ import {
   type EnhanceQueueJob,
 } from "@/lib/audioEnhanceQueue";
 import { isServerAvailable } from "@/lib/conversionRouter";
+import { useConversionHistory, type ConversionHistoryItem } from "@/hooks/useConversionHistory";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -35,6 +37,21 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -58,6 +75,11 @@ import {
   Server,
   Globe,
   Sparkles,
+  Pencil,
+  FolderOpen,
+  History,
+  Check,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -314,6 +336,14 @@ export default function VideoToMp3() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
 
+  // Conversion history (persistent, cloud-synced)
+  const history = useConversionHistory();
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [folderEditId, setFolderEditId] = useState<string | null>(null);
+  const [folderName, setFolderName] = useState("");
+  const savedJobIdsRef = useRef<Set<string>>(new Set());
+
   const toOutputFile = useCallback((job: ConversionJob): File | null => {
     if (!job.outputBlob) return null;
     const meta = OUTPUT_FORMAT_META[job.outputFormat];
@@ -357,7 +387,7 @@ export default function VideoToMp3() {
     });
   }, []);
 
-  // Listen to job updates + auto-show prompt on completion
+  // Listen to job updates + auto-show prompt on completion + auto-save to history
   useEffect(() => {
     const unsub = onJobUpdate((updatedJob) => {
       setJobs((prev) => {
@@ -369,6 +399,22 @@ export default function VideoToMp3() {
       });
 
       if (updatedJob.status === "done") {
+        // Auto-save to conversion history (once per job)
+        if (!savedJobIdsRef.current.has(updatedJob.id) && isAuthenticated) {
+          savedJobIdsRef.current.add(updatedJob.id);
+          const outputName = getOutputFileName(updatedJob.fileName, updatedJob.outputFormat);
+          history.addItem({
+            file_name: outputName,
+            original_name: updatedJob.fileName,
+            output_format: updatedJob.outputFormat,
+            file_size: updatedJob.fileSize,
+            output_size: updatedJob.outputBlob?.size || 0,
+            duration_ms: updatedJob.finishedAt && updatedJob.startedAt
+              ? updatedJob.finishedAt - updatedJob.startedAt
+              : 0,
+          }).catch(() => {});
+        }
+
         if (autoTranscribe) {
           const outputFile = toOutputFile(updatedJob);
           if (outputFile) {
@@ -380,7 +426,7 @@ export default function VideoToMp3() {
       }
     });
     return unsub;
-  }, [autoTranscribe, toOutputFile, navigate]);
+  }, [autoTranscribe, toOutputFile, navigate, isAuthenticated, history]);
 
   useEffect(() => {
     return onEnhanceQueueUpdate((nextJobs) => {
@@ -880,6 +926,177 @@ export default function VideoToMp3() {
                     </div>
                   ))}
                 </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* ═══ Conversion History Table ═══ */}
+          {isAuthenticated && history.items.length > 0 && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <History className="w-4 h-4 text-primary" />
+                    היסטוריית המרות ({history.items.length})
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground" onClick={() => history.refresh()}>
+                      <RefreshCw className="w-3 h-3 ml-1" /> רענן
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive" onClick={() => {
+                      if (confirm("למחוק את כל ההיסטוריה?")) history.removeAll();
+                    }}>
+                      <Trash2 className="w-3 h-3 ml-1" /> נקה הכל
+                    </Button>
+                  </div>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ScrollArea className="max-h-[400px]">
+                  <Table dir="rtl">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="text-right">שם קובץ</TableHead>
+                        <TableHead className="text-right">מקור</TableHead>
+                        <TableHead className="text-center">פורמט</TableHead>
+                        <TableHead className="text-center">גודל</TableHead>
+                        <TableHead className="text-right">תיקייה</TableHead>
+                        <TableHead className="text-right">תאריך</TableHead>
+                        <TableHead className="text-center">פעולות</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {history.items.map((item) => (
+                        <TableRow key={item.id}>
+                          {/* File name - editable */}
+                          <TableCell className="font-medium max-w-[200px]">
+                            {editingId === item.id ? (
+                              <div className="flex items-center gap-1">
+                                <Input
+                                  value={editName}
+                                  onChange={(e) => setEditName(e.target.value)}
+                                  className="h-7 text-xs"
+                                  autoFocus
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      history.updateName(item.id, editName);
+                                      setEditingId(null);
+                                    } else if (e.key === 'Escape') {
+                                      setEditingId(null);
+                                    }
+                                  }}
+                                />
+                                <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => {
+                                  history.updateName(item.id, editName);
+                                  setEditingId(null);
+                                }}>
+                                  <Check className="w-3 h-3" />
+                                </Button>
+                                <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => setEditingId(null)}>
+                                  <X className="w-3 h-3" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <span className="truncate block cursor-pointer hover:text-primary" onClick={() => {
+                                setEditingId(item.id);
+                                setEditName(item.file_name);
+                              }} title="לחץ לעריכה">
+                                {item.file_name}
+                              </span>
+                            )}
+                          </TableCell>
+
+                          {/* Original name */}
+                          <TableCell className="text-xs text-muted-foreground max-w-[150px] truncate" title={item.original_name}>
+                            {item.original_name}
+                          </TableCell>
+
+                          {/* Format */}
+                          <TableCell className="text-center">
+                            <Badge variant="outline" className="text-[10px]">{item.output_format.toUpperCase()}</Badge>
+                          </TableCell>
+
+                          {/* Size */}
+                          <TableCell className="text-center text-xs text-muted-foreground">
+                            {item.output_size > 0 ? formatBytes(item.output_size) : '—'}
+                          </TableCell>
+
+                          {/* Folder - editable */}
+                          <TableCell>
+                            {folderEditId === item.id ? (
+                              <div className="flex items-center gap-1">
+                                <Input
+                                  value={folderName}
+                                  onChange={(e) => setFolderName(e.target.value)}
+                                  className="h-7 text-xs w-24"
+                                  placeholder="שם תיקייה"
+                                  autoFocus
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      history.updateFolder(item.id, folderName);
+                                      setFolderEditId(null);
+                                    } else if (e.key === 'Escape') {
+                                      setFolderEditId(null);
+                                    }
+                                  }}
+                                />
+                                <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => {
+                                  history.updateFolder(item.id, folderName);
+                                  setFolderEditId(null);
+                                }}>
+                                  <Check className="w-3 h-3" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <span
+                                className="text-xs cursor-pointer hover:text-primary flex items-center gap-1"
+                                onClick={() => {
+                                  setFolderEditId(item.id);
+                                  setFolderName(item.folder || '');
+                                }}
+                                title="לחץ להגדרת תיקייה"
+                              >
+                                <FolderOpen className="w-3 h-3 text-muted-foreground" />
+                                {item.folder || <span className="text-muted-foreground/50">—</span>}
+                              </span>
+                            )}
+                          </TableCell>
+
+                          {/* Date */}
+                          <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                            {new Date(item.created_at).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                          </TableCell>
+
+                          {/* Actions */}
+                          <TableCell>
+                            <div className="flex items-center justify-center gap-0.5">
+                              <Button size="icon" variant="ghost" className="h-7 w-7" title="שנה שם" onClick={() => {
+                                setEditingId(item.id);
+                                setEditName(item.file_name);
+                              }}>
+                                <Pencil className="w-3.5 h-3.5" />
+                              </Button>
+                              <Button size="icon" variant="ghost" className="h-7 w-7" title="שלח לתמלול" onClick={() => {
+                                navigate("/transcribe", { state: { fileName: item.file_name, filePath: item.file_path } });
+                              }}>
+                                <Mic className="w-3.5 h-3.5" />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                title="מחק"
+                                onClick={() => history.removeItem(item.id)}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </ScrollArea>
               </CardContent>
             </Card>
           )}

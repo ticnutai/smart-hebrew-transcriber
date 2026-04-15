@@ -14,6 +14,51 @@ export type Database = {
   }
   public: {
     Tables: {
+      conversion_history: {
+        Row: {
+          created_at: string
+          duration_ms: number | null
+          file_name: string
+          file_path: string | null
+          file_size: number | null
+          folder: string | null
+          id: string
+          original_name: string
+          output_format: string
+          output_size: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          duration_ms?: number | null
+          file_name: string
+          file_path?: string | null
+          file_size?: number | null
+          folder?: string | null
+          id?: string
+          original_name: string
+          output_format?: string
+          output_size?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          duration_ms?: number | null
+          file_name?: string
+          file_path?: string | null
+          file_size?: number | null
+          folder?: string | null
+          id?: string
+          original_name?: string
+          output_format?: string
+          output_size?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       diarization_jobs: {
         Row: {
           created_at: string
