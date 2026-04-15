@@ -469,6 +469,8 @@ function CutJobCard({
                 }}
                 onTranscribe={() => onTranscribeResult(r)}
                 onEnhance={() => onEnhanceResult(r)}
+                onDelete={() => onDeleteResult(job.id, r.segmentIndex)}
+                onSaveToHistory={(name, folder) => onSaveResultToHistory(r, name, folder)}
               />
             ))}
           </div>
