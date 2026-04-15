@@ -27,6 +27,7 @@ const EngineCompare = lazy(() => import("@/components/EngineCompare").then(m => 
 const AnalyticsDashboard = lazy(() => import("@/components/AnalyticsDashboard").then(m => ({ default: m.AnalyticsDashboard })));
 const SpeakerDiarization = lazy(() => import("@/components/SpeakerDiarization").then(m => ({ default: m.SpeakerDiarization })));
 import { ArrowRight, Home, Wand2, SplitSquareVertical, SpellCheck, Loader2, Columns2, Columns3, AlignJustify, LayoutGrid, Rows3, Save, Copy } from "lucide-react";
+import { TabSettingsManager, TabConfig, loadTabSettings, saveTabSettings, getDefaultTabConfig } from "@/components/TabSettingsManager";
 import { supabase } from "@/integrations/supabase/client";
 import { editTranscriptCloud } from "@/utils/editTranscriptApi";
 import { toast } from "@/hooks/use-toast";
