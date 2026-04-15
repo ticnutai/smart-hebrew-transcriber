@@ -237,6 +237,7 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
 
   // Audio graph nodes
   const gainNodeRef = useRef<GainNode | null>(null);
+  const outputGainRef = useRef<GainNode | null>(null);
   const highpassRef = useRef<BiquadFilterNode | null>(null);
   const lowpassRef = useRef<BiquadFilterNode | null>(null);
   const voiceBoostRef = useRef<BiquadFilterNode | null>(null);
@@ -247,6 +248,9 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
   const deRumbleRef = useRef<BiquadFilterNode | null>(null);
   const presenceRef = useRef<BiquadFilterNode | null>(null);
   const warmthRef = useRef<BiquadFilterNode | null>(null);
+  // Equalizer
+  const eqCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const eqAnimFrameRef = useRef<number>(0);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
