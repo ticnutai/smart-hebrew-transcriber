@@ -134,16 +134,28 @@ const TextEditor = () => {
   const visibleTabs = tabSettings.visible;
   const tabOrder = tabSettings.order;
 
+  // One-time migration: add new tabs from code, remove stale tabs from settings
+  const hasMigrated = useRef(false);
   useEffect(() => {
-    const defaults = getDefaultTabConfig();
-    // Ensure settings remain compatible when tabs are added/removed between versions.
-    const validIds = new Set(defaults.order);
-    const sanitizedVisible = tabSettings.visible.filter((id) => validIds.has(id));
-    const mergedVisible = Array.from(new Set([...sanitizedVisible, ...defaults.visible.filter((id) => !sanitizedVisible.includes(id))]));
+    if (hasMigrated.current) {
+      // After migration, just persist every change
+      saveTabSettings(tabSettings.visible, tabSettings.order);
+      return;
+    }
+    hasMigrated.current = true;
 
+    const defaults = getDefaultTabConfig();
+    const validIds = new Set(defaults.order);
+
+    // Remove tabs that no longer exist in code
+    const sanitizedVisible = tabSettings.visible.filter((id) => validIds.has(id));
     const existingOrder = tabSettings.order.filter((id) => validIds.has(id));
-    const missingOrder = defaults.order.filter((id) => !existingOrder.includes(id));
-    const mergedOrder = [...existingOrder, ...missingOrder];
+
+    // Only add genuinely NEW tabs (not previously known in saved order)
+    const knownIds = new Set(tabSettings.order);
+    const genuinelyNewTabs = defaults.order.filter((id) => !knownIds.has(id));
+    const mergedVisible = [...sanitizedVisible, ...genuinelyNewTabs];
+    const mergedOrder = [...existingOrder, ...genuinelyNewTabs];
 
     const changed =
       mergedVisible.length !== tabSettings.visible.length ||
@@ -154,10 +166,9 @@ const TextEditor = () => {
     if (changed) {
       setTabSettings({ visible: mergedVisible, order: mergedOrder });
       saveTabSettings(mergedVisible, mergedOrder);
-      return;
+    } else {
+      saveTabSettings(tabSettings.visible, tabSettings.order);
     }
-
-    saveTabSettings(tabSettings.visible, tabSettings.order);
   }, [tabSettings]);
   
   // Cloud-synced style settings
