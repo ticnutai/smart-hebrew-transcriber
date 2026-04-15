@@ -2021,8 +2021,8 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
               <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={toggleMute}>
                 <VolumeIcon className="w-3.5 h-3.5 no-theme-icon" />
               </Button>
-              <Slider value={[isMuted ? 0 : volume]} max={1} step={0.05} onValueChange={handleVolumeChange} className="w-28" />
-              <span className="text-xs text-muted-foreground tabular-nums">{Math.round((isMuted ? 0 : volume) * 100)}%</span>
+              <Slider value={[isMuted ? 0 : volume]} max={1} step={0.01} onValueChange={handleVolumeChange} className="flex-1 min-w-[160px]" />
+              <span className="text-xs text-muted-foreground tabular-nums w-10 text-center">{Math.round((isMuted ? 0 : volume) * 100)}%</span>
             </div>
 
             <p className="text-[10px] text-muted-foreground text-center opacity-60">
@@ -2032,7 +2032,7 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
 
           {/* ═══ LEFT COLUMN: Mixer & Processing ═══ */}
           {!compact && (
-            <div className="space-y-3 order-2 max-h-[80vh] overflow-y-auto">
+            <div className="space-y-3 order-2">
               {mixerPanel}
 
               {/* ─── EQ + Processing Mixing Console ── */}
