@@ -23,11 +23,13 @@ import {
   type EnhanceQueueJob,
 } from "@/lib/audioEnhanceQueue";
 import { isServerAvailable } from "@/lib/conversionRouter";
+import { useConversionHistory, type ConversionHistoryItem } from "@/hooks/useConversionHistory";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -35,6 +37,21 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -58,6 +75,11 @@ import {
   Server,
   Globe,
   Sparkles,
+  Pencil,
+  FolderOpen,
+  History,
+  Check,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
