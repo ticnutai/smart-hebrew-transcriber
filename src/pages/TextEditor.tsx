@@ -28,6 +28,7 @@ const EngineCompare = lazy(() => import("@/components/EngineCompare").then(m => 
 const AnalyticsDashboard = lazy(() => import("@/components/AnalyticsDashboard").then(m => ({ default: m.AnalyticsDashboard })));
 const SpeakerDiarization = lazy(() => import("@/components/SpeakerDiarization").then(m => ({ default: m.SpeakerDiarization })));
 import { ArrowRight, Home, Wand2, SplitSquareVertical, SpellCheck, Loader2, Columns2, Columns3, AlignJustify, LayoutGrid, Rows3, Save, Copy } from "lucide-react";
+import { TabSettingsManager, TabConfig, loadTabSettings, saveTabSettings, getDefaultTabConfig } from "@/components/TabSettingsManager";
 import { supabase } from "@/integrations/supabase/client";
 import { editTranscriptCloud } from "@/utils/editTranscriptApi";
 import { toast } from "@/hooks/use-toast";
@@ -81,6 +82,54 @@ const TextEditor = () => {
   const { learn: learnCorrections, applyCorrections } = useCorrectionLearning();
   const originalTextRef = useRef<string>("");
   const ownedAudioUrlRef = useRef<string | null>(null);
+
+  // Tab settings (visibility + order)
+  const ALL_TABS: TabConfig[] = [
+    { id: "player", label: "נגן", emoji: "🎧", group: "primary" },
+    { id: "edit", label: "עריכת טקסט", group: "primary" },
+    { id: "speakers", label: "זיהוי דוברים", emoji: "👥", group: "primary" },
+    { id: "templates", label: "תבניות", group: "primary" },
+    { id: "ai", label: "עריכה עם AI", group: "primary" },
+    { id: "pipeline", label: "צינור עיבוד", group: "primary" },
+    { id: "prompts", label: "ספריית פרומפטים", group: "primary" },
+    { id: "ollama", label: "Ollama", emoji: "🖥️", group: "secondary" },
+    { id: "learning", label: "למידה", emoji: "🧠", group: "secondary" },
+    { id: "vocab", label: "מילון", emoji: "📖", group: "secondary" },
+    { id: "summary", label: "סיכום", emoji: "📊", group: "secondary" },
+    { id: "ab", label: "A/B", emoji: "⚡", group: "secondary" },
+    { id: "analytics", label: "אנליטיקה", emoji: "📈", group: "secondary" },
+    { id: "compare", label: "השוואה", group: "secondary" },
+    { id: "history", label: "היסטוריה", group: "secondary" },
+  ];
+  const [tabSettings, setTabSettings] = useState(loadTabSettings);
+  const visibleTabs = tabSettings.visible;
+  const tabOrder = tabSettings.order;
+
+  useEffect(() => {
+    const defaults = getDefaultTabConfig();
+    // Ensure settings remain compatible when tabs are added/removed between versions.
+    const validIds = new Set(defaults.order);
+    const sanitizedVisible = tabSettings.visible.filter((id) => validIds.has(id));
+    const mergedVisible = Array.from(new Set([...sanitizedVisible, ...defaults.visible.filter((id) => !sanitizedVisible.includes(id))]));
+
+    const existingOrder = tabSettings.order.filter((id) => validIds.has(id));
+    const missingOrder = defaults.order.filter((id) => !existingOrder.includes(id));
+    const mergedOrder = [...existingOrder, ...missingOrder];
+
+    const changed =
+      mergedVisible.length !== tabSettings.visible.length ||
+      mergedOrder.length !== tabSettings.order.length ||
+      mergedVisible.some((id, idx) => tabSettings.visible[idx] !== id) ||
+      mergedOrder.some((id, idx) => tabSettings.order[idx] !== id);
+
+    if (changed) {
+      setTabSettings({ visible: mergedVisible, order: mergedOrder });
+      saveTabSettings(mergedVisible, mergedOrder);
+      return;
+    }
+
+    saveTabSettings(tabSettings.visible, tabSettings.order);
+  }, [tabSettings]);
   
   // Cloud-synced style settings
   const { preferences, updatePreference } = useCloudPreferences();
@@ -539,15 +588,15 @@ const TextEditor = () => {
 
   return (
     <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>}>
-    <div className="min-h-screen bg-background p-3 md:p-6 lg:p-8" dir="rtl">
-      <div className="max-w-[90rem] mx-auto space-y-4">
+    <div className="min-h-screen bg-background p-4 md:p-8 lg:p-10" dir="rtl">
+      <div className="max-w-[90rem] mx-auto space-y-6">
         {/* Compact Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between pb-2">
           <div className="flex items-center gap-3">
-            <h1 className="text-xl font-semibold tracking-tight">עריכת טקסט</h1>
+            <h1 className="text-2xl font-bold tracking-tight">עריכת טקסט</h1>
             <span className="text-xs text-muted-foreground hidden sm:inline">ערוך · שפר · השווה</span>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             {/* Column view selector */}
             <div className="flex items-center border rounded-md overflow-hidden">
               {[
@@ -577,6 +626,13 @@ const TextEditor = () => {
               onTextColorChange={setTextColor}
               onLineHeightChange={setLineHeight}
             />
+            <TabSettingsManager
+              allTabs={ALL_TABS}
+              visibleTabs={visibleTabs}
+              tabOrder={tabOrder}
+              onVisibilityChange={(v) => setTabSettings(prev => ({ ...prev, visible: v }))}
+              onOrderChange={(o) => setTabSettings(prev => ({ ...prev, order: o }))}
+            />
             <Button 
               variant="ghost" 
               size="icon"
@@ -591,7 +647,7 @@ const TextEditor = () => {
 
         {/* Unified action bar — AI quick actions + save, single compact row */}
         {text.trim() && (
-          <div className="flex items-center gap-1.5 flex-wrap py-2 px-3 rounded-lg border bg-muted/20">
+          <div className="flex items-center gap-2 flex-wrap py-3 px-4 rounded-xl border bg-muted/20">
             <Button
               variant="default"
               size="sm"
@@ -647,26 +703,38 @@ const TextEditor = () => {
         {/* Main Content */}
         <Tabs defaultValue="edit" className="w-full" dir="rtl">
           {/* Primary tabs — core workflow */}
-          <TabsList className="flex w-full flex-wrap h-auto gap-0.5 p-1 mb-1">
-            <TabsTrigger value="player" className="flex-1 min-w-[5rem] text-xs sm:text-sm py-1.5">🎧 נגן</TabsTrigger>
-            <TabsTrigger value="edit" className="flex-1 min-w-[5rem] text-xs sm:text-sm py-1.5">עריכת טקסט</TabsTrigger>
-            <TabsTrigger value="speakers" className="flex-1 min-w-[5rem] text-xs sm:text-sm py-1.5">👥 זיהוי דוברים</TabsTrigger>
-            <TabsTrigger value="templates" className="flex-1 min-w-[5rem] text-xs sm:text-sm py-1.5">תבניות</TabsTrigger>
-            <TabsTrigger value="ai" className="flex-1 min-w-[5rem] text-xs sm:text-sm py-1.5">עריכה עם AI</TabsTrigger>
-            <TabsTrigger value="pipeline" className="flex-1 min-w-[5rem] text-xs sm:text-sm py-1.5">צינור עיבוד</TabsTrigger>
-            <TabsTrigger value="prompts" className="flex-1 min-w-[5rem] text-xs sm:text-sm py-1.5">ספריית פרומפטים</TabsTrigger>
-          </TabsList>
-          {/* Secondary tabs — tools & settings */}
-          <TabsList className="flex w-full flex-wrap h-auto gap-0.5 p-1 bg-muted/50 mb-4">
-            <TabsTrigger value="ollama" className="flex-1 min-w-[4.5rem] text-xs py-1">🖥️ Ollama</TabsTrigger>
-            <TabsTrigger value="learning" className="flex-1 min-w-[4.5rem] text-xs py-1">🧠 למידה</TabsTrigger>
-            <TabsTrigger value="vocab" className="flex-1 min-w-[4.5rem] text-xs py-1">📖 מילון</TabsTrigger>
-            <TabsTrigger value="summary" className="flex-1 min-w-[4.5rem] text-xs py-1">📊 סיכום</TabsTrigger>
-            <TabsTrigger value="ab" className="flex-1 min-w-[4.5rem] text-xs py-1">⚡ A/B</TabsTrigger>
-            <TabsTrigger value="analytics" className="flex-1 min-w-[4.5rem] text-xs py-1">📈 אנליטיקה</TabsTrigger>
-            <TabsTrigger value="compare" className="flex-1 min-w-[4.5rem] text-xs py-1">השוואה</TabsTrigger>
-            <TabsTrigger value="history" className="flex-1 min-w-[4.5rem] text-xs py-1">היסטוריה</TabsTrigger>
-          </TabsList>
+          {(() => {
+            const orderedPrimary = tabOrder
+              .filter((id) => visibleTabs.includes(id))
+              .map((id) => ALL_TABS.find((t) => t.id === id))
+              .filter((t): t is TabConfig => !!t && t.group === "primary");
+            const orderedSecondary = tabOrder
+              .filter((id) => visibleTabs.includes(id))
+              .map((id) => ALL_TABS.find((t) => t.id === id))
+              .filter((t): t is TabConfig => !!t && t.group === "secondary");
+            return (
+              <>
+                {orderedPrimary.length > 0 && (
+                  <TabsList className="flex w-full flex-wrap h-auto gap-1 p-1.5 mb-2">
+                    {orderedPrimary.map((tab) => (
+                      <TabsTrigger key={tab.id} value={tab.id} className="flex-1 min-w-[5rem] text-xs sm:text-sm py-2 px-3 rounded-lg">
+                        {tab.emoji && <span className="ml-1">{tab.emoji}</span>}{tab.label}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                )}
+                {orderedSecondary.length > 0 && (
+                  <TabsList className="flex w-full flex-wrap h-auto gap-1 p-1.5 bg-muted/40 mb-6 rounded-lg">
+                    {orderedSecondary.map((tab) => (
+                      <TabsTrigger key={tab.id} value={tab.id} className="flex-1 min-w-[4.5rem] text-xs py-1.5 px-2 rounded-md">
+                        {tab.emoji && <span className="ml-1">{tab.emoji}</span>}{tab.label}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                )}
+              </>
+            );
+          })()}
 
           <TabsContent value="player" className="space-y-5">
             <LazyErrorBoundary label="נגן מסונכרן">
