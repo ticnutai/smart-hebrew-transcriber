@@ -1203,41 +1203,122 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
   }, [wordTimings, currentWordIndex, seekTo]);
 
   // ─── Keyboard Shortcuts ──────────────────────────────────────
+  const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
+
+  const volumeUp = useCallback(() => {
+    const v = Math.min(1, volume + 0.05);
+    setVolume(v);
+    if (audioRef.current) audioRef.current.volume = v;
+    setIsMuted(false);
+  }, [volume]);
+
+  const volumeDown = useCallback(() => {
+    const v = Math.max(0, volume - 0.05);
+    setVolume(v);
+    if (audioRef.current) audioRef.current.volume = v;
+    if (v === 0) setIsMuted(true);
+  }, [volume]);
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       // Don't interfere with input/textarea/contenteditable
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return;
 
+      // ── Play / Pause ──
       if (e.code === 'Space') {
         e.preventDefault();
         togglePlay();
-      } else if (e.code === 'ArrowLeft' && e.ctrlKey) {
+      }
+      // ── Seek: arrows without modifiers = ±5s ──
+      else if (e.code === 'ArrowLeft' && !e.ctrlKey && !e.shiftKey && !e.altKey) {
         e.preventDefault();
-        seek(-5);
-      } else if (e.code === 'ArrowRight' && e.ctrlKey) {
+        seek(5); // RTL: left = forward in time
+      } else if (e.code === 'ArrowRight' && !e.ctrlKey && !e.shiftKey && !e.altKey) {
         e.preventDefault();
-        seek(5);
-      } else if (e.code === 'ArrowLeft' && e.shiftKey) {
+        seek(-5); // RTL: right = backward in time
+      }
+      // ── Seek: Ctrl+arrows = ±15s (large jump) ──
+      else if (e.code === 'ArrowLeft' && e.ctrlKey && !e.shiftKey) {
+        e.preventDefault();
+        seek(15); // RTL
+      } else if (e.code === 'ArrowRight' && e.ctrlKey && !e.shiftKey) {
+        e.preventDefault();
+        seek(-15); // RTL
+      }
+      // ── Word navigation: Shift+arrows ──
+      else if (e.code === 'ArrowLeft' && e.shiftKey && !e.ctrlKey) {
         e.preventDefault();
         jumpToWord('next'); // RTL: left = forward
-      } else if (e.code === 'ArrowRight' && e.shiftKey) {
+      } else if (e.code === 'ArrowRight' && e.shiftKey && !e.ctrlKey) {
         e.preventDefault();
         jumpToWord('prev'); // RTL: right = backward
-      } else if (e.code === 'KeyR' && e.ctrlKey && !e.shiftKey) {
+      }
+      // ── Fine seek: , and . = ±0.5s (frame-by-frame) ──
+      else if (e.code === 'Comma') {
         e.preventDefault();
-        restart();
-      } else if (e.code === 'KeyM') {
+        seek(0.5); // RTL-aware: , = forward
+      } else if (e.code === 'Period') {
+        e.preventDefault();
+        seek(-0.5); // RTL-aware: . = backward
+      }
+      // ── Volume: Up / Down arrows ──
+      else if (e.code === 'ArrowUp') {
+        e.preventDefault();
+        volumeUp();
+      } else if (e.code === 'ArrowDown') {
+        e.preventDefault();
+        volumeDown();
+      }
+      // ── Mute toggle ──
+      else if (e.code === 'KeyM' && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
         toggleMute();
-      } else if (e.code === 'KeyS' && e.altKey) {
+      }
+      // ── Speed: [ = slower, ] = faster, \ = reset to 1x ──
+      else if (e.code === 'BracketLeft' && !e.ctrlKey) {
         e.preventDefault();
-        cycleSpeed();
+        nudgeSpeed(-0.25);
+      } else if (e.code === 'BracketRight' && !e.ctrlKey) {
+        e.preventDefault();
+        nudgeSpeed(0.25);
+      } else if (e.code === 'Backslash' && !e.ctrlKey) {
+        e.preventDefault();
+        setPlaybackSpeed(1);
+      }
+      // ── Home = restart, End = jump to end ──
+      else if (e.code === 'Home') {
+        e.preventDefault();
+        seekTo(0);
+      } else if (e.code === 'End') {
+        e.preventDefault();
+        seekTo(Math.max(0, (effectiveDuration || duration) - 0.5));
+      }
+      // ── Ctrl+R = restart and play ──
+      else if (e.code === 'KeyR' && e.ctrlKey && !e.shiftKey) {
+        e.preventDefault();
+        restart();
+      }
+      // ── A/B focus marks ──
+      else if (e.code === 'KeyA' && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        markFocusStartFromCurrent();
+      } else if (e.code === 'KeyB' && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        markFocusEndFromCurrent();
+      } else if (e.code === 'KeyL' && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        setFocusLoop(prev => !prev);
+      }
+      // ── ? = toggle keyboard help ──
+      else if (e.code === 'Slash' && e.shiftKey) {
+        e.preventDefault();
+        setShowKeyboardHelp(prev => !prev);
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [togglePlay, seek, jumpToWord, restart, toggleMute, cycleSpeed]);
+  }, [togglePlay, seek, seekTo, jumpToWord, restart, toggleMute, volumeUp, volumeDown, nudgeSpeed, setPlaybackSpeed, markFocusStartFromCurrent, markFocusEndFromCurrent, effectiveDuration, duration]);
 
   const formatTime = (t: number) => {
     if (!isFinite(t)) return '00:00';
@@ -2120,6 +2201,35 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
             </div>
           )}
         </div>
+
+        {/* ─── Keyboard shortcuts panel ──────────────────────── */}
+        <div className="text-center">
+          <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px] text-muted-foreground opacity-70 hover:opacity-100"
+            onClick={() => setShowKeyboardHelp(v => !v)}>
+            ⌨️ {showKeyboardHelp ? 'הסתר קיצורי מקלדת' : 'קיצורי מקלדת (?)'}
+          </Button>
+        </div>
+        {showKeyboardHelp && (
+          <div className="rounded-lg border bg-muted/30 p-3 space-y-2 text-xs" dir="rtl">
+            <p className="font-medium text-sm mb-2">⌨️ קיצורי מקלדת לנגן</p>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+              <div className="flex justify-between"><span>נגן / עצור</span><kbd className="bg-background border rounded px-1.5 py-0.5 text-[10px] font-mono">Space</kbd></div>
+              <div className="flex justify-between"><span>±5 שניות</span><kbd className="bg-background border rounded px-1.5 py-0.5 text-[10px] font-mono">← →</kbd></div>
+              <div className="flex justify-between"><span>±15 שניות</span><kbd className="bg-background border rounded px-1.5 py-0.5 text-[10px] font-mono">Ctrl+← →</kbd></div>
+              <div className="flex justify-between"><span>מילה קודמת / הבאה</span><kbd className="bg-background border rounded px-1.5 py-0.5 text-[10px] font-mono">Shift+← →</kbd></div>
+              <div className="flex justify-between"><span>דיוק ±0.5 שניות</span><kbd className="bg-background border rounded px-1.5 py-0.5 text-[10px] font-mono">, .</kbd></div>
+              <div className="flex justify-between"><span>עוצמה ↑↓</span><kbd className="bg-background border rounded px-1.5 py-0.5 text-[10px] font-mono">↑ ↓</kbd></div>
+              <div className="flex justify-between"><span>השתקה</span><kbd className="bg-background border rounded px-1.5 py-0.5 text-[10px] font-mono">M</kbd></div>
+              <div className="flex justify-between"><span>האט / האץ</span><kbd className="bg-background border rounded px-1.5 py-0.5 text-[10px] font-mono">[ ]</kbd></div>
+              <div className="flex justify-between"><span>מהירות רגילה</span><kbd className="bg-background border rounded px-1.5 py-0.5 text-[10px] font-mono">\</kbd></div>
+              <div className="flex justify-between"><span>התחלה / סוף</span><kbd className="bg-background border rounded px-1.5 py-0.5 text-[10px] font-mono">Home End</kbd></div>
+              <div className="flex justify-between"><span>נגן מההתחלה</span><kbd className="bg-background border rounded px-1.5 py-0.5 text-[10px] font-mono">Ctrl+R</kbd></div>
+              <div className="flex justify-between"><span>סמן נקודה A / B</span><kbd className="bg-background border rounded px-1.5 py-0.5 text-[10px] font-mono">A B</kbd></div>
+              <div className="flex justify-between"><span>לופ A-B</span><kbd className="bg-background border rounded px-1.5 py-0.5 text-[10px] font-mono">L</kbd></div>
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-1">* חצים מותאמים ל-RTL: ← = קדימה, → = אחורה</p>
+          </div>
+        )}
       </Wrapper>
     </TooltipProvider>
   );
