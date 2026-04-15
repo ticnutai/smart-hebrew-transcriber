@@ -20,7 +20,7 @@ import { diarizeInBrowser, type DiarizationProgress } from "@/utils/browserDiari
 import { useCloudApiKeys } from "@/hooks/useCloudApiKeys";
 import { DiarizationCompare } from "@/components/DiarizationCompare";
 import { useDiarizationJobs } from "@/hooks/useDiarizationJobs";
-import { useDiarizationQueue, type QueueJob } from "@/contexts/DiarizationQueueContext";
+import { useDiarizationQueueOptional, type QueueJob } from "@/contexts/DiarizationQueueContext";
 import { isVideoFile, extractAudioFromVideo } from "@/lib/videoUtils";
 import { extractAudioSegment, probeAudioDurationSec } from "@/lib/audioSegment";
 import type { SyncAudioPlayerRef, WordTiming } from "@/components/SyncAudioPlayer";
@@ -266,8 +266,7 @@ export const SpeakerDiarization = ({ serverUrl = "/whisper", initialAudioBlob, i
   const { jobs: bgJobs, startBackgroundJob, retryJob } = useDiarizationJobs();
 
   // Queue integration for parallel processing
-  let queue: ReturnType<typeof useDiarizationQueue> | null = null;
-  try { queue = useDiarizationQueue(); } catch { /* context not available */ }
+  const queue = useDiarizationQueueOptional();
   const multiFileInputRef = useRef<HTMLInputElement>(null);
 
   // Load API key from cloud when mode changes

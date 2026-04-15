@@ -665,3 +665,8 @@ export function useDiarizationQueue() {
   if (!ctx) throw new Error('useDiarizationQueue must be used within DiarizationQueueProvider');
   return ctx;
 }
+
+/** Safe version — returns null when outside provider (no throw) */
+export function useDiarizationQueueOptional() {
+  return useContext(DiarizationQueueContext);
+}

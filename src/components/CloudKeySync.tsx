@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { setEncryptedKey } from "@/lib/keyCrypto";
+import { debugLog } from "@/lib/debugLogger";
 
 /**
  * Invisible component that syncs API keys from cloud to localStorage
@@ -43,7 +44,7 @@ const CloudKeySync = () => {
           if (Array.isArray(data.assemblyai_keys_pool) && data.assemblyai_keys_pool.length) localStorage.setItem('assemblyai_api_keys_pool', JSON.stringify(data.assemblyai_keys_pool));
           if (Array.isArray(data.deepgram_keys_pool) && data.deepgram_keys_pool.length) localStorage.setItem('deepgram_api_keys_pool', JSON.stringify(data.deepgram_keys_pool));
 
-          console.log('[CloudKeySync] API keys synced from cloud (encrypted) ✓');
+          debugLog.info('CloudKeySync', 'API keys synced from cloud (encrypted) ✓');
         }
       } catch (err) {
         console.error('[CloudKeySync] Error syncing keys:', err);
