@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -14,6 +15,7 @@ import {
   AudioLines, Waves, Zap, Download, Link, Unlink,
   ShieldCheck, Mic, SlidersHorizontal, Sparkles, Brain,
   Wind, Radio, Filter, Settings2, ChevronDown, ChevronUp,
+  Save, Trash2, AlertTriangle, Scissors,
 } from "lucide-react";
 
 export interface WordTiming {
@@ -122,6 +124,68 @@ const QUICK_SPEED_OPTIONS = [0.75, 0.9, 0.95, 1, 1.05, 1.1, 1.25, 1.5];
 
 function clampSpeed(v: number): number {
   return Math.min(2, Math.max(0.5, Number(v.toFixed(2))));
+}
+
+type IssueType = 'low-volume' | 'clipping' | 'hiss-risk';
+
+interface ProblemSegment {
+  start: number;
+  end: number;
+  severity: number;
+  type: IssueType;
+}
+
+interface UserNoisePreset {
+  id: string;
+  name: string;
+  enhancementStrength: number;
+  presetId: string;
+  manualHighpass: number;
+  manualLowpass: number;
+  manualVoiceBoost: number;
+  manualCompRatio: number;
+  manualGate: number;
+  humNotchEnabled: boolean;
+  humNotchFreq: '50' | '60' | '100' | '120';
+}
+
+const USER_PRESETS_KEY = 'sync_audio_user_presets_v1';
+
+function encodeWavFromFloat32(samples: Float32Array, sampleRate: number): Blob {
+  const bytesPerSample = 2;
+  const numChannels = 1;
+  const blockAlign = numChannels * bytesPerSample;
+  const byteRate = sampleRate * blockAlign;
+  const dataSize = samples.length * bytesPerSample;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+
+  const writeString = (offset: number, s: string) => {
+    for (let i = 0; i < s.length; i++) view.setUint8(offset + i, s.charCodeAt(i));
+  };
+
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bytesPerSample * 8, true);
+  writeString(36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  let offset = 44;
+  for (let i = 0; i < samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    offset += 2;
+  }
+
+  return new Blob([buffer], { type: 'audio/wav' });
 }
 
 export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlayerProps>(({
@@ -255,6 +319,11 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
   const [humNotchEnabled, setHumNotchEnabled] = useState(false);
   const [humNotchFreq, setHumNotchFreq] = useState<'50' | '60' | '100' | '120'>('50');
   const isManualMode = presetId === 'manual';
+  const [enhancementStrength, setEnhancementStrength] = useState(55);
+  const [isBypassEnhancement, setIsBypassEnhancement] = useState(false);
+  const [problemSegments, setProblemSegments] = useState<ProblemSegment[]>([]);
+  const [userPresets, setUserPresets] = useState<UserNoisePreset[]>([]);
+  const [userPresetName, setUserPresetName] = useState('');
 
   // Current word index for sync
   const currentWordIndex = useMemo(() => {
@@ -264,6 +333,139 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
     }
     return -1;
   }, [currentTime, wordTimings, isSyncEnabled]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(USER_PRESETS_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        setUserPresets(parsed.filter((p) => p && p.id && p.name));
+      }
+    } catch {
+      // ignore corrupted local data
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(USER_PRESETS_KEY, JSON.stringify(userPresets));
+    } catch {
+      // localStorage quota/availability issues are non-fatal
+    }
+  }, [userPresets]);
+
+  const saveCurrentAsUserPreset = useCallback(() => {
+    const name = userPresetName.trim();
+    if (!name) return;
+    const next: UserNoisePreset = {
+      id: crypto.randomUUID(),
+      name,
+      enhancementStrength,
+      presetId,
+      manualHighpass,
+      manualLowpass,
+      manualVoiceBoost,
+      manualCompRatio,
+      manualGate,
+      humNotchEnabled,
+      humNotchFreq,
+    };
+    setUserPresets((prev) => [next, ...prev].slice(0, 20));
+    setUserPresetName('');
+  }, [
+    userPresetName,
+    enhancementStrength,
+    presetId,
+    manualHighpass,
+    manualLowpass,
+    manualVoiceBoost,
+    manualCompRatio,
+    manualGate,
+    humNotchEnabled,
+    humNotchFreq,
+  ]);
+
+  const applyUserPreset = useCallback((preset: UserNoisePreset) => {
+    setEnhancementStrength(preset.enhancementStrength);
+    setPresetId(preset.presetId);
+    setManualHighpass(preset.manualHighpass);
+    setManualLowpass(preset.manualLowpass);
+    setManualVoiceBoost(preset.manualVoiceBoost);
+    setManualCompRatio(preset.manualCompRatio);
+    setManualGate(preset.manualGate);
+    setHumNotchEnabled(preset.humNotchEnabled);
+    setHumNotchFreq(preset.humNotchFreq);
+  }, []);
+
+  const removeUserPreset = useCallback((id: string) => {
+    setUserPresets((prev) => prev.filter((p) => p.id !== id));
+  }, []);
+
+  const enhancementSettings = useMemo(() => {
+    const strength = Math.max(0, Math.min(1, enhancementStrength / 100));
+    const lerp = (from: number, to: number) => from + (to - from) * strength;
+
+    const neutral = {
+      hp: 20,
+      lp: 20000,
+      vbGain: 0,
+      vbQ: 1,
+      cThresh: -50,
+      cRatio: 1,
+      cKnee: 40,
+      cAttack: 0.003,
+      cRelease: 0.25,
+      deSibilanceGain: 0,
+      deRumbleFreq: 20,
+      presenceGain: 0,
+      warmthGain: 0,
+      gateThreshold: 0,
+    };
+
+    if (isBypassEnhancement || presetId === 'off') {
+      return neutral;
+    }
+
+    const p = isManualMode ? null : currentPreset;
+    const targetHp = p ? p.highpassFreq : manualHighpass;
+    const targetLp = p ? p.lowpassFreq : manualLowpass;
+    const targetVbGain = p ? p.voiceBoostGain : manualVoiceBoost;
+    const targetVbQ = p ? p.voiceBoostQ : 1;
+    const targetThresh = p ? p.compThreshold : -50 + (manualCompRatio > 1 ? -(manualCompRatio * 3) : 0);
+    const targetRatio = p ? p.compRatio : manualCompRatio;
+    const targetKnee = p ? p.compKnee : 10;
+    const targetAttack = p ? p.compAttack : 0.003;
+    const targetRelease = p ? p.compRelease : 0.2;
+
+    return {
+      hp: lerp(neutral.hp, targetHp),
+      lp: lerp(neutral.lp, targetLp),
+      vbGain: lerp(neutral.vbGain, targetVbGain),
+      vbQ: lerp(neutral.vbQ, targetVbQ),
+      cThresh: lerp(neutral.cThresh, targetThresh),
+      cRatio: lerp(neutral.cRatio, targetRatio),
+      cKnee: lerp(neutral.cKnee, targetKnee),
+      cAttack: lerp(neutral.cAttack, targetAttack),
+      cRelease: lerp(neutral.cRelease, targetRelease),
+      deSibilanceGain: (!isManualMode && p?.deSibilance && strength > 0.25) ? lerp(0, -6) : 0,
+      deRumbleFreq: (!isManualMode && p?.deRumble && strength > 0.2) ? lerp(20, 100) : 20,
+      presenceGain: (!isManualMode && p?.presenceBoost && strength > 0.35) ? lerp(0, 4) : 0,
+      warmthGain: (!isManualMode && p?.warmth && strength > 0.35) ? lerp(0, 3) : 0,
+      gateThreshold: p ? lerp(0, p.gateThreshold) : lerp(0, manualGate),
+    };
+  }, [
+    enhancementStrength,
+    isBypassEnhancement,
+    presetId,
+    isManualMode,
+    currentPreset,
+    manualHighpass,
+    manualLowpass,
+    manualVoiceBoost,
+    manualCompRatio,
+    manualGate,
+  ]);
 
   // ─── Initialize Web Audio API ────────────────────────────────
   const initAudioContext = useCallback(() => {
@@ -392,55 +594,37 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
       return;
     }
 
-    const p = isManualMode ? null : currentPreset;
-    const hp = p ? p.highpassFreq : manualHighpass;
-    const lp = p ? p.lowpassFreq : manualLowpass;
-    const vbGain = p ? p.voiceBoostGain : manualVoiceBoost;
-    const vbQ = p ? p.voiceBoostQ : 1;
-    const cThresh = p ? p.compThreshold : -50 + (manualCompRatio > 1 ? -(manualCompRatio * 3) : 0);
-    const cRatio = p ? p.compRatio : manualCompRatio;
-    const cKnee = p ? p.compKnee : 10;
-    const cAttack = p ? p.compAttack : 0.003;
-    const cRelease = p ? p.compRelease : 0.2;
-
-    highpassRef.current.frequency.value = hp;
+    highpassRef.current.frequency.value = enhancementSettings.hp;
     if (lowpassRef.current) {
-      lowpassRef.current.frequency.value = lp;
+      lowpassRef.current.frequency.value = enhancementSettings.lp;
     }
     if (voiceBoostRef.current) {
-      voiceBoostRef.current.gain.value = vbGain;
-      voiceBoostRef.current.Q.value = vbQ;
+      voiceBoostRef.current.gain.value = enhancementSettings.vbGain;
+      voiceBoostRef.current.Q.value = enhancementSettings.vbQ;
     }
     if (compressorRef.current) {
-      compressorRef.current.threshold.value = cThresh;
-      compressorRef.current.ratio.value = cRatio;
-      compressorRef.current.knee.value = cKnee;
-      compressorRef.current.attack.value = cAttack;
-      compressorRef.current.release.value = cRelease;
+      compressorRef.current.threshold.value = enhancementSettings.cThresh;
+      compressorRef.current.ratio.value = enhancementSettings.cRatio;
+      compressorRef.current.knee.value = enhancementSettings.cKnee;
+      compressorRef.current.attack.value = enhancementSettings.cAttack;
+      compressorRef.current.release.value = enhancementSettings.cRelease;
     }
 
     // Multi-band toggles
     if (deSibilanceRef.current) {
-      deSibilanceRef.current.gain.value = (p?.deSibilance) ? -6 : 0;
+      deSibilanceRef.current.gain.value = enhancementSettings.deSibilanceGain;
     }
     if (deRumbleRef.current) {
-      deRumbleRef.current.frequency.value = (p?.deRumble) ? 100 : 20;
+      deRumbleRef.current.frequency.value = enhancementSettings.deRumbleFreq;
     }
     if (presenceRef.current) {
-      presenceRef.current.gain.value = (p?.presenceBoost) ? 4 : 0;
+      presenceRef.current.gain.value = enhancementSettings.presenceGain;
     }
     if (warmthRef.current) {
-      warmthRef.current.gain.value = (p?.warmth) ? 3 : 0;
+      warmthRef.current.gain.value = enhancementSettings.warmthGain;
     }
   }, [
-    presetId,
-    currentPreset,
-    isManualMode,
-    manualHighpass,
-    manualLowpass,
-    manualVoiceBoost,
-    manualGate,
-    manualCompRatio,
+    enhancementSettings,
     focusEnabled,
     hasValidFocusRange,
     isWithinFocusedSegment,
@@ -448,14 +632,14 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
 
   useEffect(() => {
     if (!humNotchRef.current) return;
-    if (humNotchEnabled) {
+    if (humNotchEnabled && !isBypassEnhancement && enhancementStrength > 10) {
       humNotchRef.current.frequency.value = Number(humNotchFreq);
       humNotchRef.current.Q.value = 10;
     } else {
       humNotchRef.current.frequency.value = 10;
       humNotchRef.current.Q.value = 0.0001;
     }
-  }, [humNotchEnabled, humNotchFreq]);
+  }, [humNotchEnabled, humNotchFreq, isBypassEnhancement, enhancementStrength]);
 
   // ─── Waveform Visualization ──────────────────────────────────
   const drawWaveform = useCallback(() => {
@@ -873,6 +1057,168 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
     a.click();
   }, [audioUrl]);
 
+  const exportFocusedProcessedSegment = useCallback(async () => {
+    if (!audioUrl || !hasValidFocusRange || !effectiveDuration) return;
+
+    const startSec = Math.max(0, Math.min(focusStart, effectiveDuration - 0.05));
+    const endSec = Math.max(startSec + 0.05, Math.min(focusEnd, effectiveDuration));
+
+    const resp = await fetch(audioUrl);
+    const arrayBuf = await resp.arrayBuffer();
+    const decodeCtx = new OfflineAudioContext(1, 1, 44100);
+    const decoded = await decodeCtx.decodeAudioData(arrayBuf);
+
+    const sampleRate = decoded.sampleRate;
+    const startSample = Math.floor(startSec * sampleRate);
+    const endSample = Math.min(Math.floor(endSec * sampleRate), decoded.length);
+    const length = Math.max(1, endSample - startSample);
+
+    const sourceData = decoded.getChannelData(0).slice(startSample, endSample);
+    const segBuffer = new AudioBuffer({ length, sampleRate, numberOfChannels: 1 });
+    segBuffer.copyToChannel(sourceData, 0, 0);
+
+    const offline = new OfflineAudioContext(1, length, sampleRate);
+    const src = offline.createBufferSource();
+    src.buffer = segBuffer;
+
+    const deRumble = offline.createBiquadFilter();
+    deRumble.type = 'highpass';
+    deRumble.frequency.value = enhancementSettings.deRumbleFreq;
+    deRumble.Q.value = 0.8;
+
+    const highpass = offline.createBiquadFilter();
+    highpass.type = 'highpass';
+    highpass.frequency.value = enhancementSettings.hp;
+    highpass.Q.value = 0.7;
+
+    const lowpass = offline.createBiquadFilter();
+    lowpass.type = 'lowpass';
+    lowpass.frequency.value = enhancementSettings.lp;
+    lowpass.Q.value = 0.7;
+
+    const notch = offline.createBiquadFilter();
+    notch.type = 'notch';
+    if (humNotchEnabled && !isBypassEnhancement && enhancementStrength > 10) {
+      notch.frequency.value = Number(humNotchFreq);
+      notch.Q.value = 10;
+    } else {
+      notch.frequency.value = 10;
+      notch.Q.value = 0.0001;
+    }
+
+    const voice = offline.createBiquadFilter();
+    voice.type = 'peaking';
+    voice.frequency.value = 3000;
+    voice.Q.value = enhancementSettings.vbQ;
+    voice.gain.value = enhancementSettings.vbGain;
+
+    const deSibilance = offline.createBiquadFilter();
+    deSibilance.type = 'peaking';
+    deSibilance.frequency.value = 6500;
+    deSibilance.Q.value = 2.5;
+    deSibilance.gain.value = enhancementSettings.deSibilanceGain;
+
+    const presence = offline.createBiquadFilter();
+    presence.type = 'peaking';
+    presence.frequency.value = 3200;
+    presence.Q.value = 1.2;
+    presence.gain.value = enhancementSettings.presenceGain;
+
+    const warmth = offline.createBiquadFilter();
+    warmth.type = 'peaking';
+    warmth.frequency.value = 260;
+    warmth.Q.value = 0.9;
+    warmth.gain.value = enhancementSettings.warmthGain;
+
+    const compressor = offline.createDynamicsCompressor();
+    compressor.threshold.value = enhancementSettings.cThresh;
+    compressor.ratio.value = enhancementSettings.cRatio;
+    compressor.knee.value = enhancementSettings.cKnee;
+    compressor.attack.value = enhancementSettings.cAttack;
+    compressor.release.value = enhancementSettings.cRelease;
+
+    src.connect(deRumble);
+    deRumble.connect(highpass);
+    highpass.connect(lowpass);
+    lowpass.connect(notch);
+    notch.connect(voice);
+    voice.connect(deSibilance);
+    deSibilance.connect(presence);
+    presence.connect(warmth);
+    warmth.connect(compressor);
+    compressor.connect(offline.destination);
+
+    src.start(0);
+    const rendered = await offline.startRendering();
+    const wavBuffer = encodeWavFromFloat32(rendered.getChannelData(0), sampleRate);
+    const blob = new Blob([wavBuffer], { type: 'audio/wav' });
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `focused-segment-${Math.round(startSec)}-${Math.round(endSec)}.wav`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [
+    audioUrl,
+    hasValidFocusRange,
+    effectiveDuration,
+    focusStart,
+    focusEnd,
+    enhancementSettings,
+    humNotchEnabled,
+    humNotchFreq,
+    isBypassEnhancement,
+    enhancementStrength,
+  ]);
+
+  useEffect(() => {
+    if (!peaksData || !effectiveDuration) {
+      setProblemSegments([]);
+      return;
+    }
+
+    const bars = peaksData.length;
+    if (!bars) {
+      setProblemSegments([]);
+      return;
+    }
+
+    const found: ProblemSegment[] = [];
+    const pushSegment = (issue: IssueType, i: number, severity: number) => {
+      const start = (i / bars) * effectiveDuration;
+      const end = ((i + 1) / bars) * effectiveDuration;
+      const prev = found[found.length - 1];
+      if (prev && prev.issueType === issue && start - prev.end < 0.6) {
+        prev.end = end;
+        prev.severity = Math.max(prev.severity, severity);
+        return;
+      }
+      found.push({
+        id: `${issue}-${i}`,
+        issueType: issue,
+        start,
+        end,
+        severity,
+      });
+    };
+
+    for (let i = 1; i < bars - 1; i++) {
+      const amp = peaksData[i];
+      const roughness = Math.abs(peaksData[i] - peaksData[i - 1]) + Math.abs(peaksData[i] - peaksData[i + 1]);
+
+      if (amp > 0.96) {
+        pushSegment('clipping', i, Math.min(1, (amp - 0.96) / 0.04));
+      } else if (amp < 0.06) {
+        pushSegment('low-volume', i, Math.min(1, (0.06 - amp) / 0.06));
+      } else if (amp < 0.35 && roughness > 0.22) {
+        pushSegment('hiss', i, Math.min(1, (roughness - 0.22) / 0.5));
+      }
+    }
+
+    setProblemSegments(found.slice(0, 25));
+  }, [peaksData, effectiveDuration]);
+
   // Volume icon selection
   const VolumeIcon = isMuted ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
 
@@ -1135,6 +1481,16 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
               <div className="flex gap-1">
                 <Button variant="outline" size="sm" className="h-6 px-2" onClick={markFocusStartFromCurrent}>קבע A מהמיקום הנוכחי</Button>
                 <Button variant="outline" size="sm" className="h-6 px-2" onClick={markFocusEndFromCurrent}>קבע B מהמיקום הנוכחי</Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 px-2"
+                  onClick={exportFocusedProcessedSegment}
+                  disabled={!hasValidFocusRange}
+                >
+                  <Scissors className="w-3 h-3 ml-1 no-theme-icon" />
+                  ייצוא קטע מעובד
+                </Button>
               </div>
               <div className="flex gap-1">
                 <Button variant="ghost" size="sm" className="h-6 px-2" onClick={() => seekTo(focusStart)}>נגן מ-A</Button>
@@ -1155,6 +1511,33 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
             <p className="text-[11px] text-muted-foreground">
               כש"מצב ממוקד" פעיל, שינויי מהירות והפחתת רעש חלים רק בתוך הטווח שנבחר.
             </p>
+
+            {problemSegments.length > 0 && (
+              <div className="space-y-1 rounded-md border bg-background/70 p-2">
+                <p className="text-[11px] font-medium flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3 text-amber-500 no-theme-icon" />
+                  קטעים שדורשים תשומת לב ({problemSegments.length})
+                </p>
+                <div className="max-h-24 overflow-y-auto space-y-1">
+                  {problemSegments.slice(0, 8).map((seg) => (
+                    <button
+                      key={seg.id}
+                      type="button"
+                      className="w-full text-right text-[11px] rounded border px-2 py-1 hover:bg-muted/60 transition-colors"
+                      onClick={() => {
+                        setFocusStart(seg.start);
+                        setFocusEnd(Math.min(effectiveDuration || seg.end, seg.end + 0.6));
+                        seekTo(seg.start);
+                      }}
+                    >
+                      {seg.issueType === 'clipping' ? 'קליפינג' : seg.issueType === 'low-volume' ? 'עוצמה נמוכה' : 'רעש חד'}
+                      <span className="mx-1">•</span>
+                      {formatTime(seg.start)} - {formatTime(seg.end)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -1177,9 +1560,65 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                   <Sparkles className="w-4 h-4 text-green-500 no-theme-icon" />
                   הפחתת רעש חכמה
                 </p>
-                <Badge variant="outline" className="text-xs">
-                  {presetId === 'off' ? 'כבוי' : currentPreset.nameHe}
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <Label className="text-[11px] text-muted-foreground">השוואת מקור A/B</Label>
+                  <Switch checked={isBypassEnhancement} onCheckedChange={setIsBypassEnhancement} />
+                  <Badge variant="outline" className="text-xs">
+                    {isBypassEnhancement ? 'מקור (Bypass)' : presetId === 'off' ? 'כבוי' : currentPreset.nameHe}
+                  </Badge>
+                </div>
+              </div>
+
+              <div className="space-y-1.5 rounded-lg border bg-muted/20 p-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs">איכות מול בטיחות דיבור</span>
+                  <span className="text-xs font-mono tabular-nums">{enhancementStrength}%</span>
+                </div>
+                <Slider value={[enhancementStrength]} min={0} max={100} step={1} onValueChange={([v]) => setEnhancementStrength(v)} />
+                <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                  <span>שומר טבעיות</span>
+                  <span>ניקוי אגרסיבי</span>
+                </div>
+              </div>
+
+              <div className="space-y-1.5 rounded-lg border bg-muted/20 p-2">
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    value={userPresetName}
+                    onChange={(e) => setUserPresetName(e.target.value)}
+                    placeholder="שם לפריסט אישי"
+                    className="h-7 text-xs"
+                  />
+                  <Button size="sm" className="h-7 px-2 text-xs" onClick={saveCurrentAsUserPreset} disabled={!userPresetName.trim()}>
+                    <Save className="w-3 h-3 ml-1 no-theme-icon" />
+                    שמור
+                  </Button>
+                </div>
+                {userPresets.length > 0 && (
+                  <div className="space-y-1 max-h-24 overflow-y-auto">
+                    {userPresets.map((preset) => (
+                      <div key={preset.id} className="flex items-center gap-1">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-6 px-2 text-[11px] flex-1 justify-start"
+                          onClick={() => applyUserPreset(preset)}
+                        >
+                          {preset.name}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={() => removeUserPreset(preset.id)}
+                          title="מחק פריסט"
+                        >
+                          <Trash2 className="w-3 h-3 no-theme-icon" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Preset Grid */}
