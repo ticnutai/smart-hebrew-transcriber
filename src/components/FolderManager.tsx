@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import { useCloudPreferences } from "@/hooks/useCloudPreferences";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,6 +54,7 @@ const saveCustomFolders = (folders: string[]) => {
 
 export const FolderManager = ({ transcripts, onUpdate, onDelete, onGetAudioUrl }: FolderManagerProps) => {
   const navigate = useNavigate();
+  const { preferences, updatePreference } = useCloudPreferences();
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
@@ -61,9 +63,15 @@ export const FolderManager = ({ transcripts, onUpdate, onDelete, onGetAudioUrl }
   const [newFolderName, setNewFolderName] = useState("");
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [movingId, setMovingId] = useState<string | null>(null);
-  const [sortKey, setSortKey] = useState<SortKey>("date");
-  const [sortAsc, setSortAsc] = useState(false);
-  const [viewMode, setViewMode] = useState<ViewMode>("cards");
+  const sortKey = (preferences.folder_sort_key || 'date') as SortKey;
+  const setSortKey = useCallback((k: SortKey) => updatePreference('folder_sort_key', k), [updatePreference]);
+  const sortAsc = preferences.folder_sort_asc ?? false;
+  const setSortAsc = useCallback((v: boolean | ((prev: boolean) => boolean)) => {
+    const next = typeof v === 'function' ? v(preferences.folder_sort_asc ?? false) : v;
+    updatePreference('folder_sort_asc', next);
+  }, [updatePreference, preferences.folder_sort_asc]);
+  const viewMode = (preferences.folder_view_mode || 'cards') as ViewMode;
+  const setViewMode = useCallback((m: ViewMode) => updatePreference('folder_view_mode', m), [updatePreference]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [editingTitleId, setEditingTitleId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");

@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCloudTranscripts } from "@/hooks/useCloudTranscripts";
+import { useCloudPreferences } from "@/hooks/useCloudPreferences";
 import { debugLog } from "@/lib/debugLogger";
 import { FolderManager } from "@/components/FolderManager";
 import { RecentFilesWidget } from "@/components/RecentFiles";
@@ -22,6 +23,7 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const { isAuthenticated, user } = useAuth();
   const { transcripts, stats, isLoading, updateTranscript, deleteTranscript, getAudioUrl } = useCloudTranscripts();
+  const { preferences, updatePreference } = useCloudPreferences();
 
   useEffect(() => {
     debugLog.info('Dashboard', '📊 Dashboard mounted');
@@ -35,7 +37,10 @@ const Dashboard = () => {
   }, [isLoading, transcripts.length, stats]);
 
   const recentTranscripts = transcripts.slice(0, 5);
-  const [recentViewMode, setRecentViewMode] = useState<RecentViewMode>('cards');
+  const recentViewMode = (preferences.dashboard_view_mode || 'cards') as RecentViewMode;
+  const setRecentViewMode = useCallback((mode: RecentViewMode) => {
+    updatePreference('dashboard_view_mode', mode);
+  }, [updatePreference]);
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);

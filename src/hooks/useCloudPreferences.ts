@@ -15,6 +15,14 @@ export interface UserPreferences {
   source_language: string; // source language for transcription
   custom_themes: string;  // JSON string of custom themes array
   editor_columns: number; // 1, 2, or 3 column text display
+  // UI view preferences
+  dashboard_view_mode: string; // 'cards' | 'table' | 'rectangles' | 'grid'
+  folder_view_mode: string;    // 'cards' | 'table' | 'rectangles' | 'grid'
+  folder_sort_key: string;     // 'date' | 'name' | 'engine' | 'folder'
+  folder_sort_asc: boolean;
+  player_layout: string;       // 'split' | 'stacked' | 'full'
+  tab_settings_json: string;   // JSON string of { visible, order }
+  default_ai_model: string;    // preferred AI editing model
   // CUDA / transcription settings
   cuda_preset: string;         // 'fast' | 'balanced' | 'accurate'
   cuda_fast_mode: boolean;
@@ -39,6 +47,13 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   source_language: 'auto',
   custom_themes: '[]',
   editor_columns: 1,
+  dashboard_view_mode: 'cards',
+  folder_view_mode: 'cards',
+  folder_sort_key: 'date',
+  folder_sort_asc: false,
+  player_layout: 'split',
+  tab_settings_json: '',
+  default_ai_model: '',
   cuda_preset: 'balanced',
   cuda_fast_mode: true,
   cuda_compute_type: 'int8_float16',
@@ -145,6 +160,15 @@ export const useCloudPreferences = () => {
             ? (data as any).custom_themes
             : JSON.stringify((data as any).custom_themes ?? []),
           editor_columns: (data as any).editor_columns ?? DEFAULT_PREFERENCES.editor_columns,
+          dashboard_view_mode: (data as any).dashboard_view_mode ?? DEFAULT_PREFERENCES.dashboard_view_mode,
+          folder_view_mode: (data as any).folder_view_mode ?? DEFAULT_PREFERENCES.folder_view_mode,
+          folder_sort_key: (data as any).folder_sort_key ?? DEFAULT_PREFERENCES.folder_sort_key,
+          folder_sort_asc: (data as any).folder_sort_asc ?? DEFAULT_PREFERENCES.folder_sort_asc,
+          player_layout: (data as any).player_layout ?? DEFAULT_PREFERENCES.player_layout,
+          tab_settings_json: typeof (data as any).tab_settings_json === 'string'
+            ? (data as any).tab_settings_json
+            : JSON.stringify((data as any).tab_settings_json ?? ''),
+          default_ai_model: (data as any).default_ai_model ?? DEFAULT_PREFERENCES.default_ai_model,
           cuda_preset: (data as any).cuda_preset ?? DEFAULT_PREFERENCES.cuda_preset,
           cuda_fast_mode: (data as any).cuda_fast_mode ?? DEFAULT_PREFERENCES.cuda_fast_mode,
           cuda_compute_type: (data as any).cuda_compute_type ?? DEFAULT_PREFERENCES.cuda_compute_type,
@@ -240,6 +264,8 @@ export const useCloudPreferences = () => {
       // Parse custom_themes string to JSON for DB storage
       let customThemesParsed: unknown = [];
       try { customThemesParsed = JSON.parse(updated.custom_themes); } catch {}
+      let tabSettingsParsed: unknown = null;
+      try { if (updated.tab_settings_json) tabSettingsParsed = JSON.parse(updated.tab_settings_json); } catch {}
 
       const { error } = await supabase
         .from('user_preferences')
@@ -255,6 +281,13 @@ export const useCloudPreferences = () => {
           source_language: updated.source_language,
           custom_themes: customThemesParsed,
           editor_columns: updated.editor_columns,
+          dashboard_view_mode: updated.dashboard_view_mode,
+          folder_view_mode: updated.folder_view_mode,
+          folder_sort_key: updated.folder_sort_key,
+          folder_sort_asc: updated.folder_sort_asc,
+          player_layout: updated.player_layout,
+          tab_settings_json: tabSettingsParsed,
+          default_ai_model: updated.default_ai_model || null,
           cuda_preset: updated.cuda_preset,
           cuda_fast_mode: updated.cuda_fast_mode,
           cuda_compute_type: updated.cuda_compute_type,

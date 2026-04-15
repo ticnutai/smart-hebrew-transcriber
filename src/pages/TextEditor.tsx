@@ -100,7 +100,6 @@ const TextEditor = () => {
   const [audioFileName, setAudioFileName] = useState<string>("");
   const [wordTimings, setWordTimings] = useState<WordTiming[]>([]);
   const [playerTime, setPlayerTime] = useState(0);
-  const [playerLayout, setPlayerLayout] = useState<'split' | 'stacked' | 'full'>('split');
   const transcriptIdRef = useRef<string | null>(null);
   const manualVersionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { updateTranscript, getAudioUrl } = useCloudTranscripts();
@@ -130,9 +129,27 @@ const TextEditor = () => {
     { id: "compare", label: "השוואה", group: "secondary" },
     { id: "history", label: "היסטוריה", group: "secondary" },
   ];
-  const [tabSettings, setTabSettings] = useState(loadTabSettings);
+  const [tabSettings, setTabSettings] = useState(() => {
+    // Try cloud settings first (parsed from preferences), fall back to localStorage
+    return loadTabSettings();
+  });
   const visibleTabs = tabSettings.visible;
   const tabOrder = tabSettings.order;
+
+  // Load tab settings from cloud when preferences are available
+  const cloudTabSettingsLoaded = useRef(false);
+  useEffect(() => {
+    if (cloudTabSettingsLoaded.current) return;
+    if (!preferences.tab_settings_json) return;
+    try {
+      const parsed = JSON.parse(preferences.tab_settings_json);
+      if (parsed?.visible && parsed?.order) {
+        cloudTabSettingsLoaded.current = true;
+        setTabSettings(parsed);
+        saveTabSettings(parsed.visible, parsed.order);
+      }
+    } catch {}
+  }, [preferences.tab_settings_json]);
 
   // One-time migration: add new tabs from code, remove stale tabs from settings
   const hasMigrated = useRef(false);
@@ -184,6 +201,10 @@ const TextEditor = () => {
 
   // Column view (cloud-synced)
   const columns = preferences.editor_columns;
+
+  // Player layout (cloud-synced)
+  const playerLayout = (preferences.player_layout || 'split') as 'split' | 'stacked' | 'full';
+  const setPlayerLayout = useCallback((v: 'split' | 'stacked' | 'full') => updatePreference('player_layout', v), [updatePreference]);
   const setColumns = (v: number) => updatePreference('editor_columns', v);
 
   const columnStyle: React.CSSProperties = columns > 1 ? {
@@ -692,8 +713,20 @@ const TextEditor = () => {
               allTabs={ALL_TABS}
               visibleTabs={visibleTabs}
               tabOrder={tabOrder}
-              onVisibilityChange={(v) => setTabSettings(prev => ({ ...prev, visible: v }))}
-              onOrderChange={(o) => setTabSettings(prev => ({ ...prev, order: o }))}
+              onVisibilityChange={(v) => {
+                setTabSettings(prev => {
+                  const next = { ...prev, visible: v };
+                  updatePreference('tab_settings_json', JSON.stringify(next));
+                  return next;
+                });
+              }}
+              onOrderChange={(o) => {
+                setTabSettings(prev => {
+                  const next = { ...prev, order: o };
+                  updatePreference('tab_settings_json', JSON.stringify(next));
+                  return next;
+                });
+              }}
             />
             <Button 
               variant="ghost" 
