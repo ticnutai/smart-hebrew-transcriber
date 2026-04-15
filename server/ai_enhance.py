@@ -14,11 +14,36 @@ Each engine exposes a simple function: enhance(input_path, output_path) -> bool
 
 import os
 import logging
+import shutil
+import sys
 import tempfile
 import time
+import types
 from pathlib import Path
 
 import numpy as np
+
+# ── Windows symlink workaround ──────────────────────────────────────
+# SpeechBrain defaults to LocalStrategy.SYMLINK when fetching HF models.
+# On Windows this fails with WinError 1314 unless Developer Mode is on.
+# Monkey-patch os.symlink to fall back to shutil.copy2 on failure.
+if os.name == "nt":
+    _orig_symlink = os.symlink
+
+    def _safe_symlink(src, dst, target_is_directory=False, *, dir_fd=None):
+        try:
+            _orig_symlink(src, dst, target_is_directory, dir_fd=dir_fd)
+        except OSError:
+            shutil.copy2(str(src), str(dst))
+
+    os.symlink = _safe_symlink
+
+# ── SpeechBrain 1.1.x k2_fsa lazy-import bug workaround ────────────
+# inspect.getmodule() accidentally triggers speechbrain's lazy import of
+# k2_fsa via hasattr(module, '__file__'), which crashes if k2 isn't installed.
+# Providing a stub k2 module prevents the ImportError.
+if "k2" not in sys.modules:
+    sys.modules["k2"] = types.ModuleType("k2")
 
 _log = logging.getLogger("ai_enhance")
 
@@ -53,6 +78,13 @@ def _load_metricgan():
         t0 = time.time()
 
         import torch
+        # Pre-import submodules to prevent SpeechBrain 1.1.x lazy-import bug:
+        # inspect.getmodule() walks sys.modules and accidentally triggers
+        # unrelated lazy imports whose optional dependencies are missing.
+        import speechbrain.nnet.RNN           # noqa: F401
+        import speechbrain.nnet.linear        # noqa: F401
+        import speechbrain.nnet.containers    # noqa: F401
+        import speechbrain.lobes.models.MetricGAN  # noqa: F401
         from speechbrain.inference import SpectralMaskEnhancement
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
