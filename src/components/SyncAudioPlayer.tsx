@@ -1594,10 +1594,24 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
 
               {/* ─── 5-Band Parametric EQ ──────────────────────── */}
               <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
-                <p className="text-xs font-semibold flex items-center gap-1.5">
-                  <AudioLines className="w-3.5 h-3.5 text-primary no-theme-icon" />
-                  אקולייזר מקצועי (5 פסים)
-                </p>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold flex items-center gap-1.5">
+                    <AudioLines className="w-3.5 h-3.5 text-primary no-theme-icon" />
+                    אקולייזר מקצועי (5 פסים)
+                  </p>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      className={`p-1 rounded text-[10px] transition-all ${!eqVerticalView ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'}`}
+                      onClick={() => setEqVerticalView(false)}
+                      title="תצוגה אופקית"
+                    >═</button>
+                    <button
+                      className={`p-1 rounded text-[10px] transition-all ${eqVerticalView ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'}`}
+                      onClick={() => setEqVerticalView(true)}
+                      title="תצוגה אנכית"
+                    >║</button>
+                  </div>
+                </div>
 
                 {/* EQ Presets */}
                 <div className="flex flex-wrap gap-1.5">
@@ -1637,33 +1651,61 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                   })}
                 </div>
 
-                {/* EQ Band Sliders */}
-                <div className="grid grid-cols-5 gap-2">
-                  {[
-                    { label: 'בס', freq: '80Hz', value: eqBass, set: setEqBass },
-                    { label: 'נמוך-אמצע', freq: '300Hz', value: eqLowMid, set: setEqLowMid },
-                    { label: 'אמצע', freq: '1kHz', value: eqMid, set: setEqMid },
-                    { label: 'גבוה-אמצע', freq: '3.5kHz', value: eqHighMid, set: setEqHighMid },
-                    { label: 'טרבל', freq: '10kHz', value: eqTreble, set: setEqTreble },
-                  ].map((band) => (
-                    <div key={band.freq} className="flex flex-col items-center gap-1">
-                      <span className="text-[10px] font-mono text-muted-foreground">{band.value > 0 ? '+' : ''}{band.value}dB</span>
-                      <div className="h-20 flex items-center">
+                {/* EQ Band Sliders - Vertical View (mixing console style) */}
+                {eqVerticalView ? (
+                  <div className="grid grid-cols-5 gap-2">
+                    {[
+                      { label: 'בס', freq: '80Hz', value: eqBass, set: setEqBass },
+                      { label: 'נמוך-אמצע', freq: '300Hz', value: eqLowMid, set: setEqLowMid },
+                      { label: 'אמצע', freq: '1kHz', value: eqMid, set: setEqMid },
+                      { label: 'גבוה-אמצע', freq: '3.5kHz', value: eqHighMid, set: setEqHighMid },
+                      { label: 'טרבל', freq: '10kHz', value: eqTreble, set: setEqTreble },
+                    ].map((band) => (
+                      <div key={band.freq} className="flex flex-col items-center gap-1">
+                        <span className="text-[10px] font-mono text-muted-foreground">{band.value > 0 ? '+' : ''}{band.value}dB</span>
+                        <div className="h-20 flex items-center">
+                          <Slider
+                            orientation="vertical"
+                            value={[band.value]}
+                            min={-12}
+                            max={12}
+                            step={0.5}
+                            onValueChange={([v]) => band.set(v)}
+                            className="h-full"
+                          />
+                        </div>
+                        <span className="text-[9px] font-medium">{band.label}</span>
+                        <span className="text-[8px] text-muted-foreground">{band.freq}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  /* EQ Band Sliders - Horizontal View */
+                  <div className="space-y-2">
+                    {[
+                      { label: 'בס', freq: '80Hz', value: eqBass, set: setEqBass },
+                      { label: 'נמוך-אמצע', freq: '300Hz', value: eqLowMid, set: setEqLowMid },
+                      { label: 'אמצע', freq: '1kHz', value: eqMid, set: setEqMid },
+                      { label: 'גבוה-אמצע', freq: '3.5kHz', value: eqHighMid, set: setEqHighMid },
+                      { label: 'טרבל', freq: '10kHz', value: eqTreble, set: setEqTreble },
+                    ].map((band) => (
+                      <div key={band.freq} className="space-y-0.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-mono text-muted-foreground">{band.value > 0 ? '+' : ''}{band.value}dB</span>
+                          <span className="text-[10px] font-medium">{band.label} ({band.freq})</span>
+                        </div>
                         <Slider
-                          orientation="vertical"
                           value={[band.value]}
                           min={-12}
                           max={12}
                           step={0.5}
                           onValueChange={([v]) => band.set(v)}
-                          className="h-full"
                         />
                       </div>
-                      <span className="text-[9px] font-medium">{band.label}</span>
-                      <span className="text-[8px] text-muted-foreground">{band.freq}</span>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
+
                 <div className="flex justify-center">
                   <Button variant="ghost" size="sm" className="h-6 px-3 text-[10px]" onClick={() => {
                     setEqBass(0); setEqLowMid(0); setEqMid(0); setEqHighMid(0); setEqTreble(0);
