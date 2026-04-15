@@ -100,6 +100,7 @@ const TextEditor = () => {
   const [audioFileName, setAudioFileName] = useState<string>("");
   const [wordTimings, setWordTimings] = useState<WordTiming[]>([]);
   const [playerTime, setPlayerTime] = useState(0);
+  const [playerLayout, setPlayerLayout] = useState<'split' | 'stacked' | 'full'>('split');
   const transcriptIdRef = useRef<string | null>(null);
   const manualVersionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { updateTranscript, getAudioUrl } = useCloudTranscripts();
@@ -786,41 +787,80 @@ const TextEditor = () => {
             );
           })()}
 
-          <TabsContent value="player" className="space-y-4">
+          <TabsContent value="player" className="space-y-6">
             <LazyErrorBoundary label="נגן מסונכרן">
-            {/* Top section: Player + Audio Processing (SyncAudioPlayer handles both internally) */}
-            <SyncAudioPlayer
-              audioUrl={audioUrl}
-              wordTimings={wordTimings}
-              currentTime={playerTime}
-              onTimeUpdate={setPlayerTime}
-              syncEnabled={syncEnabled}
-              onSyncToggle={setSyncEnabled}
-            />
+            {/* Layout toggle */}
+            <div className="flex justify-end mb-2" dir="rtl">
+              <div className="flex items-center gap-1 bg-muted/40 rounded-xl p-1 border border-border/50 shadow-sm">
+                <Button
+                  variant={playerLayout === 'split' ? 'default' : 'ghost'}
+                  size="sm"
+                  className="h-7 w-7 p-0 rounded-lg"
+                  onClick={() => setPlayerLayout('split')}
+                  title="פריסה מפוצלת"
+                >
+                  <LayoutPanelLeft className="w-3.5 h-3.5" />
+                </Button>
+                <Button
+                  variant={playerLayout === 'stacked' ? 'default' : 'ghost'}
+                  size="sm"
+                  className="h-7 w-7 p-0 rounded-lg"
+                  onClick={() => setPlayerLayout('stacked')}
+                  title="פריסה מוערמת"
+                >
+                  <LayoutPanelTop className="w-3.5 h-3.5" />
+                </Button>
+                <Button
+                  variant={playerLayout === 'full' ? 'default' : 'ghost'}
+                  size="sm"
+                  className="h-7 w-7 p-0 rounded-lg"
+                  onClick={() => setPlayerLayout('full')}
+                  title="נגן מלא"
+                >
+                  <Square className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+            </div>
 
-            {/* Bottom section: Two synced transcript views side by side */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {/* Right: Read-only synced transcript */}
-              <SyncTranscriptView
+            {/* Top section: Player + Audio Processing */}
+            <div className="rounded-2xl border border-border/40 bg-card/50 shadow-sm p-1">
+              <SyncAudioPlayer
+                audioUrl={audioUrl}
                 wordTimings={wordTimings}
                 currentTime={playerTime}
-                onWordClick={(time) => setPlayerTime(time)}
-                fontSize={fontSize}
-                fontFamily={fontFamily}
+                onTimeUpdate={setPlayerTime}
                 syncEnabled={syncEnabled}
-              />
-              {/* Left: Editable synced transcript */}
-              <SyncEditableView
-                wordTimings={wordTimings}
-                currentTime={playerTime}
-                text={text}
-                onTextChange={handlePlayerEditorChange}
-                onWordClick={(time) => setPlayerTime(time)}
-                fontSize={fontSize}
-                fontFamily={fontFamily}
-                syncEnabled={syncEnabled}
+                onSyncToggle={setSyncEnabled}
               />
             </div>
+
+            {/* Bottom section: Two synced transcript views */}
+            {playerLayout !== 'full' && (
+              <div className={`grid gap-5 ${playerLayout === 'stacked' ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-2'}`}>
+                <div className="rounded-2xl border border-border/40 bg-card/50 shadow-sm overflow-hidden">
+                  <SyncTranscriptView
+                    wordTimings={wordTimings}
+                    currentTime={playerTime}
+                    onWordClick={(time) => setPlayerTime(time)}
+                    fontSize={fontSize}
+                    fontFamily={fontFamily}
+                    syncEnabled={syncEnabled}
+                  />
+                </div>
+                <div className="rounded-2xl border border-border/40 bg-card/50 shadow-sm overflow-hidden">
+                  <SyncEditableView
+                    wordTimings={wordTimings}
+                    currentTime={playerTime}
+                    text={text}
+                    onTextChange={handlePlayerEditorChange}
+                    onWordClick={(time) => setPlayerTime(time)}
+                    fontSize={fontSize}
+                    fontFamily={fontFamily}
+                    syncEnabled={syncEnabled}
+                  />
+                </div>
+              </div>
+            )}
             </LazyErrorBoundary>
           </TabsContent>
 
