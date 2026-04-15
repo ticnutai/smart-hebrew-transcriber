@@ -387,7 +387,7 @@ export default function VideoToMp3() {
     });
   }, []);
 
-  // Listen to job updates + auto-show prompt on completion
+  // Listen to job updates + auto-show prompt on completion + auto-save to history
   useEffect(() => {
     const unsub = onJobUpdate((updatedJob) => {
       setJobs((prev) => {
@@ -399,6 +399,22 @@ export default function VideoToMp3() {
       });
 
       if (updatedJob.status === "done") {
+        // Auto-save to conversion history (once per job)
+        if (!savedJobIdsRef.current.has(updatedJob.id) && isAuthenticated) {
+          savedJobIdsRef.current.add(updatedJob.id);
+          const outputName = getOutputFileName(updatedJob.fileName, updatedJob.outputFormat);
+          history.addItem({
+            file_name: outputName,
+            original_name: updatedJob.fileName,
+            output_format: updatedJob.outputFormat,
+            file_size: updatedJob.fileSize,
+            output_size: updatedJob.outputBlob?.size || 0,
+            duration_ms: updatedJob.finishedAt && updatedJob.startedAt
+              ? updatedJob.finishedAt - updatedJob.startedAt
+              : 0,
+          }).catch(() => {});
+        }
+
         if (autoTranscribe) {
           const outputFile = toOutputFile(updatedJob);
           if (outputFile) {
@@ -410,7 +426,7 @@ export default function VideoToMp3() {
       }
     });
     return unsub;
-  }, [autoTranscribe, toOutputFile, navigate]);
+  }, [autoTranscribe, toOutputFile, navigate, isAuthenticated, history]);
 
   useEffect(() => {
     return onEnhanceQueueUpdate((nextJobs) => {
