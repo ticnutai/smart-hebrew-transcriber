@@ -31,8 +31,10 @@ import {
   UploadCloud,
   WandSparkles,
   X,
+  Zap,
 } from "lucide-react";
 import { LazyErrorBoundary } from "@/components/LazyErrorBoundary";
+import EnhanceCompare from "@/components/EnhanceCompare";
 
 const SyncAudioPlayer = lazy(() => import("@/components/SyncAudioPlayer").then(m => ({ default: m.SyncAudioPlayer })));
 
@@ -200,6 +202,7 @@ export default function VoiceStudio() {
       <Tabs defaultValue="enhance" className="space-y-4" dir="rtl">
         <TabsList className="h-auto p-1.5 rounded-xl bg-muted/60 border flex flex-wrap justify-start gap-1">
           <TabsTrigger value="enhance" className="rounded-lg data-[state=active]:shadow-sm">שיפור וטעינה</TabsTrigger>
+          <TabsTrigger value="compare" className="rounded-lg data-[state=active]:shadow-sm gap-1"><Zap className="w-3.5 h-3.5" />השוואת מנועים</TabsTrigger>
           <TabsTrigger value="batch" className="rounded-lg data-[state=active]:shadow-sm">קבצים ותיקיות</TabsTrigger>
           <TabsTrigger value="flows" className="rounded-lg data-[state=active]:shadow-sm">זרימות עבודה</TabsTrigger>
         </TabsList>
@@ -292,6 +295,10 @@ export default function VoiceStudio() {
               </LazyErrorBoundary>
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="compare" className="mt-0">
+          <EnhanceCompare />
         </TabsContent>
 
         <TabsContent value="batch" className="mt-0">
