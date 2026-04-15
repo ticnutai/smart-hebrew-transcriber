@@ -343,6 +343,8 @@ function CutJobCard({
   onEnhanceAll,
   onTranscribeResult,
   onEnhanceResult,
+  onDeleteResult,
+  onSaveResultToHistory,
 }: {
   job: CutJob;
   onRemove: (id: string) => void;
@@ -350,6 +352,8 @@ function CutJobCard({
   onEnhanceAll: (job: CutJob) => void;
   onTranscribeResult: (result: CutResult) => void;
   onEnhanceResult: (result: CutResult) => void;
+  onDeleteResult: (jobId: string, segmentIndex: number) => void;
+  onSaveResultToHistory: (result: CutResult, name: string, folder: string) => void;
 }) {
   const [expanded, setExpanded] = useState(job.status === "done");
   const elapsed =
