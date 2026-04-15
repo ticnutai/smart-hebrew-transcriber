@@ -98,15 +98,15 @@ export const SyncEditableView = ({
   }
 
   return (
-    <Card className="p-3 flex flex-col h-full" dir="rtl">
-      <div className="flex items-center justify-between mb-2">
+    <Card className="p-4 flex flex-col h-full" dir="rtl">
+      <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <Edit3 className="w-3.5 h-3.5 text-primary" />
-          <h3 className="font-semibold text-xs">עריכה מסונכרנת</h3>
+          <Edit3 className="w-4 h-4 text-primary" />
+          <h3 className="font-semibold text-sm">עריכה מסונכרנת</h3>
         </div>
-        <div className="flex items-center gap-1.5">
-          <Badge variant="outline" className="text-[10px]">
-            <Clock className="w-2.5 h-2.5 ml-0.5" />
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="text-xs">
+            <Clock className="w-3 h-3 ml-1" />
             {formatTime(currentTime)}
           </Badge>
           <Button
