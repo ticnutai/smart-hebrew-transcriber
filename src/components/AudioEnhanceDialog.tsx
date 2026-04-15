@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -71,6 +71,22 @@ export default function AudioEnhanceDialog({
   const [isRecommending, setIsRecommending] = useState(false);
   const [recommendation, setRecommendation] = useState<EnhancementRecommendation | null>(null);
   const [recommendLanguage, setRecommendLanguage] = useState<"he" | "auto">("he");
+  const [compareTrack, setCompareTrack] = useState<"original" | "enhanced">("enhanced");
+  const originalCompareRef = useRef<HTMLAudioElement>(null);
+  const enhancedCompareRef = useRef<HTMLAudioElement>(null);
+
+  const switchTrack = useCallback((track: "original" | "enhanced") => {
+    const from = track === "original" ? enhancedCompareRef.current : originalCompareRef.current;
+    const to = track === "original" ? originalCompareRef.current : enhancedCompareRef.current;
+    if (from && to) {
+      to.currentTime = from.currentTime;
+      if (!from.paused) {
+        from.pause();
+        void to.play();
+      }
+    }
+    setCompareTrack(track);
+  }, []);
 
   useEffect(() => {
     setOutputFormat(defaultOutputFormat);
@@ -457,10 +473,83 @@ export default function AudioEnhanceDialog({
           <SyncAudioPlayer audioUrl={audioUrl} wordTimings={[]} compact />
 
           {enhancedUrl && enhancedFile && (
-            <div className="space-y-2 border rounded-lg p-3 bg-muted/20">
-              <p className="text-sm font-medium">תצוגה לקובץ המשופר</p>
-              <p className="text-xs text-muted-foreground">{enhancedFile.name} • {formatBytes(enhancedFile.size)}</p>
-              <SyncAudioPlayer audioUrl={enhancedUrl} wordTimings={[]} compact />
+            <div className="space-y-3 border-2 rounded-lg p-4 bg-muted/20 border-primary/30">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <p className="text-sm font-bold flex items-center gap-2">
+                  🔀 השוואה: לפני ← אחרי
+                </p>
+                <span className="text-xs text-muted-foreground">
+                  {formatBytes(file!.size)} → {formatBytes(enhancedFile.size)}
+                  {file && enhancedFile.size < file.size && (
+                    <span className="text-green-600 mr-1">
+                      {" "}(−{((1 - enhancedFile.size / file.size) * 100).toFixed(0)}%)
+                    </span>
+                  )}
+                </span>
+              </div>
+
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant={compareTrack === "original" ? "default" : "outline"}
+                  className="flex-1 gap-2"
+                  onClick={() => switchTrack("original")}
+                >
+                  🅰️ מקור
+                </Button>
+                <Button
+                  size="sm"
+                  variant={compareTrack === "enhanced" ? "default" : "outline"}
+                  className="flex-1 gap-2"
+                  onClick={() => switchTrack("enhanced")}
+                >
+                  🅱️ משופר
+                </Button>
+              </div>
+
+              <div>
+                <audio
+                  ref={originalCompareRef}
+                  src={audioUrl!}
+                  controls
+                  className={`w-full ${compareTrack !== "original" ? "hidden" : ""}`}
+                />
+                <audio
+                  ref={enhancedCompareRef}
+                  src={enhancedUrl}
+                  controls
+                  className={`w-full ${compareTrack !== "enhanced" ? "hidden" : ""}`}
+                />
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {onTranscribe && (
+                  <Button size="sm" className="gap-2" onClick={() => { onTranscribe(enhancedFile); onOpenChange(false); }}>
+                    <Mic className="w-4 h-4" />
+                    אשר ותמלל
+                  </Button>
+                )}
+                <Button size="sm" variant="outline" className="gap-2" onClick={handleDownloadEnhanced}>
+                  <Download className="w-4 h-4" />
+                  הורד משופר
+                </Button>
+                <Button size="sm" variant="outline" className="gap-2" onClick={handleDownload}>
+                  <Download className="w-4 h-4" />
+                  הורד מקור
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="gap-2"
+                  onClick={() => {
+                    setEnhancedFile(null);
+                    setEnhancedUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return null; });
+                    setCompareTrack("enhanced");
+                  }}
+                >
+                  ❌ בטל שיפור
+                </Button>
+              </div>
             </div>
           )}
         </div>
