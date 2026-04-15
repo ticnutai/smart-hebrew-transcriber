@@ -8,6 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Volume1,
@@ -263,6 +264,7 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
   const [isExpanded, setIsExpanded] = useState(false);
   const [showEnhance, setShowEnhance] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showAdvancedDialog, setShowAdvancedDialog] = useState(false);
   const [outputGain, setOutputGain] = useState(1.0); // 0.0 to 3.0 (multiply)
   const [showEqualizer, setShowEqualizer] = useState(true);
   // 5-band parametric EQ user controls (dB, -12 to +12)
