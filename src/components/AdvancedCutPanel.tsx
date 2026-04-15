@@ -697,6 +697,34 @@ export default function AdvancedCutPanel({
     void removePersistedCutJob(id);
   }, []);
 
+  const handleDeleteResult = useCallback((jobId: string, segmentIndex: number) => {
+    setCutJobs((prev) =>
+      prev.map((j) =>
+        j.id === jobId
+          ? { ...j, results: j.results.filter((r) => r.segmentIndex !== segmentIndex) }
+          : j
+      )
+    );
+    toast({ title: "הקטע נמחק" });
+  }, []);
+
+  const { addItem: addHistoryItem } = useConversionHistory();
+
+  const handleSaveResultToHistory = useCallback(async (result: CutResult, name: string, folder: string) => {
+    try {
+      await addHistoryItem({
+        file_name: name,
+        original_name: result.file.name,
+        output_format: "wav",
+        file_size: result.sizeBytes,
+        output_size: result.sizeBytes,
+        duration_ms: Math.round(result.durationSec * 1000),
+      });
+    } catch {
+      toast({ title: "שגיאה בשמירה", variant: "destructive" });
+    }
+  }, [addHistoryItem]);
+
   const inferOutputFormat = useCallback((fileName: string): "mp3" | "opus" | "aac" => {
     const lower = fileName.toLowerCase();
     if (lower.endsWith(".opus")) return "opus";
