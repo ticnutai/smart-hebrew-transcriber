@@ -2544,14 +2544,6 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                   {lufsEnabled && <Badge variant="secondary" className="text-[10px] gap-1"><BarChart3 className="w-3 h-3 no-theme-icon" />LUFS</Badge>}
                 </div>
               )}
-                  <span>Highpass: {currentPreset.highpassFreq}Hz</span>
-                  <span>Voice: +{currentPreset.voiceBoostGain}dB</span>
-                  <span>Comp: {currentPreset.compRatio}:1 @{currentPreset.compThreshold}dB</span>
-                  <span>Gate: {currentPreset.gateThreshold === 0 ? 'Off' : `${currentPreset.gateThreshold}dB`}</span>
-                  <span>Attack: {currentPreset.compAttack * 1000}ms</span>
-                  <span>Release: {currentPreset.compRelease * 1000}ms</span>
-                </div>
-              )}
             </div>
           )}
         </div>
