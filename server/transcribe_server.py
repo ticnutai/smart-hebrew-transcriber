@@ -964,6 +964,7 @@ def transcribe():
     model_id = request.form.get("model", _current_model_id or _default_model_for(language))
     beam_size = int(request.form.get("beam_size", 3))
     normalize = request.form.get("normalize", "1") == "1"
+    ai_denoise = request.form.get("ai_denoise", "0") == "1"
 
     # Resolve model ID
     resolved = MODEL_REGISTRY.get(model_id, model_id)
@@ -975,7 +976,19 @@ def transcribe():
         tmp_path = tmp.name
 
     norm_path = None
+    ai_denoise_path = None
     try:
+        # AI pre-transcription denoise (optional, uses spectral gating for speed)
+        if ai_denoise:
+            try:
+                from ai_enhance import enhance_spectral
+                ai_denoise_path = tmp_path + ".ai_denoised.wav"
+                enhance_spectral(tmp_path, ai_denoise_path, prop_decrease=0.65, stationary=False)
+                tmp_path = ai_denoise_path
+                _log.info(f"  [ai_denoise] Pre-transcription denoise applied for {audio_file.filename}")
+            except Exception as denoise_err:
+                _log.warning(f"  [ai_denoise] Failed, continuing without: {denoise_err}")
+
         # SHA-256 cache lookup — skip GPU work for repeated files
         file_hash = _file_sha256(tmp_path)
         cache_key = f"{file_hash}:{resolved}:{language}:{beam_size}"
@@ -1078,9 +1091,11 @@ def transcribe():
                 os.unlink(norm_path)
             except OSError:
                 pass
-
-
-@app.route("/transcribe-stream", methods=["POST"])
+        if ai_denoise_path and ai_denoise_path != tmp_path:
+            try:
+                os.unlink(ai_denoise_path)
+            except OSError:
+                pass
 def transcribe_stream():
     """Transcribe audio with Server-Sent Events — sends each segment as it's ready.
     Supports `start_from` (seconds) to resume from a specific time offset.
@@ -1823,6 +1838,9 @@ _ENHANCE_PRESET_FILTERS = {
     "broadcast": "afftdn=nf=-20,highpass=f=90,lowpass=f=14000,equalizer=f=3000:t=q:w=1.1:g=3,acompressor=threshold=-22dB:ratio=4:attack=6:release=180,loudnorm=I=-16:TP=-1.5:LRA=8,alimiter=limit=0.95",
 }
 
+# AI enhancement presets (neural network based) — loaded lazily
+_AI_ENHANCE_PRESETS = {"ai_denoise", "ai_enhance", "ai_full", "ai_hebrew"}
+
 @app.route("/convert-mp3", methods=["POST"])
 def convert_mp3():
     """Convert uploaded audio/video file to requested audio format using server-side FFmpeg.
@@ -2013,7 +2031,7 @@ def enhance_audio():
     Form fields:
       - file: uploaded input media
       - output_format: mp3|opus|aac (default: mp3)
-      - preset: clean|ai_voice|podcast|broadcast (default: clean)
+      - preset: clean|ai_voice|podcast|broadcast|ai_denoise|ai_enhance|ai_full|ai_hebrew
     """
     if not _check_ffmpeg():
         return jsonify({"error": "FFmpeg not available on server"}), 503
@@ -2033,9 +2051,11 @@ def enhance_audio():
         return jsonify({"error": f"Unsupported output format: {output_format}"}), 415
 
     preset = (request.form.get("preset") or "clean").strip().lower()
-    filter_chain = _ENHANCE_PRESET_FILTERS.get(preset)
-    if not filter_chain:
-        return jsonify({"error": f"Unsupported preset: {preset}"}), 415
+    is_ai_preset = preset in _AI_ENHANCE_PRESETS
+    filter_chain = _ENHANCE_PRESET_FILTERS.get(preset) if not is_ai_preset else None
+
+    if not is_ai_preset and not filter_chain:
+        return jsonify({"error": f"Unsupported preset: {preset}. Available: {list(_ENHANCE_PRESET_FILTERS.keys()) + list(_AI_ENHANCE_PRESETS)}"}), 415
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_in:
         media_file.save(tmp_in)
@@ -2049,24 +2069,55 @@ def enhance_audio():
     try:
         import subprocess
 
-        result = subprocess.run(
-            [
-                "ffmpeg", "-y",
-                "-i", input_path,
-                "-vn",
-                "-af", filter_chain,
-                *ffmpeg_audio_args,
-                output_path,
-            ],
-            capture_output=True,
-            timeout=600,
-        )
+        if is_ai_preset:
+            # ── AI neural enhancement pipeline ──
+            try:
+                from ai_enhance import run_ai_enhance
+            except ImportError:
+                return jsonify({"error": "AI enhancement engine not available. Install: pip install speechbrain noisereduce soundfile"}), 503
 
-        if result.returncode != 0 or not os.path.exists(output_path):
-            return jsonify({
-                "error": "FFmpeg enhancement failed",
-                "details": result.stderr.decode("utf-8", errors="replace")[-700:],
-            }), 500
+            ai_wav_path = input_path + ".ai_enhanced.wav"
+            try:
+                run_ai_enhance(preset, input_path, ai_wav_path)
+
+                # Encode AI-enhanced WAV to requested output format
+                result = subprocess.run(
+                    ["ffmpeg", "-y", "-i", ai_wav_path, "-vn", *ffmpeg_audio_args, output_path],
+                    capture_output=True, timeout=300,
+                )
+                if result.returncode != 0 or not os.path.exists(output_path):
+                    return jsonify({
+                        "error": "FFmpeg encoding of AI-enhanced audio failed",
+                        "details": result.stderr.decode("utf-8", errors="replace")[-700:],
+                    }), 500
+            except Exception as ai_err:
+                _log.error(f"AI enhance error ({preset}): {ai_err}")
+                return jsonify({"error": f"AI enhancement failed: {str(ai_err)}"}), 500
+            finally:
+                try:
+                    os.unlink(ai_wav_path)
+                except OSError:
+                    pass
+        else:
+            # ── Classic FFmpeg filter chain ──
+            result = subprocess.run(
+                [
+                    "ffmpeg", "-y",
+                    "-i", input_path,
+                    "-vn",
+                    "-af", filter_chain,
+                    *ffmpeg_audio_args,
+                    output_path,
+                ],
+                capture_output=True,
+                timeout=600,
+            )
+
+            if result.returncode != 0 or not os.path.exists(output_path):
+                return jsonify({
+                    "error": "FFmpeg enhancement failed",
+                    "details": result.stderr.decode("utf-8", errors="replace")[-700:],
+                }), 500
 
         output_name = f"{Path(filename).stem}.enhanced{output_suffix}"
         from flask import send_file
@@ -2087,6 +2138,27 @@ def enhance_audio():
                 os.unlink(p)
             except OSError:
                 pass
+
+
+@app.route("/ai-enhance-status", methods=["GET"])
+def ai_enhance_status():
+    """Return available AI enhancement engines and presets."""
+    try:
+        from ai_enhance import is_available, get_ai_presets_info
+        engines = is_available()
+        presets = get_ai_presets_info()
+        return jsonify({
+            "available": True,
+            "engines": engines,
+            "presets": presets,
+        })
+    except ImportError:
+        return jsonify({
+            "available": False,
+            "engines": {},
+            "presets": [],
+            "error": "AI enhancement not installed (speechbrain, noisereduce)",
+        })
 
 
 @app.route("/load-model", methods=["POST"])

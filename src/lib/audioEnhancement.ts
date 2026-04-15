@@ -1,8 +1,26 @@
 import { getServerUrl } from "@/lib/serverConfig";
 import { getApiKey } from "@/lib/keyCrypto";
 
-export type EnhancementPreset = "clean" | "ai_voice" | "podcast" | "broadcast";
+export type EnhancementPreset = "clean" | "ai_voice" | "podcast" | "broadcast" | "ai_denoise" | "ai_enhance" | "ai_full" | "ai_hebrew";
 export type EnhancementOutputFormat = "mp3" | "opus" | "aac";
+
+export interface AiEnhanceStatus {
+  available: boolean;
+  engines: { spectral?: boolean; metricgan?: boolean; gpu?: boolean; gpu_name?: string };
+  presets: Array<{ id: string; label: string; description: string; ai: boolean }>;
+  error?: string;
+}
+
+export async function fetchAiEnhanceStatus(): Promise<AiEnhanceStatus> {
+  try {
+    const serverUrl = getServerUrl();
+    const res = await fetch(`${serverUrl}/ai-enhance-status`, { headers: getApiHeaders() });
+    if (!res.ok) return { available: false, engines: {}, presets: [] };
+    return await res.json();
+  } catch {
+    return { available: false, engines: {}, presets: [] };
+  }
+}
 
 export interface EnhanceAudioOptions {
   preset: EnhancementPreset;
@@ -112,7 +130,7 @@ export async function recommendEnhancementForTranscription(
   const outputFormat = options?.outputFormat || "mp3";
   const presets = options?.presets?.length
     ? options.presets
-    : (["ai_voice", "clean", "podcast", "broadcast"] as EnhancementPreset[]);
+    : (["ai_hebrew", "ai_full", "ai_enhance", "ai_denoise", "ai_voice", "clean", "podcast", "broadcast"] as EnhancementPreset[]);
 
   const baseline = await transcribeForQuality(file, language);
 

@@ -24,11 +24,17 @@ interface AudioEnhanceDialogProps {
   defaultOutputFormat?: EnhancementOutputFormat;
 }
 
-const PRESET_OPTIONS: Array<{ id: EnhancementPreset; label: string; description: string; ai: boolean }> = [
-  { id: "clean", label: "נקי", description: "שיפור קלאסי ללא AI", ai: false },
-  { id: "podcast", label: "פודקאסט", description: "חם ומאוזן לדיבור", ai: false },
-  { id: "broadcast", label: "שידור", description: "צליל הדוק וברור", ai: false },
-  { id: "ai_voice", label: "AI Voice", description: "ניקוי ודגש קולי אגרסיבי", ai: true },
+const PRESET_OPTIONS: Array<{ id: EnhancementPreset; label: string; description: string; ai: boolean; group: "classic" | "ai" }> = [
+  // Classic FFmpeg presets
+  { id: "clean", label: "נקי", description: "שיפור קלאסי ללא AI", ai: false, group: "classic" },
+  { id: "podcast", label: "פודקאסט", description: "חם ומאוזן לדיבור", ai: false, group: "classic" },
+  { id: "broadcast", label: "שידור", description: "צליל הדוק וברור", ai: false, group: "classic" },
+  { id: "ai_voice", label: "AI Voice", description: "ניקוי ודגש קולי (FFmpeg)", ai: false, group: "classic" },
+  // AI neural enhancement presets
+  { id: "ai_denoise", label: "AI ניקוי רעש", description: "ניקוי רעשי רקע חכם (מהיר)", ai: true, group: "ai" },
+  { id: "ai_enhance", label: "AI שיפור דיבור", description: "שיפור עמוק עם MetricGAN-U (GPU)", ai: true, group: "ai" },
+  { id: "ai_full", label: "AI שיפור מלא", description: "ניקוי + שיפור דו-שלבי (GPU)", ai: true, group: "ai" },
+  { id: "ai_hebrew", label: "AI עברית", description: "מותאם לדיבור עברי — שומר עיצורים חיכוכיים", ai: true, group: "ai" },
 ];
 
 const OUTPUT_OPTIONS: Array<{ id: EnhancementOutputFormat; label: string; ext: string }> = [
@@ -319,8 +325,9 @@ export default function AudioEnhanceDialog({
 
           <div className="space-y-2">
             <p className="text-sm font-medium">מצב שיפור</p>
+            <p className="text-[11px] text-muted-foreground mb-1">פריסטים קלאסיים (FFmpeg)</p>
             <div className="grid grid-cols-2 gap-2">
-              {PRESET_OPTIONS.map((p) => (
+              {PRESET_OPTIONS.filter((p) => p.group === "classic").map((p) => (
                 <Button
                   key={p.id}
                   variant={preset === p.id ? "default" : "outline"}
@@ -329,7 +336,22 @@ export default function AudioEnhanceDialog({
                   onClick={() => setPreset(p.id)}
                 >
                   {p.label}
-                  <span className="mr-2 text-[10px] opacity-80">{p.ai ? "AI" : "Auto"}</span>
+                  <span className="mr-2 text-[10px] opacity-80">Auto</span>
+                </Button>
+              ))}
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-3 mb-1">🧠 שיפור AI (רשת נוירונית — GPU)</p>
+            <div className="grid grid-cols-2 gap-2">
+              {PRESET_OPTIONS.filter((p) => p.group === "ai").map((p) => (
+                <Button
+                  key={p.id}
+                  variant={preset === p.id ? "default" : "outline"}
+                  size="sm"
+                  className="justify-start"
+                  onClick={() => setPreset(p.id)}
+                >
+                  {p.label}
+                  <span className="mr-2 text-[10px] opacity-80">AI</span>
                 </Button>
               ))}
             </div>
