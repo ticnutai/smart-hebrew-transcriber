@@ -1108,6 +1108,8 @@ export default function AdvancedCutPanel({
                     onEnhanceAll={handleEnhanceAllResults}
                     onTranscribeResult={handleTranscribeResult}
                     onEnhanceResult={setEnhanceTarget}
+                    onDeleteResult={handleDeleteResult}
+                    onSaveResultToHistory={handleSaveResultToHistory}
                   />
                 ))}
               </div>
