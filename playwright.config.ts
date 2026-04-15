@@ -27,7 +27,7 @@ export default defineConfig({
   ],
 
   webServer: {
-    command: 'npx vite --port 8091',
+    command: 'npx vite --force --port 8091',
     port: 8091,
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,

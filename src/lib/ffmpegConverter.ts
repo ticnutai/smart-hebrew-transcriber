@@ -10,6 +10,7 @@
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { toBlobURL, fetchFile } from "@ffmpeg/util";
 import { chooseConversionPath, convertOnServer, isServerAvailable } from "./conversionRouter";
+import { debugLog } from "./debugLogger";
 
 export type JobStatus = "queued" | "loading" | "converting" | "done" | "error";
 export type OutputFormat = "mp3" | "opus" | "aac";
@@ -29,7 +30,7 @@ const OUTPUT_FORMAT_CONFIG: Record<OutputFormat, OutputFormatConfig> = {
   opus: {
     ext: "opus",
     mime: "audio/opus",
-    ffmpegArgs: ["-c:a", "libopus", "-b:a", "128k", "-vbr", "on", "-compression_level", "10", "-ar", "48000", "-ac", "2"],
+    ffmpegArgs: ["-c:a", "libopus", "-b:a", "128k", "-vbr", "on", "-compression_level", "5", "-application", "audio"],
   },
   aac: {
     ext: "m4a",
@@ -321,6 +322,12 @@ function parseTime(msg: string): number | null {
 async function runServerConversion(job: ConversionJob): Promise<boolean> {
   const file = job.file!;
   try {
+    debugLog.info("FFmpegConverter", "Trying server conversion", {
+      jobId: job.id,
+      fileName: file.name,
+      fileSize: file.size,
+      outputFormat: job.outputFormat,
+    });
     job.conversionPath = "server";
     job.status = "converting";
     job.progress = 0;
@@ -338,11 +345,21 @@ async function runServerConversion(job: ConversionJob): Promise<boolean> {
     job.outputUrl = url;
     job.finishedAt = Date.now();
     notifyAll(job);
+    debugLog.info("FFmpegConverter", "Server conversion completed", {
+      jobId: job.id,
+      outputBytes: blob.size,
+      outputType: blob.type,
+    });
 
     const outputName = getOutputFileName(file.name, job.outputFormat);
     await Promise.all([persistJob(job), persistOutput(job.id, blob, outputName)]);
     return true;
-  } catch {
+  } catch (error) {
+    debugLog.warn("FFmpegConverter", "Server conversion failed, will fallback", {
+      jobId: job.id,
+      error: error instanceof Error ? error.message : String(error),
+      outputFormat: job.outputFormat,
+    });
     return false; // caller will fallback to WASM
   }
 }
@@ -360,6 +377,12 @@ async function runWasmConversion(job: ConversionJob): Promise<void> {
 
   let ffmpeg: FFmpeg | null = null;
   try {
+    debugLog.info("FFmpegConverter", "Starting browser conversion", {
+      jobId: job.id,
+      fileName: file.name,
+      fileSize: file.size,
+      outputFormat: job.outputFormat,
+    });
     job.conversionPath = "browser";
     job.status = "loading";
     job.startedAt = Date.now();
@@ -381,9 +404,11 @@ async function runWasmConversion(job: ConversionJob): Promise<void> {
     notifyAll(job);
     await persistJob(job);
 
-    // Real progress via log parsing
+    // Real progress via log parsing + error capture
     let totalDuration = 0;
+    const ffmpegLogs: string[] = [];
     const onLog = ({ message }: { message: string }) => {
+      ffmpegLogs.push(message);
       if (!totalDuration) {
         const d = parseDuration(message);
         if (d && d > 0) { totalDuration = d; job.duration = d; }
@@ -405,7 +430,7 @@ async function runWasmConversion(job: ConversionJob): Promise<void> {
     };
     ffmpeg.on("progress", onProgress);
 
-    await ffmpeg.exec([
+    const exitCode = await ffmpeg.exec([
       "-i", inputName, "-vn",
       ...getOutputFfmpegArgs(job.outputFormat),
       outputName,
@@ -413,6 +438,17 @@ async function runWasmConversion(job: ConversionJob): Promise<void> {
 
     ffmpeg.off("log", onLog);
     ffmpeg.off("progress", onProgress);
+
+    if (exitCode !== 0) {
+      const lastLogs = ffmpegLogs.slice(-10).join("\n");
+      debugLog.error("FFmpegConverter", "FFmpeg WASM exec failed", {
+        jobId: job.id,
+        exitCode,
+        outputFormat: job.outputFormat,
+        lastLogs,
+      });
+      throw new Error(`FFmpeg failed (exit ${exitCode}): ${lastLogs}`);
+    }
 
     const outputData = await ffmpeg.readFile(outputName);
     const bytes = outputData instanceof Uint8Array ? outputData : new TextEncoder().encode(outputData as string);
@@ -428,14 +464,25 @@ async function runWasmConversion(job: ConversionJob): Promise<void> {
     job.outputUrl = url;
     job.finishedAt = Date.now();
     notifyAll(job);
+    debugLog.info("FFmpegConverter", "Browser conversion completed", {
+      jobId: job.id,
+      outputBytes: blob.size,
+      outputType: blob.type,
+      durationSec: job.duration,
+    });
 
     const outputNameForSave = getOutputFileName(file.name, job.outputFormat);
     await Promise.all([persistJob(job), persistOutput(job.id, blob, outputNameForSave)]);
   } catch (err: unknown) {
     job.status = "error";
-    job.error = err instanceof Error ? err.message : "שגיאה לא ידועה";
+    job.error = err instanceof Error ? err.message : String(err) || "שגיאה לא ידועה בהמרה";
     job.finishedAt = Date.now();
     notifyAll(job);
+    debugLog.error("FFmpegConverter", "Browser conversion failed", {
+      jobId: job.id,
+      error: job.error,
+      outputFormat: job.outputFormat,
+    });
     await persistJob(job);
   } finally {
     if (ffmpeg) releaseFFmpeg(ffmpeg);
@@ -457,13 +504,25 @@ async function runConversion(job: ConversionJob) {
 
   job.startedAt = Date.now();
   let path = await chooseConversionPath(file.size);
+  debugLog.info("FFmpegConverter", "Initial conversion path selected", {
+    jobId: job.id,
+    path,
+    fileSize: file.size,
+    outputFormat: job.outputFormat,
+  });
 
   // OPUS encoding is less reliable in browser WASM on some devices.
   // If server FFmpeg is available, prefer it for OPUS.
   if (job.outputFormat === "opus" && path === "browser") {
     try {
       const serverReady = await isServerAvailable();
-      if (serverReady) path = "server";
+      if (serverReady) {
+        path = "server";
+        debugLog.info("FFmpegConverter", "OPUS prefers server when available", {
+          jobId: job.id,
+          path,
+        });
+      }
     } catch {
       // keep browser path as fallback
     }
@@ -473,6 +532,10 @@ async function runConversion(job: ConversionJob) {
     const ok = await runServerConversion(job);
     if (ok) return;
     // Server failed — reset and fallback to WASM
+    debugLog.warn("FFmpegConverter", "Falling back from server to browser", {
+      jobId: job.id,
+      outputFormat: job.outputFormat,
+    });
     job.status = "queued";
     job.progress = 0;
     job.error = undefined;
@@ -487,6 +550,10 @@ async function runConversion(job: ConversionJob) {
     if (msg.includes("libopus") || msg.includes("unknown encoder") || msg.includes("encoder") || msg.includes("not found")) {
       job.error = "OPUS נכשל במנוע הדפדפן (encoder לא זמין). נסה להפעיל שרת מקומי ולהמיר שוב.";
       notifyAll(job);
+      debugLog.warn("FFmpegConverter", "OPUS browser encoder unavailable", {
+        jobId: job.id,
+        error: msg,
+      });
       await persistJob(job);
     }
   }

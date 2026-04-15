@@ -9,12 +9,13 @@
  */
 
 import { getServerUrl } from "./serverConfig";
+import { debugLog } from "./debugLogger";
 
 export type ConversionPath = "browser" | "server";
 
 const SIZE_100MB = 100 * 1024 * 1024;
 const SIZE_500MB = 500 * 1024 * 1024;
-const WASM_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes timeout for mid-size files
+const WASM_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes timeout (OPUS is slower than MP3 in WASM)
 
 let _serverOnline: boolean | null = null;
 let _lastCheck = 0;
@@ -24,6 +25,10 @@ const CHECK_INTERVAL = 30_000; // 30s cache
 export async function isServerAvailable(): Promise<boolean> {
   const now = Date.now();
   if (_serverOnline !== null && now - _lastCheck < CHECK_INTERVAL) {
+    debugLog.info("ConversionRouter", "Using cached server availability", {
+      cached: _serverOnline,
+      cacheAgeMs: now - _lastCheck,
+    });
     return _serverOnline;
   }
   try {
@@ -31,12 +36,22 @@ export async function isServerAvailable(): Promise<boolean> {
     const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(3000) });
     if (!res.ok) throw new Error("not ok");
     const data = await res.json();
-    _serverOnline = data.ffmpeg === true || data.ffmpeg_available === true || true;
+    _serverOnline = data.ffmpeg === true || data.ffmpeg_available === true;
     _lastCheck = now;
+    debugLog.info("ConversionRouter", "Server health check completed", {
+      url,
+      status: res.status,
+      ffmpeg: data.ffmpeg,
+      ffmpeg_available: data.ffmpeg_available,
+      online: _serverOnline,
+    });
     return _serverOnline;
-  } catch {
+  } catch (error) {
     _serverOnline = false;
     _lastCheck = now;
+    debugLog.warn("ConversionRouter", "Server health check failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return false;
   }
 }
@@ -49,15 +64,33 @@ export function invalidateServerCache() {
 
 /** Decide optimal conversion path for a given file size. */
 export async function chooseConversionPath(fileSize: number): Promise<ConversionPath> {
+  let chosen: ConversionPath;
   if (fileSize > SIZE_500MB) {
     const online = await isServerAvailable();
-    return online ? "server" : "browser"; // fallback to WASM even for large
+    chosen = online ? "server" : "browser"; // fallback to WASM even for large
+    debugLog.info("ConversionRouter", "Path chosen for large file", {
+      fileSize,
+      chosen,
+      threshold: "500MB",
+    });
+    return chosen;
   }
   if (fileSize > SIZE_100MB) {
     const online = await isServerAvailable();
-    return online ? "server" : "browser"; // mid-range: prefer server if available
+    chosen = online ? "server" : "browser"; // mid-range: prefer server if available
+    debugLog.info("ConversionRouter", "Path chosen for mid-size file", {
+      fileSize,
+      chosen,
+      threshold: "100MB",
+    });
+    return chosen;
   }
-  return "browser";
+  chosen = "browser";
+  debugLog.info("ConversionRouter", "Path chosen for small file", {
+    fileSize,
+    chosen,
+  });
+  return chosen;
 }
 
 /** Get timeout for WASM conversion based on file size (for mid-range fallback). */
@@ -91,6 +124,12 @@ export async function convertOnServer(
   abortSignal?: AbortSignal,
 ): Promise<Blob> {
   const url = getServerUrl();
+  debugLog.info("ConversionRouter", "Starting server conversion", {
+    fileName: file.name,
+    fileSize: file.size,
+    outputFormat,
+    url,
+  });
   const formData = new FormData();
   formData.append("file", file);
   formData.append("output_format", outputFormat);
@@ -105,6 +144,11 @@ export async function convertOnServer(
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: "Server error" }));
+    debugLog.error("ConversionRouter", "Server conversion request failed", {
+      status: res.status,
+      statusText: res.statusText,
+      body,
+    });
     throw new Error(body.error || `Server returned ${res.status}`);
   }
 
@@ -134,6 +178,9 @@ export async function convertOnServer(
             const data = JSON.parse(line.slice(6)) as ServerConversionProgress;
             lastProgress = data;
             onProgress?.(data);
+            if (data.progress % 20 === 0 || data.done || data.error) {
+              debugLog.info("ConversionRouter", "SSE conversion progress", data);
+            }
             if (data.error) throw new Error(data.error);
           } catch (e) {
             if (e instanceof SyntaxError) continue;
@@ -144,6 +191,9 @@ export async function convertOnServer(
     }
 
     if (!lastProgress.done || !lastProgress.download_id) {
+      debugLog.error("ConversionRouter", "SSE conversion ended without download id", {
+        lastProgress,
+      });
       throw new Error("Server conversion ended without completion");
     }
 
@@ -152,15 +202,33 @@ export async function convertOnServer(
       signal: abortSignal,
     });
 
-    if (!dlRes.ok) throw new Error("Failed to download converted file");
+    if (!dlRes.ok) {
+      debugLog.error("ConversionRouter", "Failed to download staged conversion", {
+        status: dlRes.status,
+        downloadId: lastProgress.download_id,
+      });
+      throw new Error("Failed to download converted file");
+    }
+    debugLog.info("ConversionRouter", "Downloaded staged conversion", {
+      downloadId: lastProgress.download_id,
+      status: dlRes.status,
+    });
     return await dlRes.blob();
   }
 
   // Direct binary response (non-SSE fallback)
   if (contentType.includes("audio/")) {
     onProgress?.({ progress: 100, done: true });
+    debugLog.info("ConversionRouter", "Received direct audio response", {
+      contentType,
+      status: res.status,
+    });
     return await res.blob();
   }
 
+  debugLog.error("ConversionRouter", "Unexpected response content type", {
+    contentType,
+    status: res.status,
+  });
   throw new Error("Unexpected response from server");
 }

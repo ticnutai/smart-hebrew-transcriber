@@ -1855,6 +1855,12 @@ def convert_mp3():
     output_mimetype = output_cfg["mimetype"]
     ffmpeg_audio_args = output_cfg["ffmpeg_args"]
     output_path = input_path + output_suffix
+    request_id = f"conv-{int(time.time() * 1000) % 1000000:06d}"
+    _log.info(
+        f"[{request_id}] convert-mp3 start: in={filename} fmt={output_format} "
+        f"size={os.path.getsize(input_path)} bytes"
+    )
+    staged_output_id = None
 
     try:
         import subprocess
@@ -1863,6 +1869,7 @@ def convert_mp3():
         if "text/event-stream" in request.headers.get("Accept", ""):
             def generate():
                 try:
+                    _log.info(f"[{request_id}] convert-mp3 using SSE streaming")
                     proc = subprocess.Popen(
                         ["ffmpeg", "-y", "-i", input_path,
                          "-vn", *ffmpeg_audio_args,
@@ -1902,6 +1909,7 @@ def convert_mp3():
                     t.join(timeout=5)
 
                     if proc.returncode != 0 or not os.path.exists(output_path):
+                        _log.error(f"[{request_id}] FFmpeg failed (SSE path), returncode={proc.returncode}")
                         yield f"data: {json.dumps({'error': 'FFmpeg conversion failed'})}\n\n"
                         return
 
@@ -1909,6 +1917,8 @@ def convert_mp3():
                     import uuid as _uuid
                     stage_id = str(_uuid.uuid4())
                     output_name = Path(filename).stem + output_suffix
+                    nonlocal staged_output_id
+                    staged_output_id = stage_id
                     _staged_files[stage_id] = {
                         "path": output_path,
                         "filename": output_name,
@@ -1916,6 +1926,10 @@ def convert_mp3():
                         "timestamp": time.time(),
                     }
                     file_size = os.path.getsize(output_path)
+                    _log.info(
+                        f"[{request_id}] convert-mp3 staged output: "
+                        f"stage_id={stage_id[:8]}..., size={file_size} bytes, name={output_name}"
+                    )
                     yield f"data: {json.dumps({'progress': 100, 'done': True, 'file_size': file_size, 'download_id': stage_id})}\n\n"
                 finally:
                     # Cleanup input only; output stays for download
@@ -1928,6 +1942,7 @@ def convert_mp3():
                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
         # Non-streaming: convert and return file directly
+        _log.info(f"[{request_id}] convert-mp3 using direct response")
         result = subprocess.run(
             ["ffmpeg", "-y", "-i", input_path,
              "-vn", *ffmpeg_audio_args,
@@ -1936,6 +1951,7 @@ def convert_mp3():
         )
 
         if result.returncode != 0 or not os.path.exists(output_path):
+            _log.error(f"[{request_id}] FFmpeg failed (direct path), returncode={result.returncode}")
             return jsonify({"error": "FFmpeg conversion failed",
                             "details": result.stderr.decode("utf-8", errors="replace")[-500:]}), 500
 
@@ -1945,12 +1961,18 @@ def convert_mp3():
         return send_file(output_path, mimetype=output_mimetype,
                  as_attachment=True, download_name=output_name)
     except subprocess.TimeoutExpired:
+        _log.error(f"[{request_id}] convert-mp3 timeout (600s)")
         return jsonify({"error": "Conversion timed out (10 min limit)"}), 504
     except Exception as e:
-        _log.error(f"convert-mp3 error: {e}")
+        _log.error(f"[{request_id}] convert-mp3 error: {e}")
         return jsonify({"error": str(e)}), 500
     finally:
-        for p in (input_path, output_path):
+        # Keep staged output file alive for /convert-mp3/download/<stage_id>.
+        # It will be deleted after download or by TTL cleanup thread.
+        paths_to_cleanup = [input_path]
+        if staged_output_id is None:
+            paths_to_cleanup.append(output_path)
+        for p in paths_to_cleanup:
             try:
                 os.unlink(p)
             except OSError:
@@ -1960,10 +1982,26 @@ def convert_mp3():
 @app.route("/convert-mp3/download/<path:stage_id>", methods=["GET"])
 def convert_mp3_download(stage_id):
     """Download a completed SSE conversion result by stage_id."""
-    info = _staged_files.get(stage_id)
+    info = _staged_files.pop(stage_id, None)
     if not info or not os.path.exists(info.get("path", "")):
+        _log.warning(f"[convert-download] missing/expired stage_id={stage_id[:8]}...")
         return jsonify({"error": "File not found or expired"}), 404
-    from flask import send_file
+    from flask import send_file, after_this_request
+
+    file_path = info["path"]
+
+    @after_this_request
+    def _cleanup_downloaded_file(response):
+        try:
+            os.unlink(file_path)
+        except OSError:
+            pass
+        return response
+
+    _log.info(
+        f"[convert-download] serving stage_id={stage_id[:8]}..., "
+        f"filename={info.get('filename', 'output.mp3')}"
+    )
     return send_file(info["path"], mimetype=info.get("mimetype", "application/octet-stream"),
                      as_attachment=True, download_name=info.get("filename", "output.mp3"))
 

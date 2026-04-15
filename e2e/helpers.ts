@@ -221,54 +221,79 @@ export async function mockLocalServer(page: Page, options?: {
 }) {
   const { connected = false, model = 'ivrit-ai/whisper-large-v3-turbo' } = options ?? {};
 
-  await page.route('**/localhost:3000/health', async (route) => {
-    if (!connected) {
+  // Mock both direct localhost:3000 AND the Vite /whisper proxy path
+  const healthPatterns = ['**/localhost:3000/health', '**/whisper/health'];
+  for (const pattern of healthPatterns) {
+    await page.route(pattern, async (route) => {
+      if (!connected) {
+        return route.abort('connectionrefused');
+      }
+      return route.fulfill({
+        status: 200,
+        json: {
+          status: 'ok',
+          device: 'cuda',
+          gpu: 'NVIDIA GeForce RTX 5050 Laptop GPU',
+          current_model: model,
+          downloaded_models: [model],
+        },
+      });
+    });
+  }
+
+  const transcribePatterns = ['**/localhost:3000/transcribe-stream', '**/whisper/transcribe-stream'];
+  for (const pattern of transcribePatterns) {
+    await page.route(pattern, async (route) => {
+      if (!connected) return route.abort('connectionrefused');
+      // Return a simple SSE mock with a done event
+      const sseBody = [
+        'data: {"type":"info","duration":5.0}\n\n',
+        'data: {"type":"segment","text":"טקסט תמלול מוק","progress":100,"words":[]}\n\n',
+        'data: {"type":"done","text":"טקסט תמלול מוק","duration":5.0,"language":"he","model":"' + model + '","processing_time":1.2,"wordTimings":[]}\n\n',
+      ].join('');
+      return route.fulfill({
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+        body: sseBody,
+      });
+    });
+  }
+
+  const shutdownPatterns = ['**/localhost:3000/shutdown', '**/whisper/shutdown'];
+  for (const pattern of shutdownPatterns) {
+    await page.route(pattern, async (route) => {
+      return route.fulfill({ status: 200, json: { status: 'shutting_down' } });
+    });
+  }
+
+  const modelsPatterns = ['**/localhost:3000/models', '**/whisper/models'];
+  for (const pattern of modelsPatterns) {
+    await page.route(pattern, async (route) => {
+      return route.fulfill({
+        status: 200,
+        json: { models: [model], current: model },
+      });
+    });
+  }
+
+  const downloadedModelsPatterns = ['**/localhost:3000/downloaded-models', '**/whisper/downloaded-models'];
+  for (const pattern of downloadedModelsPatterns) {
+    await page.route(pattern, async (route) => {
+      return route.fulfill({
+        status: 200,
+        json: { models: [{ name: model, size_mb: 1500 }] },
+      });
+    });
+  }
+
+  // Also block convert-mp3 to prevent tests from hitting real server
+  const convertPatterns = ['**/localhost:3000/convert-mp3', '**/whisper/convert-mp3'];
+  for (const pattern of convertPatterns) {
+    await page.route(pattern, async (route) => {
+      if (!connected) return route.abort('connectionrefused');
       return route.abort('connectionrefused');
-    }
-    return route.fulfill({
-      status: 200,
-      json: {
-        status: 'ok',
-        device: 'cuda',
-        gpu: 'NVIDIA GeForce RTX 5050 Laptop GPU',
-        current_model: model,
-        downloaded_models: [model],
-      },
     });
-  });
-
-  await page.route('**/localhost:3000/transcribe-stream', async (route) => {
-    if (!connected) return route.abort('connectionrefused');
-    // Return a simple SSE mock with a done event
-    const sseBody = [
-      'data: {"type":"info","duration":5.0}\n\n',
-      'data: {"type":"segment","text":"טקסט תמלול מוק","progress":100,"words":[]}\n\n',
-      'data: {"type":"done","text":"טקסט תמלול מוק","duration":5.0,"language":"he","model":"' + model + '","processing_time":1.2,"wordTimings":[]}\n\n',
-    ].join('');
-    return route.fulfill({
-      status: 200,
-      headers: { 'Content-Type': 'text/event-stream' },
-      body: sseBody,
-    });
-  });
-
-  await page.route('**/localhost:3000/shutdown', async (route) => {
-    return route.fulfill({ status: 200, json: { status: 'shutting_down' } });
-  });
-
-  await page.route('**/localhost:3000/models', async (route) => {
-    return route.fulfill({
-      status: 200,
-      json: { models: [model], current: model },
-    });
-  });
-
-  await page.route('**/localhost:3000/downloaded-models', async (route) => {
-    return route.fulfill({
-      status: 200,
-      json: { models: [{ name: model, size_mb: 1500 }] },
-    });
-  });
+  }
 }
 
 /** Create a minimal WAV file buffer for upload tests */

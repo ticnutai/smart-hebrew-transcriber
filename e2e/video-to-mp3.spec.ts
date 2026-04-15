@@ -2,6 +2,8 @@ import { test, expect, mockSupabase, injectAuthSession, mockLocalServer } from '
 
 const RUN_REAL_FFMPEG_E2E = process.env.RUN_REAL_FFMPEG_E2E === '1';
 
+test.describe.configure({ mode: 'serial' });
+
 // ─── Generate a real WAV buffer (sine tone) that FFmpeg can actually convert ─
 function createToneWavBuffer(durationSec = 2, freq = 440, sampleRate = 16000): Buffer {
   const numSamples = sampleRate * durationSec;
@@ -30,18 +32,17 @@ function createToneWavBuffer(durationSec = 2, freq = 440, sampleRate = 16000): B
   return buf;
 }
 
-test.describe('ממיר וידאו ל-MP3', () => {
+test.describe('ממיר וידאו ואודיו', () => {
   test.beforeEach(async ({ page }) => {
     await mockSupabase(page, { authenticated: true });
     await injectAuthSession(page);
     await mockLocalServer(page);
-    await page.goto('/video-to-mp3');
+    await page.goto('/video-to-mp3', { waitUntil: 'domcontentloaded' });
   });
 
   test('הדף נטען עם כותרת ואזור גרירה', async ({ page }) => {
-    await expect(page.getByText('ממיר וידאו ל-MP3')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(/ממיר וידאו ל-MP3|ממיר וידאו ואודיו/)).toBeVisible({ timeout: 15000 });
     await expect(page.getByText('גרור קבצים לכאן או לחץ לבחירה')).toBeVisible();
-    // Parallel workers badge
     await expect(page.getByText(/מקבילים/)).toBeVisible();
   });
 
@@ -53,7 +54,7 @@ test.describe('ממיר וידאו ל-MP3', () => {
   });
 
   test('העלאת קובץ מציגה כרטיס עבודה', async ({ page }) => {
-    await expect(page.getByText('ממיר וידאו ל-MP3')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(/ממיר וידאו ל-MP3|ממיר וידאו ואודיו/)).toBeVisible({ timeout: 15000 });
 
     // Create a minimal valid file and upload via the hidden input
     const fileInput = page.locator('input[type="file"]');
@@ -69,7 +70,7 @@ test.describe('ממיר וידאו ל-MP3', () => {
   });
 
   test('קובץ לא נתמך מציג הודעת שגיאה', async ({ page }) => {
-    await expect(page.getByText('ממיר וידאו ל-MP3')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(/ממיר וידאו ל-MP3|ממיר וידאו ואודיו/)).toBeVisible({ timeout: 15000 });
 
     const fileInput = page.locator('input[type="file"]');
     const buffer = Buffer.alloc(64, 0);
@@ -86,7 +87,7 @@ test.describe('ממיר וידאו ל-MP3', () => {
   });
 
   test('מספר קבצים מועלים במקביל', async ({ page }) => {
-    await expect(page.getByText('ממיר וידאו ל-MP3')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(/ממיר וידאו ל-MP3|ממיר וידאו ואודיו/)).toBeVisible({ timeout: 15000 });
 
     const fileInput = page.locator('input[type="file"]');
     const buffer = Buffer.alloc(512, 0);
@@ -107,7 +108,7 @@ test.describe('ממיר וידאו ל-MP3', () => {
 
   test('כפתור ניווט בסרגל הצד', async ({ page }) => {
     // Verify we arrived at the page via sidebar
-    await expect(page.getByText('ממיר וידאו ל-MP3')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(/ממיר וידאו ל-MP3|ממיר וידאו ואודיו/)).toBeVisible({ timeout: 15000 });
     // Check the sidebar has the nav item (text or link)
     const sidebarItem = page.getByText('ממיר ל-MP3');
     await expect(sidebarItem.first()).toBeVisible({ timeout: 10000 });
@@ -122,9 +123,13 @@ test.describe('ממיר וידאו ל-MP3', () => {
 
 test.describe('ממיר וידאו - ללא חיבור', () => {
   test('הפניה לדף התחברות כשלא מחובר', async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
     await mockSupabase(page, { authenticated: false });
     await mockLocalServer(page);
-    await page.goto('/video-to-mp3');
+    await page.goto('/video-to-mp3', { waitUntil: 'domcontentloaded' });
 
     // Should redirect to auth page
     await page.waitForURL(/\/(auth|login)/, { timeout: 15000 });
@@ -139,7 +144,7 @@ test.describe('המרה אמיתית WAV → MP3', () => {
     await mockSupabase(page, { authenticated: true });
     await injectAuthSession(page);
     await mockLocalServer(page);
-    await page.goto('/video-to-mp3');
+    await page.goto('/video-to-mp3', { waitUntil: 'domcontentloaded' });
     await page.waitForLoadState('networkidle');
     await expect(page.getByText('גרור קבצים לכאן או לחץ לבחירה')).toBeVisible({ timeout: 30000 });
   });
@@ -180,10 +185,10 @@ test.describe('המרה אמיתית WAV → MP3', () => {
 
     // Dialog should have both "transcribe" and "save" buttons
     await expect(page.getByText('תמלל את הקובץ')).toBeVisible();
-    await expect(page.getByText('שמור כ-MP3')).toBeVisible();
+    await expect(page.getByText('שמור קובץ')).toBeVisible();
 
     // Close the dialog by clicking save
-    await page.getByText('שמור כ-MP3').click();
+    await page.getByText('שמור קובץ').click();
     await expect(page.getByText('הקובץ נשמר ✓').first()).toBeVisible({ timeout: 5000 });
   });
 
@@ -238,5 +243,70 @@ test.describe('המרה אמיתית WAV → MP3', () => {
 
     // Error message should show
     await expect(page.getByText(/שגיאות/).first()).toBeVisible({ timeout: 5000 });
+  });
+});
+
+// ─── OPUS conversion test ────────────────────────────────────────────────────
+test.describe('המרה אמיתית WAV → OPUS', () => {
+  test.skip(!RUN_REAL_FFMPEG_E2E, 'Requires real FFmpeg WASM runtime');
+
+  test.beforeEach(async ({ page }) => {
+    await mockSupabase(page, { authenticated: true });
+    await injectAuthSession(page);
+    await mockLocalServer(page);
+    await page.goto('/video-to-mp3', { waitUntil: 'domcontentloaded' });
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByText('גרור קבצים לכאן או לחץ לבחירה')).toBeVisible({ timeout: 30000 });
+  });
+
+  test('המרת קובץ WAV ל-OPUS מצליחה בדפדפן', async ({ page }) => {
+    test.setTimeout(180_000);
+
+    // Capture browser console for FFmpeg diagnostic output
+    const consoleLogs: string[] = [];
+    page.on('console', (msg) => {
+      const text = msg.text();
+      if (text.includes('FFmpeg') || text.includes('opus') || text.includes('OPUS') || text.includes('encoder') || text.includes('libopus') || text.includes('Error') || text.includes('error')) {
+        consoleLogs.push(`[${msg.type()}] ${text}`);
+      }
+    });
+
+    // 1. Switch output format to OPUS
+    const opusButton = page.getByRole('button', { name: 'OPUS' });
+    await opusButton.click();
+    await expect(page.getByText(/נבחר:.*OPUS/)).toBeVisible({ timeout: 3000 });
+
+    // 2. Generate and upload a real WAV file
+    const wavBuffer = createToneWavBuffer(2, 440, 16000);
+    const fileInput = page.locator('input[type="file"]');
+    await fileInput.setInputFiles({
+      name: 'test-opus-tone.wav',
+      mimeType: 'audio/wav',
+      buffer: wavBuffer,
+    });
+
+    // 3. Job card should appear
+    await expect(page.getByText('test-opus-tone.wav')).toBeVisible({ timeout: 10000 });
+
+    // 4. Wait for conversion to finish (done OR error)
+    const jobCard = page.locator('[data-testid="job-card"]').first();
+    await expect(jobCard).toBeVisible({ timeout: 10000 });
+    await expect(jobCard).toHaveAttribute('data-status', /done|error/, { timeout: 120_000 });
+
+    // 5. Capture result
+    const status = await jobCard.getAttribute('data-status');
+    if (status === 'error') {
+      // Collect visible error text from the job card
+      const errorText = await jobCard.innerText();
+      console.log('=== OPUS CONVERSION ERROR ===');
+      console.log('Job card text:', errorText);
+      console.log('Console logs:', consoleLogs.join('\n'));
+      console.log('=== END ===');
+    }
+
+    // 6. Assert it succeeded
+    await expect(jobCard).toHaveAttribute('data-status', 'done', { timeout: 5000 });
+    await expect(page.getByText('test-opus-tone.opus')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(/1\/1 הושלמו/)).toBeVisible({ timeout: 5000 });
   });
 });
