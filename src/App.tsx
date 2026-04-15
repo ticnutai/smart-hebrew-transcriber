@@ -9,7 +9,6 @@ import AppSidebar from "./components/AppSidebar";
 import AppLayout from "./components/AppLayout";
 import { Loader2 } from "lucide-react";
 import CloudKeySync from "./components/CloudKeySync";
-import UserFloatingBadge from "./components/UserFloatingBadge";
 import { SmartConsole } from "./components/SmartConsole";
 import { TranscriptionAnalytics } from "./components/TranscriptionAnalytics";
 import { PWAInstallButton } from "./components/PWAInstallButton";
@@ -124,7 +123,6 @@ const App = () => {
           <CloudKeySync />
           <BackgroundSync />
           <SWUpdateNotifier />
-          <UserFloatingBadge />
           <SmartConsole />
           <TranscriptionAnalytics />
           <PWAInstallButton />
