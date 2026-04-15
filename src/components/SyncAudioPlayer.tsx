@@ -690,7 +690,84 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
     }
   }, [humNotchEnabled, humNotchFreq, isBypassEnhancement, enhancementStrength]);
 
-  // ─── Waveform Visualization ──────────────────────────────────
+  // ─── Output Gain (volume boost after processing) ─────────────
+  useEffect(() => {
+    if (outputGainRef.current) {
+      outputGainRef.current.gain.value = outputGain;
+    }
+  }, [outputGain]);
+
+  // ─── 5-band EQ real-time update ─────────────────────────────
+  useEffect(() => {
+    if (eqBassRef.current) eqBassRef.current.gain.value = eqBass;
+    if (eqLowMidRef.current) eqLowMidRef.current.gain.value = eqLowMid;
+    if (eqMidRef.current) eqMidRef.current.gain.value = eqMid;
+    if (eqHighMidRef.current) eqHighMidRef.current.gain.value = eqHighMid;
+    if (eqTrebleRef.current) eqTrebleRef.current.gain.value = eqTreble;
+  }, [eqBass, eqLowMid, eqMid, eqHighMid, eqTreble]);
+
+  // ─── Frequency Spectrum (Equalizer) Visualization ────────────
+  const drawEqualizer = useCallback(() => {
+    const canvas = eqCanvasRef.current;
+    const analyser = analyserRef.current;
+    if (!canvas || !analyser) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+
+    const W = rect.width;
+    const H = rect.height;
+
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    analyser.getByteFrequencyData(dataArray);
+
+    ctx.clearRect(0, 0, W, H);
+
+    // Dark background
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.6)';
+    ctx.fillRect(0, 0, W, H);
+
+    const barCount = 64;
+    const step = Math.floor(bufferLength / barCount);
+    const barW = W / barCount;
+    const gap = 1;
+
+    for (let i = 0; i < barCount; i++) {
+      let sum = 0;
+      for (let j = 0; j < step; j++) {
+        sum += dataArray[i * step + j];
+      }
+      const avg = sum / step;
+      const barH = (avg / 255) * H * 0.9;
+
+      const hue = 200 + (i / barCount) * 120; // blue to green
+      ctx.fillStyle = `hsla(${hue}, 80%, 60%, 0.85)`;
+      ctx.fillRect(i * barW + gap / 2, H - barH, barW - gap, barH);
+
+      // Glow on top
+      ctx.fillStyle = `hsla(${hue}, 90%, 75%, 0.5)`;
+      ctx.fillRect(i * barW + gap / 2, H - barH, barW - gap, 2);
+    }
+
+    eqAnimFrameRef.current = requestAnimationFrame(drawEqualizer);
+  }, []);
+
+  useEffect(() => {
+    if (isPlaying && showEqualizer && analyserRef.current) {
+      drawEqualizer();
+    }
+    return () => {
+      if (eqAnimFrameRef.current) cancelAnimationFrame(eqAnimFrameRef.current);
+    };
+  }, [isPlaying, showEqualizer, drawEqualizer]);
+
   const drawWaveform = useCallback(() => {
     const canvas = canvasRef.current;
     const analyser = analyserRef.current;
