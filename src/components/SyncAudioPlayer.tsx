@@ -126,13 +126,14 @@ function clampSpeed(v: number): number {
   return Math.min(2, Math.max(0.5, Number(v.toFixed(2))));
 }
 
-type IssueType = 'low-volume' | 'clipping' | 'hiss-risk';
+type IssueType = 'low-volume' | 'clipping' | 'hiss-risk' | 'hiss';
 
 interface ProblemSegment {
+  id: string;
+  issueType: IssueType;
   start: number;
   end: number;
   severity: number;
-  type: IssueType;
 }
 
 interface UserNoisePreset {
