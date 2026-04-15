@@ -2163,7 +2163,7 @@ const DiarizationComparePage = () => {
       {showAnalysis && (
         <div className="shrink-0 border-t bg-background max-h-[50vh] overflow-y-auto">
           <div className="p-4 space-y-4">
-            <Tabs defaultValue="diff" className="w-full">
+            <Tabs defaultValue="diff" className="w-full" dir="rtl">
               <TabsList className="w-full max-w-2xl mb-3">
                 <TabsTrigger value="diff" className="flex-1 text-xs gap-1.5">
                   <GitCompareArrows className="w-3.5 h-3.5" />

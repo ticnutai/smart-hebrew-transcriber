@@ -650,7 +650,7 @@ export default function VideoToMp3() {
         </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "convert" | "cut")} className="space-y-4">
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "convert" | "cut")} className="space-y-4" dir="rtl">
         <TabsList className="grid w-full grid-cols-2 max-w-[360px]">
           <TabsTrigger value="convert" className="gap-1.5">
             <Music className="w-4 h-4" />

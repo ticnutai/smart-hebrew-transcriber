@@ -180,7 +180,7 @@ export default function VoiceStudio() {
         </div>
       </div>
 
-      <Tabs defaultValue="enhance" className="space-y-4">
+      <Tabs defaultValue="enhance" className="space-y-4" dir="rtl">
         <TabsList className="h-auto p-1.5 rounded-xl bg-muted/60 border flex flex-wrap justify-start gap-1">
           <TabsTrigger value="enhance" className="rounded-lg data-[state=active]:shadow-sm">שיפור וטעינה</TabsTrigger>
           <TabsTrigger value="batch" className="rounded-lg data-[state=active]:shadow-sm">קבצים ותיקיות</TabsTrigger>

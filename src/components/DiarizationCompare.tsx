@@ -261,7 +261,7 @@ export const DiarizationCompare = ({ entries }: DiarizationCompareProps) => {
         </Card>
       )}
 
-      <Tabs defaultValue="diff" className="w-full">
+      <Tabs defaultValue="diff" className="w-full" dir="rtl">
         <TabsList className="w-full">
           <TabsTrigger value="diff" className="flex-1 text-xs gap-1">
             <GitCompareArrows className="w-3.5 h-3.5" />

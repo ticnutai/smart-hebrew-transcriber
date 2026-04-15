@@ -171,7 +171,7 @@ export const AdvancedDiffView = ({
           
           <div className="flex-1" />
           
-          <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as any)} className="w-auto">
+          <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as any)} className="w-auto" dir="rtl">
             <TabsList className="h-8">
               <TabsTrigger value="side-by-side" className="text-xs px-2 h-7">צד-בצד</TabsTrigger>
               <TabsTrigger value="unified" className="text-xs px-2 h-7">מאוחד</TabsTrigger>

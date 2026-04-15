@@ -183,7 +183,7 @@ const Dashboard = () => {
                   <CardTitle className="text-xl">תמלולים אחרונים</CardTitle>
                 </div>
                 <div className="flex items-center gap-2">
-                  <DropdownMenu>
+                  <DropdownMenu dir="rtl">
                     <DropdownMenuTrigger asChild>
                       <Button variant="outline" size="icon" className="h-8 w-8" title="תצוגה">
                         {recentViewMode === 'cards' ? <LayoutGrid className="w-4 h-4" /> : recentViewMode === 'table' ? <Table2 className="w-4 h-4" /> : recentViewMode === 'rectangles' ? <RectangleHorizontal className="w-4 h-4" /> : <Grid3X3 className="w-4 h-4" />}

@@ -274,7 +274,7 @@ export const FolderManager = ({ transcripts, onUpdate, onDelete, onGetAudioUrl }
                 </Dialog>
               </div>
             )}
-            <DropdownMenu>
+            <DropdownMenu dir="rtl">
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="icon" className="h-8 w-8" title="תצוגה">
                   {viewMode === 'cards' ? <LayoutGrid className="w-4 h-4" /> : viewMode === 'table' ? <Table2 className="w-4 h-4" /> : viewMode === 'rectangles' ? <RectangleHorizontal className="w-4 h-4" /> : <Grid3X3 className="w-4 h-4" />}
@@ -356,7 +356,7 @@ export const FolderManager = ({ transcripts, onUpdate, onDelete, onGetAudioUrl }
 
         {/* Categories dropdown */}
         <div className="flex flex-wrap gap-2 items-center">
-          <DropdownMenu>
+          <DropdownMenu dir="rtl">
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm" className="gap-1">
                 <Filter className="w-3.5 h-3.5" />

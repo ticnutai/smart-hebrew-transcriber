@@ -877,8 +877,8 @@ export default function Benchmark() {
       )}
 
       {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="w-full justify-start" dir="rtl">
+      <Tabs value={activeTab} onValueChange={setActiveTab} dir="rtl">
+        <TabsList className="w-full justify-start">
           <TabsTrigger value="all" className="gap-1">
             <BarChart3 className="w-3.5 h-3.5" /> הכל
           </TabsTrigger>
