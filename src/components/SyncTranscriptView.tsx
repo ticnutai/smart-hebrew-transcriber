@@ -92,7 +92,7 @@ export const SyncTranscriptView = ({
   }
 
   return (
-    <Card className="p-4" dir="rtl">
+    <Card className="p-4 flex flex-col h-full" dir="rtl">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <AlignRight className="w-4 h-4 text-primary" />
@@ -111,7 +111,7 @@ export const SyncTranscriptView = ({
 
       <div
         ref={containerRef}
-        className="max-h-[500px] overflow-y-auto p-4 rounded-lg bg-muted/20 scroll-smooth"
+        className="flex-1 overflow-y-auto p-4 rounded-lg bg-muted/20 scroll-smooth"
         style={{ fontSize: `${fontSize}px`, fontFamily, lineHeight: 2 }}
       >
         {sentences.map((sentence, si) => {
