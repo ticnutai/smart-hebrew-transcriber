@@ -1,37 +1,69 @@
 /**
- * AI-style Noise Suppression using Web Audio API
- * Uses spectral subtraction with noise estimation - runs entirely in browser
+ * RNNoise WASM Neural Noise Suppression
+ * Uses @shiguredo/rnnoise-wasm — real RNN-based noise reduction in the browser.
+ * RNNoise processes 480-sample frames at 48kHz, expects 16-bit PCM scale.
  */
+import { Rnnoise } from '@shiguredo/rnnoise-wasm';
 
 export interface NoiseSuppressionState {
   enabled: boolean;
   strength: number; // 0-1
 }
 
-export function createNoiseSuppressionChain(
-  ctx: AudioContext,
-  input: AudioNode,
-  output: AudioNode,
-): {
+// Singleton RNNoise WASM instance
+let _rnnoiseInstance: Rnnoise | null = null;
+let _loadPromise: Promise<Rnnoise | null> | null = null;
+
+function getRnnoise(): Promise<Rnnoise | null> {
+  if (_rnnoiseInstance) return Promise.resolve(_rnnoiseInstance);
+  if (!_loadPromise) {
+    _loadPromise = Rnnoise.load()
+      .then(r => { _rnnoiseInstance = r; return r; })
+      .catch(() => null);
+  }
+  return _loadPromise;
+}
+
+export type NoiseSuppressionChain = {
   enable: () => void;
   disable: () => void;
   setStrength: (v: number) => void;
   isEnabled: () => boolean;
   destroy: () => void;
-} {
-  const FRAME_SIZE = 2048;
+};
+
+export async function createNoiseSuppressionChain(
+  ctx: AudioContext,
+  input: AudioNode,
+  output: AudioNode,
+): Promise<NoiseSuppressionChain> {
+  const rnnoise = await getRnnoise();
+
+  if (!rnnoise) {
+    // WASM failed to load — silent pass-through
+    input.connect(output);
+    return {
+      enable() {}, disable() {}, setStrength() {},
+      isEnabled() { return false; },
+      destroy() { try { input.disconnect(output); } catch {} },
+    };
+  }
+
+  const denoiseState = rnnoise.createDenoiseState();
+  const FRAME_SIZE = rnnoise.frameSize; // 480
+
   let enabled = false;
   let strength = 0.7;
 
-  // Noise floor estimation (running average of quiet frames)
-  const noiseFloor = new Float32Array(FRAME_SIZE / 2 + 1);
-  let noiseEstimated = false;
-  let frameCount = 0;
-  const NOISE_LEARN_FRAMES = 15;
+  // Ring buffers for frame alignment
+  const RING_LEN = FRAME_SIZE * 8;
+  const inputRing = new Float32Array(RING_LEN);
+  const origRing = new Float32Array(RING_LEN);  // keep originals for dry/wet mix
+  const outputRing = new Float32Array(RING_LEN);
+  let inW = 0, inR = 0, inN = 0;
+  let outW = 0, outR = 0, outN = 0;
 
-  const analyser = ctx.createAnalyser();
-  analyser.fftSize = FRAME_SIZE;
-  analyser.smoothingTimeConstant = 0.3;
+  const frame = new Float32Array(FRAME_SIZE);
 
   // Wet/dry gain nodes
   const dryGain = ctx.createGain();
@@ -39,110 +71,72 @@ export function createNoiseSuppressionChain(
   dryGain.gain.value = 1;
   wetGain.gain.value = 0;
 
-  // Processing chain for wet path
-  // We use a series of narrow notch/bandpass filters to attenuate noise bands
-  const NUM_BANDS = 8;
-  const bandFilters: BiquadFilterNode[] = [];
-  const bandFreqs = [125, 250, 500, 1000, 2000, 4000, 6000, 8000];
+  // ScriptProcessor for sample-level RNNoise processing
+  const BUFFER_SIZE = 512;
+  const scriptNode = ctx.createScriptProcessor(BUFFER_SIZE, 1, 1);
 
-  let prevNode: AudioNode = input;
-  for (let i = 0; i < NUM_BANDS; i++) {
-    const f = ctx.createBiquadFilter();
-    f.type = 'peaking';
-    f.frequency.value = bandFreqs[i];
-    f.Q.value = 1.5;
-    f.gain.value = 0;
-    bandFilters.push(f);
-    prevNode.connect(f);
-    prevNode = f;
-  }
+  scriptNode.onaudioprocess = (e) => {
+    const inp = e.inputBuffer.getChannelData(0);
+    const out = e.outputBuffer.getChannelData(0);
 
-  // Compressor for dynamic noise reduction
-  const expander = ctx.createDynamicsCompressor();
-  expander.threshold.value = -45;
-  expander.ratio.value = 4;
-  expander.knee.value = 10;
-  expander.attack.value = 0.005;
-  expander.release.value = 0.1;
-  prevNode.connect(expander);
-  expander.connect(wetGain);
+    if (!enabled) {
+      out.set(inp);
+      return;
+    }
 
-  // Dry path
+    // Push samples into input ring
+    for (let i = 0; i < inp.length; i++) {
+      inputRing[inW] = inp[i];
+      origRing[inW] = inp[i];
+      inW = (inW + 1) % RING_LEN;
+      inN++;
+    }
+
+    // Process complete 480-sample frames
+    while (inN >= FRAME_SIZE) {
+      // Read & scale to 16-bit PCM
+      for (let j = 0; j < FRAME_SIZE; j++) {
+        frame[j] = inputRing[inR] * 32768.0;
+        inR = (inR + 1) % RING_LEN;
+      }
+      inN -= FRAME_SIZE;
+
+      // RNNoise processes in-place, returns VAD score
+      denoiseState.processFrame(frame);
+
+      // Mix clean (wet) with original (dry) per-sample using strength
+      let origIdx = (inR - FRAME_SIZE + RING_LEN * 2) % RING_LEN;
+      for (let j = 0; j < FRAME_SIZE; j++) {
+        const clean = frame[j] / 32768.0;
+        const orig = origRing[(origIdx + j) % RING_LEN];
+        outputRing[outW] = clean * strength + orig * (1 - strength);
+        outW = (outW + 1) % RING_LEN;
+        outN++;
+      }
+    }
+
+    // Read processed samples into output
+    for (let i = 0; i < out.length; i++) {
+      if (outN > 0) {
+        out[i] = outputRing[outR];
+        outR = (outR + 1) % RING_LEN;
+        outN--;
+      } else {
+        out[i] = inp[i]; // buffer underrun: pass through
+      }
+    }
+  };
+
+  // Routing: wet path through ScriptProcessor, dry path direct
+  input.connect(scriptNode);
+  scriptNode.connect(wetGain);
   input.connect(dryGain);
-
-  // Both to output
   dryGain.connect(output);
   wetGain.connect(output);
 
-  // Connect analyser to input for noise analysis
-  input.connect(analyser);
-
-  // ScriptProcessor for noise analysis (lightweight - only reads data)
-  const freqData = new Float32Array(analyser.frequencyBinCount);
-
-  let intervalId: ReturnType<typeof setInterval> | null = null;
-
-  function startAnalysis() {
-    if (intervalId) return;
-    frameCount = 0;
-    noiseEstimated = false;
-    noiseFloor.fill(0);
-
-    intervalId = setInterval(() => {
-      if (!enabled) return;
-      analyser.getFloatFrequencyData(freqData);
-
-      // Learn noise floor from first N frames (assumed quiet start)
-      if (!noiseEstimated && frameCount < NOISE_LEARN_FRAMES) {
-        for (let i = 0; i < freqData.length; i++) {
-          noiseFloor[i] += freqData[i] / NOISE_LEARN_FRAMES;
-        }
-        frameCount++;
-        if (frameCount >= NOISE_LEARN_FRAMES) {
-          noiseEstimated = true;
-          applyNoiseReduction();
-        }
-        return;
-      }
-
-      // Adaptive: if current frame is quieter than noise floor, update
-      if (noiseEstimated) {
-        const avgLevel = freqData.reduce((s, v) => s + v, 0) / freqData.length;
-        const avgNoise = noiseFloor.reduce((s, v) => s + v, 0) / noiseFloor.length;
-        if (avgLevel < avgNoise + 3) {
-          // Very quiet frame - update noise estimate slowly
-          for (let i = 0; i < freqData.length; i++) {
-            noiseFloor[i] = noiseFloor[i] * 0.95 + freqData[i] * 0.05;
-          }
-          applyNoiseReduction();
-        }
-      }
-    }, 100);
-  }
-
-  function applyNoiseReduction() {
-    // Map noise floor to band filter gains
-    for (let i = 0; i < NUM_BANDS; i++) {
-      const freq = bandFreqs[i];
-      const binIndex = Math.round(freq / (ctx.sampleRate / FRAME_SIZE));
-      const noiseLevelDb = noiseFloor[Math.min(binIndex, noiseFloor.length - 1)] || -80;
-      
-      // If noise is loud in this band, attenuate it
-      // Scale by strength
-      const attenuation = Math.min(0, Math.max(-18, (noiseLevelDb + 40) * strength * -0.5));
-      bandFilters[i].gain.value = attenuation;
-    }
-
-    // Adjust expander threshold based on noise level
-    const avgNoise = noiseFloor.reduce((s, v) => s + v, 0) / noiseFloor.length;
-    expander.threshold.value = Math.max(-60, Math.min(-20, avgNoise + 15 * strength));
-  }
-
-  function stopAnalysis() {
-    if (intervalId) {
-      clearInterval(intervalId);
-      intervalId = null;
-    }
+  function resetBuffers() {
+    inW = inR = inN = 0;
+    outW = outR = outN = 0;
   }
 
   return {
@@ -150,33 +144,24 @@ export function createNoiseSuppressionChain(
       enabled = true;
       dryGain.gain.value = 0;
       wetGain.gain.value = 1;
-      startAnalysis();
+      resetBuffers();
     },
     disable() {
       enabled = false;
       dryGain.gain.value = 1;
       wetGain.gain.value = 0;
-      stopAnalysis();
-      // Reset filters
-      bandFilters.forEach(f => { f.gain.value = 0; });
     },
     setStrength(v: number) {
       strength = Math.max(0, Math.min(1, v));
-      if (noiseEstimated) applyNoiseReduction();
     },
     isEnabled() { return enabled; },
     destroy() {
-      stopAnalysis();
-      try {
-        input.disconnect(analyser);
-        input.disconnect(dryGain);
-        bandFilters.forEach((f, i) => {
-          try { f.disconnect(); } catch {}
-        });
-        expander.disconnect();
-        dryGain.disconnect();
-        wetGain.disconnect();
-      } catch {}
+      try { input.disconnect(scriptNode); } catch {}
+      try { input.disconnect(dryGain); } catch {}
+      try { scriptNode.disconnect(); } catch {}
+      try { dryGain.disconnect(); } catch {}
+      try { wetGain.disconnect(); } catch {}
+      denoiseState.destroy();
     },
   };
 }

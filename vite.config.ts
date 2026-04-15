@@ -156,7 +156,7 @@ export default defineConfig(({ mode }) => {
   },
   optimizeDeps: {
     include: ['react', 'react-dom'],
-    exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/core', '@ffmpeg/util'],
+    exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/core', '@ffmpeg/util', '@shiguredo/rnnoise-wasm'],
   },
   build: {
     rollupOptions: {

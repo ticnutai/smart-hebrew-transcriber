@@ -369,7 +369,7 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
   const [lufsIntegrated, setLufsIntegrated] = useState(-Infinity);
 
   // Refs for advanced processing modules
-  const aiDenoiseRef = useRef<ReturnType<typeof import('@/lib/rnnoiseProcessor').createNoiseSuppressionChain> | null>(null);
+  const aiDenoiseRef = useRef<Awaited<ReturnType<typeof import('@/lib/rnnoiseProcessor').createNoiseSuppressionChain>> | null>(null);
   const spectralGateRef = useRef<ReturnType<typeof import('@/lib/spectralGate').createSpectralGate> | null>(null);
   const vadRef = useRef<ReturnType<typeof import('@/lib/voiceActivityDetection').createVAD> | null>(null);
   const deHumRef = useRef<ReturnType<typeof import('@/lib/deHum').createDeHum> | null>(null);
@@ -987,7 +987,7 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
       // These modules connect input→processing→output internally
       // We use the analyser as a tap point (non-destructive)
       if (!aiDenoiseRef.current) {
-        aiDenoiseRef.current = rnnoiseModule.createNoiseSuppressionChain(ctx, gain, ctx.destination);
+        aiDenoiseRef.current = await rnnoiseModule.createNoiseSuppressionChain(ctx, gain, ctx.destination);
       }
       if (!spectralGateRef.current) {
         spectralGateRef.current = spectralModule.createSpectralGate(ctx, gain, ctx.destination);
