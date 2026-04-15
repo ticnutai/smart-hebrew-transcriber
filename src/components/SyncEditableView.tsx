@@ -127,7 +127,7 @@ export const SyncEditableView = ({
         <textarea
           value={editText}
           onChange={(e) => setEditText(e.target.value)}
-          className="flex-1 min-h-[200px] w-full rounded-lg bg-muted/20 p-3 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+          className="flex-1 min-h-[200px] w-full rounded-lg bg-muted/20 p-4 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-primary"
           style={{ fontSize: `${fontSize}px`, fontFamily, lineHeight: 2, direction: 'rtl' }}
         />
       ) : (
