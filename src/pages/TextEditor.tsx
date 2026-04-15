@@ -534,7 +534,7 @@ const TextEditor = () => {
         {/* Compact Header */}
         <div className="flex items-center justify-between pb-2">
           <div className="flex items-center gap-3">
-            <h1 className="text-xl font-semibold tracking-tight">עריכת טקסט</h1>
+            <h1 className="text-2xl font-bold tracking-tight">עריכת טקסט</h1>
             <span className="text-xs text-muted-foreground hidden sm:inline">ערוך · שפר · השווה</span>
           </div>
           <div className="flex items-center gap-1.5">
