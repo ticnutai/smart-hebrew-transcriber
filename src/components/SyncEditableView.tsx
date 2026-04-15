@@ -133,7 +133,7 @@ export const SyncEditableView = ({
       ) : (
         <div
           ref={containerRef}
-          className="flex-1 overflow-y-auto p-3 rounded-lg bg-muted/20 scroll-smooth"
+          className="flex-1 overflow-y-auto p-4 rounded-lg bg-muted/20 scroll-smooth"
           style={{ fontSize: `${fontSize}px`, fontFamily, lineHeight: 2 }}
         >
           {sentences.map((sentence, si) => {
