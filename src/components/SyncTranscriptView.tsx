@@ -92,7 +92,7 @@ export const SyncTranscriptView = ({
   }
 
   return (
-    <Card className="p-4" dir="rtl">
+    <Card className="p-4 flex flex-col h-full" dir="rtl">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <AlignRight className="w-4 h-4 text-primary" />
