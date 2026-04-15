@@ -12,6 +12,7 @@ import {
   type EnhanceQueueJob,
 } from "@/lib/audioEnhanceQueue";
 import AudioEnhanceDialog from "@/components/AudioEnhanceDialog";
+import { toast } from "@/hooks/use-toast";
 import {
   AudioLines,
   Download,
@@ -51,7 +52,10 @@ export default function VoiceStudio() {
     const file = e.target.files?.[0] || null;
     setSourceFile(file);
     if (file) {
-      setEnhanceDialogOpen(true);
+      toast({
+        title: "הקובץ נטען לסטודיו",
+        description: "לחץ על 'פתח חלון שיפור' כדי להתחיל שיפור מסודר",
+      });
     }
     e.target.value = "";
   }, []);

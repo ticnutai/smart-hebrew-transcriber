@@ -166,7 +166,7 @@ export default function AudioEnhanceDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-3xl" dir="rtl">
+      <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto" dir="rtl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-primary" />
@@ -223,7 +223,7 @@ export default function AudioEnhanceDialog({
             </div>
           </div>
 
-          <SyncAudioPlayer audioUrl={audioUrl} wordTimings={[]} />
+          <SyncAudioPlayer audioUrl={audioUrl} wordTimings={[]} compact />
 
           {enhancedUrl && enhancedFile && (
             <div className="space-y-2 border rounded-lg p-3 bg-muted/20">
@@ -234,9 +234,9 @@ export default function AudioEnhanceDialog({
           )}
         </div>
 
-        <DialogFooter className="flex-col sm:flex-row gap-2">
+        <DialogFooter className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
           <Button
-            className="gap-2 flex-1"
+            className="gap-2 w-full"
             disabled={!file || isEnhancing}
             onClick={() => void runEnhancement({ transcribeAfter: true })}
           >
@@ -245,7 +245,7 @@ export default function AudioEnhanceDialog({
           </Button>
           <Button
             variant="secondary"
-            className="gap-2 flex-1"
+            className="gap-2 w-full"
             disabled={!file || isEnhancing}
             onClick={() => void runEnhancement({ downloadAfter: true })}
           >
@@ -254,7 +254,7 @@ export default function AudioEnhanceDialog({
           </Button>
           <Button
             variant="outline"
-            className="gap-2 flex-1"
+            className="gap-2 w-full"
             disabled={!file || isEnhancing}
             onClick={() => void runEnhancement({})}
           >
@@ -263,7 +263,7 @@ export default function AudioEnhanceDialog({
           </Button>
           <Button
             variant="outline"
-            className="gap-2 flex-1"
+            className="gap-2 w-full"
             disabled={!file || isEnhancing}
             onClick={enqueueEnhancement}
           >
@@ -273,7 +273,7 @@ export default function AudioEnhanceDialog({
           {onTranscribe && file && (
             <Button
               variant="ghost"
-              className="gap-2 flex-1"
+              className="gap-2 w-full"
               onClick={() => {
                 onTranscribe(file);
                 onOpenChange(false);
@@ -283,11 +283,11 @@ export default function AudioEnhanceDialog({
               תמלל מקור
             </Button>
           )}
-          <Button variant="ghost" className="gap-2 flex-1" onClick={handleDownload} disabled={!file || !audioUrl}>
+          <Button variant="ghost" className="gap-2 w-full" onClick={handleDownload} disabled={!file || !audioUrl}>
             <Download className="w-4 h-4" />
             שמור מקור
           </Button>
-          <Button variant="outline" className="gap-2 flex-1" onClick={handleDownloadEnhanced} disabled={!enhancedFile || !enhancedUrl}>
+          <Button variant="outline" className="gap-2 w-full" onClick={handleDownloadEnhanced} disabled={!enhancedFile || !enhancedUrl}>
             <Download className="w-4 h-4" />
             הורד משופר
           </Button>
