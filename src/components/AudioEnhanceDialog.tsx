@@ -134,19 +134,24 @@ export default function AudioEnhanceDialog({
     a.click();
   };
 
-  const runEnhancement = async (opts: { downloadAfter?: boolean; transcribeAfter?: boolean }) => {
+  const runEnhancement = async (opts: {
+    downloadAfter?: boolean;
+    transcribeAfter?: boolean;
+    forceFullScope?: boolean;
+    presetOverride?: EnhancementPreset;
+  }) => {
     if (!file) return;
     setIsEnhancing(true);
     try {
       const inputFile = await (async () => {
-        if (scopeMode === "full") return file;
+        if (opts.forceFullScope || scopeMode === "full") return file;
         const start = Math.max(0, Number(partStartSec) || 0);
         const duration = Math.max(5, Number(partDurationSec) || 120);
         return extractAudioSegment(file, start, start + duration);
       })();
 
       const result = await enhanceAudioOnServer(inputFile, {
-        preset,
+        preset: opts.presetOverride || preset,
         outputFormat,
       });
       const nextFile = new File([result.blob], result.fileName, { type: result.mimeType });
@@ -229,6 +234,67 @@ export default function AudioEnhanceDialog({
     }
   };
 
+  const downloadRecommendationReport = (format: "json" | "txt") => {
+    if (!recommendation || !file) return;
+
+    const timestamp = new Date().toISOString();
+    const safeBaseName = file.name.replace(/\.[^/.]+$/, "");
+    const reportBase = `${safeBaseName}.transcription-recommendation.${timestamp.replace(/[:.]/g, "-")}`;
+
+    const payload = {
+      generatedAt: timestamp,
+      sourceFile: file.name,
+      sourceSizeBytes: file.size,
+      scopeMode,
+      scope:
+        scopeMode === "full"
+          ? { type: "full" as const }
+          : {
+              type: "part" as const,
+              startSec: Math.max(0, Number(partStartSec) || 0),
+              durationSec: Math.max(5, Number(partDurationSec) || 120),
+            },
+      language: recommendLanguage,
+      outputFormat,
+      bestPreset: recommendation.bestPreset,
+      rationale: recommendation.rationale,
+      baseline: recommendation.baseline,
+      candidates: recommendation.rows,
+    };
+
+    const textBody = [
+      "דוח המלצת שיפור לתמלול",
+      `נוצר בתאריך: ${timestamp}`,
+      `קובץ: ${file.name}`,
+      `שפה: ${recommendLanguage}`,
+      `פורמט יעד: ${outputFormat}`,
+      `טווח: ${scopeMode === "full" ? "קובץ מלא" : `חלקי (התחלה ${partStartSec}s, משך ${partDurationSec}s)`}`,
+      "",
+      `המלצה: ${recommendation.bestPreset.toUpperCase()}`,
+      `נימוק: ${recommendation.rationale}`,
+      "",
+      `בסיס - מילים: ${recommendation.baseline.wordCount}, ביטחון: ${(recommendation.baseline.avgProbability * 100).toFixed(1)}%, זמן: ${recommendation.baseline.processingTimeSec.toFixed(1)}s`,
+      "",
+      "מועמדים:",
+      ...recommendation.rows.map(
+        (r) =>
+          `- ${r.preset.toUpperCase()} | ציון ${r.score.toFixed(2)} | מילים ${r.wordCount} | ביטחון ${(r.avgProbability * 100).toFixed(1)}% | זמן ${r.processingTimeSec.toFixed(1)}s`,
+      ),
+    ].join("\n");
+
+    const blob =
+      format === "json"
+        ? new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" })
+        : new Blob([textBody], { type: "text/plain;charset=utf-8" });
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${reportBase}.${format}`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto" dir="rtl">
@@ -308,6 +374,31 @@ export default function AudioEnhanceDialog({
             {recommendation && (
               <div className="space-y-2 text-xs">
                 <p className="font-medium text-foreground">{recommendation.rationale}</p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    className="gap-2"
+                    disabled={!file || isEnhancing}
+                    onClick={() =>
+                      void runEnhancement({
+                        presetOverride: recommendation.bestPreset,
+                        forceFullScope: true,
+                        transcribeAfter: true,
+                      })
+                    }
+                  >
+                    {isEnhancing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mic className="w-4 h-4" />}
+                    החל המלצה על קובץ מלא + תמלל
+                  </Button>
+                  <Button size="sm" variant="outline" className="gap-2" onClick={() => downloadRecommendationReport("json")}>
+                    <Download className="w-4 h-4" />
+                    יצוא דוח JSON
+                  </Button>
+                  <Button size="sm" variant="outline" className="gap-2" onClick={() => downloadRecommendationReport("txt")}>
+                    <Download className="w-4 h-4" />
+                    יצוא דוח TXT
+                  </Button>
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {recommendation.rows.map((r) => (
                     <div key={r.preset} className="rounded border px-2 py-1.5 bg-background/70">
