@@ -1579,29 +1579,6 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
     </div>
   );
 
-  // ─── EQ + Processing Controls Panel ────────────────────────
-  const eqPanel = (
-    <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
-      <div className="flex items-center justify-between">
-        <p className="text-xs font-semibold flex items-center gap-1.5">
-          <AudioLines className="w-3.5 h-3.5 text-primary no-theme-icon" />
-          מיקסר מקצועי (אקולייזר + עיבוד)
-        </p>
-        <div className="flex items-center gap-1.5">
-          <button
-            className={`p-1 rounded text-[10px] transition-all ${!eqVerticalView ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'}`}
-            onClick={() => setEqVerticalView(false)}
-            title="תצוגה אופקית"
-          >═</button>
-          <button
-            className={`p-1 rounded text-[10px] transition-all ${eqVerticalView ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'}`}
-            onClick={() => setEqVerticalView(true)}
-            title="תצוגה אנכית (מיקסר)"
-          >║</button>
-        </div>
-      </div>
-    </div>
-  );
 
   return (
     <TooltipProvider delayDuration={300}>
