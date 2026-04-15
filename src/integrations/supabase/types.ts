@@ -485,15 +485,22 @@ export type Database = {
           cuda_preset: string | null
           cuda_vad_aggressive: boolean | null
           custom_themes: Json | null
+          dashboard_view_mode: string | null
+          default_ai_model: string | null
           draft_text: string | null
           editor_columns: number | null
           engine: string | null
+          folder_sort_asc: boolean | null
+          folder_sort_key: string | null
+          folder_view_mode: string | null
           font_family: string | null
           font_size: number | null
           id: string
           line_height: number | null
+          player_layout: string | null
           sidebar_pinned: boolean | null
           source_language: string | null
+          tab_settings_json: Json | null
           text_color: string | null
           theme: string | null
           updated_at: string
@@ -513,15 +520,22 @@ export type Database = {
           cuda_preset?: string | null
           cuda_vad_aggressive?: boolean | null
           custom_themes?: Json | null
+          dashboard_view_mode?: string | null
+          default_ai_model?: string | null
           draft_text?: string | null
           editor_columns?: number | null
           engine?: string | null
+          folder_sort_asc?: boolean | null
+          folder_sort_key?: string | null
+          folder_view_mode?: string | null
           font_family?: string | null
           font_size?: number | null
           id?: string
           line_height?: number | null
+          player_layout?: string | null
           sidebar_pinned?: boolean | null
           source_language?: string | null
+          tab_settings_json?: Json | null
           text_color?: string | null
           theme?: string | null
           updated_at?: string
@@ -541,15 +555,22 @@ export type Database = {
           cuda_preset?: string | null
           cuda_vad_aggressive?: boolean | null
           custom_themes?: Json | null
+          dashboard_view_mode?: string | null
+          default_ai_model?: string | null
           draft_text?: string | null
           editor_columns?: number | null
           engine?: string | null
+          folder_sort_asc?: boolean | null
+          folder_sort_key?: string | null
+          folder_view_mode?: string | null
           font_family?: string | null
           font_size?: number | null
           id?: string
           line_height?: number | null
+          player_layout?: string | null
           sidebar_pinned?: boolean | null
           source_language?: string | null
+          tab_settings_json?: Json | null
           text_color?: string | null
           theme?: string | null
           updated_at?: string

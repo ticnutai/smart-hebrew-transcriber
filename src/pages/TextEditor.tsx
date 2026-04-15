@@ -129,8 +129,10 @@ const TextEditor = () => {
     { id: "compare", label: "השוואה", group: "secondary" },
     { id: "history", label: "היסטוריה", group: "secondary" },
   ];
+  // Cloud-synced style settings (must be before effects that use preferences)
+  const { preferences, updatePreference } = useCloudPreferences();
+
   const [tabSettings, setTabSettings] = useState(() => {
-    // Try cloud settings first (parsed from preferences), fall back to localStorage
     return loadTabSettings();
   });
   const visibleTabs = tabSettings.visible;
@@ -155,7 +157,6 @@ const TextEditor = () => {
   const hasMigrated = useRef(false);
   useEffect(() => {
     if (hasMigrated.current) {
-      // After migration, just persist every change
       saveTabSettings(tabSettings.visible, tabSettings.order);
       return;
     }
@@ -164,11 +165,9 @@ const TextEditor = () => {
     const defaults = getDefaultTabConfig();
     const validIds = new Set(defaults.order);
 
-    // Remove tabs that no longer exist in code
     const sanitizedVisible = tabSettings.visible.filter((id) => validIds.has(id));
     const existingOrder = tabSettings.order.filter((id) => validIds.has(id));
 
-    // Only add genuinely NEW tabs (not previously known in saved order)
     const knownIds = new Set(tabSettings.order);
     const genuinelyNewTabs = defaults.order.filter((id) => !knownIds.has(id));
     const mergedVisible = [...sanitizedVisible, ...genuinelyNewTabs];
@@ -187,9 +186,6 @@ const TextEditor = () => {
       saveTabSettings(tabSettings.visible, tabSettings.order);
     }
   }, [tabSettings]);
-  
-  // Cloud-synced style settings
-  const { preferences, updatePreference } = useCloudPreferences();
   const fontSize = preferences.font_size;
   const fontFamily = preferences.font_family;
   const textColor = preferences.text_color;
