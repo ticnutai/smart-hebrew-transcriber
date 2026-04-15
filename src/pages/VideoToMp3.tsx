@@ -1099,7 +1099,7 @@ export default function VideoToMp3() {
                 </ScrollArea>
               </CardContent>
             </Card>
-          )
+          )}
 
           {/* Empty State */}
           {jobs.length === 0 && (
