@@ -1447,6 +1447,162 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
     ? 'p-3 rounded-xl border bg-gradient-to-l from-primary/5 to-transparent space-y-3'
     : `p-4 space-y-3 ${isExpanded ? 'fixed inset-4 z-50 overflow-auto' : ''}`;
 
+  // ─── Mixer Panel (extracted for split layout) ───────────────
+  const mixerPanel = (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-semibold flex items-center gap-1.5">
+          <Sparkles className="w-4 h-4 text-primary no-theme-icon" />
+          הפחתת רעש חכמה
+        </p>
+        <div className="flex items-center gap-2">
+          <Label className="text-[11px] text-muted-foreground">השוואת מקור A/B</Label>
+          <Switch checked={isBypassEnhancement} onCheckedChange={setIsBypassEnhancement} />
+          <Badge variant="outline" className="text-xs">
+            {isBypassEnhancement ? 'מקור (Bypass)' : presetId === 'off' ? 'כבוי' : currentPreset.nameHe}
+          </Badge>
+        </div>
+      </div>
+
+      {/* Strength slider */}
+      <div className="space-y-1.5 rounded-lg border bg-muted/20 p-2">
+        <div className="flex items-center justify-between">
+          <span className="text-xs">איכות מול בטיחות דיבור</span>
+          <span className="text-xs font-mono tabular-nums">{enhancementStrength}%</span>
+        </div>
+        <Slider value={[enhancementStrength]} min={0} max={100} step={1} onValueChange={([v]) => setEnhancementStrength(v)} />
+        <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+          <span>שומר טבעיות</span>
+          <span>ניקוי אגרסיבי</span>
+        </div>
+      </div>
+
+      {/* Output Gain */}
+      <div className="space-y-1.5 rounded-lg border bg-muted/20 p-2">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-medium flex items-center gap-1">
+            <Volume2 className="w-3.5 h-3.5 no-theme-icon" />
+            הגברת עוצמה (פיצוי אחרי עיבוד)
+          </span>
+          <span className="text-xs font-mono tabular-nums">{Math.round(outputGain * 100)}%</span>
+        </div>
+        <Slider value={[outputGain]} min={0} max={3} step={0.05} onValueChange={([v]) => setOutputGain(v)} />
+        <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+          <span>שקט</span>
+          <span>רגיל (100%)</span>
+          <span>הגברה מקסימלית (300%)</span>
+        </div>
+      </div>
+
+      {/* User preset save */}
+      <div className="space-y-1.5 rounded-lg border bg-muted/20 p-2">
+        <div className="flex items-center gap-1.5">
+          <Input
+            value={userPresetName}
+            onChange={(e) => setUserPresetName(e.target.value)}
+            placeholder="שם לפריסט אישי"
+            className="h-7 text-xs"
+          />
+          <Button size="sm" className="h-7 px-2 text-xs" onClick={saveCurrentAsUserPreset} disabled={!userPresetName.trim()}>
+            <Save className="w-3 h-3 ml-1 no-theme-icon" />
+            שמור
+          </Button>
+        </div>
+        {userPresets.length > 0 && (
+          <div className="space-y-1 max-h-24 overflow-y-auto">
+            {userPresets.map((preset) => (
+              <div key={preset.id} className="flex items-center gap-1">
+                <Button variant="outline" size="sm" className="h-6 px-2 text-[11px] flex-1 justify-start" onClick={() => applyUserPreset(preset)}>
+                  {preset.name}
+                </Button>
+                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => removeUserPreset(preset.id)} title="מחק פריסט">
+                  <Trash2 className="w-3 h-3 no-theme-icon" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Preset Grid */}
+      <div className="grid grid-cols-4 gap-1.5">
+        {NOISE_PRESETS.map(p => {
+          const Icon = p.icon;
+          const isActive = presetId === p.id;
+          return (
+            <Tooltip key={p.id}>
+              <TooltipTrigger asChild>
+                <button
+                  className={`flex flex-col items-center gap-1 py-2 px-1 rounded-lg border text-xs transition-all
+                    ${isActive ? 'bg-primary text-primary-foreground border-primary shadow-md scale-[1.02]' : 'border-border hover:bg-muted'}
+                  `}
+                  onClick={() => setPresetId(p.id)}
+                >
+                  <Icon className={`w-4 h-4 no-theme-icon ${isActive ? '' : 'text-muted-foreground'}`} />
+                  <span className="font-medium leading-tight">{p.nameHe}</span>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs">{p.description}</TooltipContent>
+            </Tooltip>
+          );
+        })}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              className={`flex flex-col items-center gap-1 py-2 px-1 rounded-lg border text-xs transition-all
+                ${isManualMode ? 'bg-primary text-primary-foreground border-primary shadow-md scale-[1.02]' : 'border-border hover:bg-muted'}
+              `}
+              onClick={() => setPresetId('manual')}
+            >
+              <Settings2 className={`w-4 h-4 no-theme-icon ${isManualMode ? '' : 'text-muted-foreground'}`} />
+              <span className="font-medium leading-tight">ידני</span>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="text-xs">שליטה ידנית מלאה</TooltipContent>
+        </Tooltip>
+      </div>
+
+      {/* Preset active info */}
+      {presetId !== 'off' && !isManualMode && (
+        <div className="text-xs text-muted-foreground bg-muted/30 rounded-lg p-2 flex items-start gap-2">
+          <Brain className="w-3.5 h-3.5 mt-0.5 shrink-0 text-primary no-theme-icon" />
+          <div>
+            <span className="font-medium">{currentPreset.description}</span>
+            <span className="mx-1">—</span>
+            {currentPreset.deRumble && <Badge variant="outline" className="text-[10px] ml-1">חתך רעש נמוך</Badge>}
+            {currentPreset.deSibilance && <Badge variant="outline" className="text-[10px] ml-1">החלקת שין</Badge>}
+            {currentPreset.presenceBoost && <Badge variant="outline" className="text-[10px] ml-1">חיזוק נוכחות</Badge>}
+            {currentPreset.warmth && <Badge variant="outline" className="text-[10px] ml-1">חמימות</Badge>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  // ─── EQ + Processing Controls Panel ────────────────────────
+  const eqPanel = (
+    <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold flex items-center gap-1.5">
+          <AudioLines className="w-3.5 h-3.5 text-primary no-theme-icon" />
+          מיקסר מקצועי (אקולייזר + עיבוד)
+        </p>
+        <div className="flex items-center gap-1.5">
+          <button
+            className={`p-1 rounded text-[10px] transition-all ${!eqVerticalView ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'}`}
+            onClick={() => setEqVerticalView(false)}
+            title="תצוגה אופקית"
+          >═</button>
+          <button
+            className={`p-1 rounded text-[10px] transition-all ${eqVerticalView ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'}`}
+            onClick={() => setEqVerticalView(true)}
+            title="תצוגה אנכית (מיקסר)"
+          >║</button>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <TooltipProvider delayDuration={300}>
       <Wrapper className={wrapperClass} dir="rtl">
@@ -1462,73 +1618,60 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
           crossOrigin="anonymous"
         />
 
-        {/* ─── Header ─────────────────────────────────────── */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            {!compact && <Waves className="w-5 h-5 text-primary no-theme-icon" />}
-            {!compact && <h3 className="font-semibold text-sm">נגן סינכרוני</h3>}
-            {compact && presetId !== 'off' && (
-              <Badge className="text-xs gap-1 bg-green-600 hover:bg-green-700">
-                <ShieldCheck className="w-3 h-3 no-theme-icon" />
-                {currentPreset.nameHe}
-              </Badge>
-            )}
-            {wordTimings.length > 0 && (
-              <Badge variant="secondary" className="text-xs">{wordTimings.length} מילים</Badge>
-            )}
-            {!compact && presetId !== 'off' && (
-              <Badge className="text-xs gap-1 bg-green-600 hover:bg-green-700">
-                <ShieldCheck className="w-3 h-3 no-theme-icon" />
-                {currentPreset.nameHe}
-              </Badge>
-            )}
-          </div>
-          <div className="flex items-center gap-1">
-            {/* Sync toggle */}
-            {wordTimings.length > 0 && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant={isSyncEnabled ? 'default' : 'ghost'}
-                    size="icon"
-                    className={`h-7 w-7 ${isSyncEnabled ? 'bg-primary' : ''}`}
-                    onClick={toggleSync}
-                  >
-                    {isSyncEnabled
-                      ? <Link className="w-3.5 h-3.5 no-theme-icon" />
-                      : <Unlink className="w-3.5 h-3.5 no-theme-icon" />
-                    }
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  {isSyncEnabled ? 'סינכרון פעיל — לחץ לכיבוי' : 'סינכרון כבוי — לחץ להפעלה'}
-                </TooltipContent>
-              </Tooltip>
-            )}
-
-            {/* Noise reduction toggle */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant={showEnhance ? 'secondary' : 'ghost'}
-                  size="icon"
-                  className="h-7 w-7"
-                  onClick={() => setShowEnhance(!showEnhance)}
-                >
-                  <SlidersHorizontal className="w-3.5 h-3.5 no-theme-icon" />
+        {/* ─── Two-Column Split Layout ───────────────────── */}
+        <div className={`grid gap-4 ${compact ? '' : 'lg:grid-cols-2'}`}>
+          {/* ═══ RIGHT COLUMN: Player ═══ */}
+          <div className="space-y-3 order-1">
+            {/* Header */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                {!compact && <Waves className="w-5 h-5 text-primary no-theme-icon" />}
+                {!compact && <h3 className="font-semibold text-sm">נגן סינכרוני</h3>}
+                {compact && presetId !== 'off' && (
+                  <Badge className="text-xs gap-1 bg-green-600 hover:bg-green-700">
+                    <ShieldCheck className="w-3 h-3 no-theme-icon" />
+                    {currentPreset.nameHe}
+                  </Badge>
+                )}
+                {wordTimings.length > 0 && (
+                  <Badge variant="secondary" className="text-xs">{wordTimings.length} מילים</Badge>
+                )}
+                {!compact && presetId !== 'off' && (
+                  <Badge className="text-xs gap-1 bg-green-600 hover:bg-green-700">
+                    <ShieldCheck className="w-3 h-3 no-theme-icon" />
+                    {currentPreset.nameHe}
+                  </Badge>
+                )}
+              </div>
+              <div className="flex items-center gap-1">
+                {wordTimings.length > 0 && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant={isSyncEnabled ? 'default' : 'ghost'}
+                        size="icon"
+                        className={`h-7 w-7 ${isSyncEnabled ? 'bg-primary' : ''}`}
+                        onClick={toggleSync}
+                      >
+                        {isSyncEnabled
+                          ? <Link className="w-3.5 h-3.5 no-theme-icon" />
+                          : <Unlink className="w-3.5 h-3.5 no-theme-icon" />
+                        }
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">
+                      {isSyncEnabled ? 'סינכרון פעיל — לחץ לכיבוי' : 'סינכרון כבוי — לחץ להפעלה'}
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleDownload} title="הורד אודיו">
+                  <Download className="w-3.5 h-3.5 no-theme-icon" />
                 </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">הפחתת רעש ושיפור אודיו</TooltipContent>
-            </Tooltip>
-
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleDownload} title="הורד אודיו">
-              <Download className="w-3.5 h-3.5 no-theme-icon" />
-            </Button>
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setIsExpanded(!isExpanded)}>
-              {isExpanded ? <Minimize2 className="w-3.5 h-3.5 no-theme-icon" /> : <Maximize2 className="w-3.5 h-3.5 no-theme-icon" />}
-            </Button>
-          </div>
-        </div>
+                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setIsExpanded(!isExpanded)}>
+                  {isExpanded ? <Minimize2 className="w-3.5 h-3.5 no-theme-icon" /> : <Maximize2 className="w-3.5 h-3.5 no-theme-icon" />}
+                </Button>
+              </div>
+            </div>
 
         {/* ─── Noise Reduction / Enhancement Panel (ABOVE player) ── */}
         {showEnhance && (
