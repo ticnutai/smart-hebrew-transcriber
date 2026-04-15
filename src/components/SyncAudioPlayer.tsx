@@ -732,37 +732,103 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
     analyser.getByteFrequencyData(dataArray);
 
     ctx.clearRect(0, 0, W, H);
-
-    // Dark background
     ctx.fillStyle = 'rgba(15, 23, 42, 0.6)';
     ctx.fillRect(0, 0, W, H);
 
     const barCount = 64;
     const step = Math.floor(bufferLength / barCount);
-    const barW = W / barCount;
-    const gap = 1;
 
-    for (let i = 0; i < barCount; i++) {
-      let sum = 0;
-      for (let j = 0; j < step; j++) {
-        sum += dataArray[i * step + j];
+    if (eqVizStyle === 'bars') {
+      const barW = W / barCount;
+      const gap = 1;
+      for (let i = 0; i < barCount; i++) {
+        let sum = 0;
+        for (let j = 0; j < step; j++) sum += dataArray[i * step + j];
+        const avg = sum / step;
+        const barH = (avg / 255) * H * 0.9;
+        const hue = 200 + (i / barCount) * 120;
+        ctx.fillStyle = `hsla(${hue}, 80%, 60%, 0.85)`;
+        ctx.fillRect(i * barW + gap / 2, H - barH, barW - gap, barH);
+        ctx.fillStyle = `hsla(${hue}, 90%, 75%, 0.5)`;
+        ctx.fillRect(i * barW + gap / 2, H - barH, barW - gap, 2);
       }
-      const avg = sum / step;
-      const barH = (avg / 255) * H * 0.9;
-
-      const hue = 200 + (i / barCount) * 120; // blue to green
-      ctx.fillStyle = `hsla(${hue}, 80%, 60%, 0.85)`;
-      ctx.fillRect(i * barW + gap / 2, H - barH, barW - gap, barH);
-
-      // Glow on top
-      ctx.fillStyle = `hsla(${hue}, 90%, 75%, 0.5)`;
-      ctx.fillRect(i * barW + gap / 2, H - barH, barW - gap, 2);
+    } else if (eqVizStyle === 'mirror') {
+      const barW = W / barCount;
+      const gap = 1;
+      const mid = H / 2;
+      for (let i = 0; i < barCount; i++) {
+        let sum = 0;
+        for (let j = 0; j < step; j++) sum += dataArray[i * step + j];
+        const avg = sum / step;
+        const barH = (avg / 255) * mid * 0.85;
+        const hue = 280 + (i / barCount) * 80;
+        ctx.fillStyle = `hsla(${hue}, 75%, 55%, 0.8)`;
+        ctx.fillRect(i * barW + gap / 2, mid - barH, barW - gap, barH);
+        ctx.fillStyle = `hsla(${hue}, 60%, 50%, 0.4)`;
+        ctx.fillRect(i * barW + gap / 2, mid, barW - gap, barH * 0.7);
+      }
+      ctx.strokeStyle = 'hsla(280, 80%, 70%, 0.3)';
+      ctx.lineWidth = 0.5;
+      ctx.beginPath(); ctx.moveTo(0, mid); ctx.lineTo(W, mid); ctx.stroke();
+    } else if (eqVizStyle === 'wave') {
+      ctx.beginPath();
+      ctx.moveTo(0, H);
+      for (let i = 0; i < barCount; i++) {
+        let sum = 0;
+        for (let j = 0; j < step; j++) sum += dataArray[i * step + j];
+        const avg = sum / step;
+        const y = H - (avg / 255) * H * 0.85;
+        const x = (i / barCount) * W;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.lineTo(W, H);
+      ctx.lineTo(0, H);
+      ctx.closePath();
+      const grad = ctx.createLinearGradient(0, 0, 0, H);
+      grad.addColorStop(0, 'hsla(160, 80%, 60%, 0.7)');
+      grad.addColorStop(1, 'hsla(200, 80%, 40%, 0.1)');
+      ctx.fillStyle = grad;
+      ctx.fill();
+      ctx.strokeStyle = 'hsla(160, 90%, 70%, 0.8)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      for (let i = 0; i < barCount; i++) {
+        let sum = 0;
+        for (let j = 0; j < step; j++) sum += dataArray[i * step + j];
+        const avg = sum / step;
+        const y = H - (avg / 255) * H * 0.85;
+        const x = (i / barCount) * W;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    } else if (eqVizStyle === 'circle') {
+      const cx = W / 2;
+      const cy = H / 2;
+      const maxR = Math.min(W, H) * 0.45;
+      const minR = maxR * 0.3;
+      for (let i = 0; i < barCount; i++) {
+        let sum = 0;
+        for (let j = 0; j < step; j++) sum += dataArray[i * step + j];
+        const avg = sum / step;
+        const angle = (i / barCount) * Math.PI * 2 - Math.PI / 2;
+        const r = minR + (avg / 255) * (maxR - minR);
+        const x1 = cx + Math.cos(angle) * minR;
+        const y1 = cy + Math.sin(angle) * minR;
+        const x2 = cx + Math.cos(angle) * r;
+        const y2 = cy + Math.sin(angle) * r;
+        const hue = (i / barCount) * 360;
+        ctx.strokeStyle = `hsla(${hue}, 80%, 60%, 0.8)`;
+        ctx.lineWidth = Math.max(1, (W / barCount) * 0.6);
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+      }
+      ctx.strokeStyle = 'hsla(220, 60%, 50%, 0.2)';
+      ctx.lineWidth = 0.5;
+      ctx.beginPath(); ctx.arc(cx, cy, minR, 0, Math.PI * 2); ctx.stroke();
     }
 
     eqAnimFrameRef.current = requestAnimationFrame(drawEqualizer);
-  }, []);
-
-  useEffect(() => {
+  }, [eqVizStyle]);
     if (isPlaying && showEqualizer && analyserRef.current) {
       drawEqualizer();
     }
