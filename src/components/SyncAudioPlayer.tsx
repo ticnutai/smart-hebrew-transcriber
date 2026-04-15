@@ -2249,29 +2249,6 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                 </div>
               </div>
 
-              {/* Notch filter */}
-              <div className="space-y-2 rounded-lg border bg-muted/20 p-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs">סינון זמזום חשמל (Notch)</span>
-                  <Switch checked={humNotchEnabled} onCheckedChange={setHumNotchEnabled} />
-                </div>
-                {humNotchEnabled && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] text-muted-foreground">תדר:</span>
-                    <Select value={humNotchFreq} onValueChange={(v) => setHumNotchFreq(v as '50' | '60' | '100' | '120')}>
-                      <SelectTrigger className="h-7 w-28 text-xs">
-                        <SelectValue placeholder="בחר תדר" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="50">50Hz</SelectItem>
-                        <SelectItem value="60">60Hz</SelectItem>
-                        <SelectItem value="100">100Hz</SelectItem>
-                        <SelectItem value="120">120Hz</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-              </div>
 
               {/* Advanced Processing Dialog */}
               <Dialog open={showAdvancedDialog} onOpenChange={setShowAdvancedDialog}>
