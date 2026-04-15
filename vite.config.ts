@@ -159,6 +159,8 @@ export default defineConfig(({ mode }) => {
     exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/core', '@ffmpeg/util', '@shiguredo/rnnoise-wasm'],
   },
   build: {
+    // Avoid rare esbuild minification scoping bugs in large React chunks.
+    minify: 'terser',
     rollupOptions: {
       output: {
         manualChunks: {
