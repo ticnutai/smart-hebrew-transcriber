@@ -336,6 +336,14 @@ export default function VideoToMp3() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
 
+  // Conversion history (persistent, cloud-synced)
+  const history = useConversionHistory();
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [folderEditId, setFolderEditId] = useState<string | null>(null);
+  const [folderName, setFolderName] = useState("");
+  const savedJobIdsRef = useRef<Set<string>>(new Set());
+
   const toOutputFile = useCallback((job: ConversionJob): File | null => {
     if (!job.outputBlob) return null;
     const meta = OUTPUT_FORMAT_META[job.outputFormat];
