@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   clearEnhanceQueueCompleted,
   getEnhanceQueueJobs,
@@ -18,12 +19,16 @@ import {
   Download,
   FileAudio,
   FileStack,
+  FolderOpen,
+  FolderUp,
+  LayoutGrid,
   Loader2,
   Mic,
   Scissors,
   Sparkles,
   TestTube2,
   Trash2,
+  UploadCloud,
   WandSparkles,
 } from "lucide-react";
 
@@ -37,10 +42,19 @@ function formatBytes(bytes: number): string {
 export default function VoiceStudio() {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const folderInputRef = useRef<HTMLInputElement | null>(null);
 
   const [sourceFile, setSourceFile] = useState<File | null>(null);
   const [enhanceDialogOpen, setEnhanceDialogOpen] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [enhanceQueueJobs, setEnhanceQueueJobs] = useState<EnhanceQueueJob[]>(() => getEnhanceQueueJobs());
+
+  useEffect(() => {
+    if (!folderInputRef.current) return;
+    folderInputRef.current.setAttribute("webkitdirectory", "");
+    folderInputRef.current.setAttribute("directory", "");
+  }, []);
 
   useEffect(() => {
     return onEnhanceQueueUpdate((jobs) => {
@@ -51,6 +65,7 @@ export default function VoiceStudio() {
   const onPickFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
     setSourceFile(file);
+    setSelectedFiles(file ? [file] : []);
     if (file) {
       toast({
         title: "הקובץ נטען לסטודיו",
@@ -58,6 +73,57 @@ export default function VoiceStudio() {
       });
     }
     e.target.value = "";
+  }, []);
+
+  const onPickManyFiles = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    setSelectedFiles(files);
+    setSourceFile(files[0]);
+    toast({
+      title: "נטענו קבצים לסטודיו",
+      description: `${files.length} קבצים מוכנים לעבודה`,
+    });
+    e.target.value = "";
+  }, []);
+
+  const onPickFolder = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    setSelectedFiles(files);
+    setSourceFile(files[0]);
+    toast({
+      title: "תיקיה נטענה בהצלחה",
+      description: `${files.length} קבצים נמצאו בתיקיה`,
+    });
+    e.target.value = "";
+  }, []);
+
+  const onDropFiles = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+
+    const files = Array.from(e.dataTransfer.files || []);
+    if (files.length === 0) {
+      toast({
+        title: "לא נמצאו קבצים בגרירה",
+        description: "נסה לגרור קבצי אודיו/וידאו או לבחור תיקיה מכפתור בחירה",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSelectedFiles(files);
+    setSourceFile(files[0]);
+    toast({
+      title: "גרירה נקלטה בהצלחה",
+      description: `${files.length} פריטים נוספו לסטודיו`,
+    });
+  }, []);
+
+  const openFolderPicker = useCallback(() => {
+    folderInputRef.current?.click();
   }, []);
 
   const handleDownloadEnhancedQueueJob = useCallback((job: EnhanceQueueJob) => {
@@ -85,87 +151,204 @@ export default function VoiceStudio() {
     };
   }, [enhanceQueueJobs]);
 
+  const selectedTotalBytes = useMemo(
+    () => selectedFiles.reduce((sum, f) => sum + f.size, 0),
+    [selectedFiles]
+  );
+
   return (
     <div className="container max-w-6xl mx-auto px-4 py-6 space-y-6" dir="rtl">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <AudioLines className="w-6 h-6 text-primary" />
-            סטודיו קול
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            מערכת מסודרת לכל שיפור איכות הקול לצורך תמלול ובכללי: ניקוי רעשים, תור שיפור רקע, בדיקות איכות וקיצורי זרימה.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="secondary" className="gap-1"><WandSparkles className="w-3.5 h-3.5" /> AI + Auto EQ</Badge>
-          <Badge variant="outline">Real-time Filters</Badge>
-          <Badge variant="outline">Batch Queue</Badge>
-          <Badge variant="outline">Transcription Quality Tests</Badge>
+      <div className="relative overflow-hidden rounded-2xl border bg-gradient-to-l from-primary/10 via-background to-amber-50/70 p-5">
+        <div className="absolute -top-10 -left-10 h-40 w-40 rounded-full bg-primary/10 blur-3xl" />
+        <div className="absolute -bottom-10 -right-10 h-36 w-36 rounded-full bg-amber-300/20 blur-3xl" />
+        <div className="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+              <AudioLines className="w-7 h-7 text-primary" />
+              סטודיו קול
+            </h1>
+            <p className="text-sm md:text-base text-muted-foreground mt-1 max-w-3xl">
+              סביבת עבודה מתקדמת לשיפור איכות תמלול: גרירת קבצים ותיקיות, תצוגת טאבים חכמה, תור עיבוד ברקע וכלי מעבר מהיר.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="secondary" className="gap-1"><WandSparkles className="w-3.5 h-3.5" /> AI + Auto EQ</Badge>
+            <Badge variant="outline">Real-time Filters</Badge>
+            <Badge variant="outline">Batch Queue</Badge>
+            <Badge variant="outline">Transcription Quality Tests</Badge>
+          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <Card className="xl:col-span-2">
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-primary" />
-              שיפור קובץ בקליק
-            </CardTitle>
-            <CardDescription>
-              העלה קובץ אודיו/וידאו ופתח את חלון השיפור עם כל המצבים: AI Voice, ניקוי קלאסי, פורמטי יצוא ותמלול מיידי.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex flex-wrap gap-2">
-              <Button className="gap-2" onClick={() => fileInputRef.current?.click()}>
-                <FileAudio className="w-4 h-4" />
-                בחר קובץ לשיפור
-              </Button>
-              {sourceFile && (
-                <Button variant="outline" className="gap-2" onClick={() => setEnhanceDialogOpen(true)}>
-                  <Sparkles className="w-4 h-4" />
-                  פתח חלון שיפור
+      <Tabs defaultValue="enhance" className="space-y-4">
+        <TabsList className="h-auto p-1.5 rounded-xl bg-muted/60 border flex flex-wrap justify-start gap-1">
+          <TabsTrigger value="enhance" className="rounded-lg data-[state=active]:shadow-sm">שיפור וטעינה</TabsTrigger>
+          <TabsTrigger value="batch" className="rounded-lg data-[state=active]:shadow-sm">קבצים ותיקיות</TabsTrigger>
+          <TabsTrigger value="flows" className="rounded-lg data-[state=active]:shadow-sm">זרימות עבודה</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="enhance" className="mt-0">
+          <Card className="border-2 border-primary/10 shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-primary" />
+                שיפור קובץ בקליק
+              </CardTitle>
+              <CardDescription>
+                גרור קובץ או תיקיה לאזור למטה, או בחר ידנית. לאחר מכן פתח את חלון השיפור לכל המצבים: AI Voice, ניקוי קלאסי ויצוא.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragActive(true);
+                }}
+                onDragLeave={(e) => {
+                  e.preventDefault();
+                  setDragActive(false);
+                }}
+                onDrop={onDropFiles}
+                className={`rounded-xl border-2 border-dashed p-6 text-center transition-all ${
+                  dragActive
+                    ? "border-primary bg-primary/10 scale-[1.01]"
+                    : "border-border bg-muted/20 hover:border-primary/50 hover:bg-muted/40"
+                }`}
+              >
+                <UploadCloud className="w-8 h-8 mx-auto mb-3 text-primary" />
+                <p className="text-sm font-medium">גרור לכאן קבצי אודיו/וידאו או תיקיה שלמה</p>
+                <p className="text-xs text-muted-foreground mt-1">תומך גם בבחירה מרובה ובתיקיות (Chrome/Edge)</p>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <Button className="gap-2" onClick={() => fileInputRef.current?.click()}>
+                  <FileAudio className="w-4 h-4" />
+                  בחר קובץ
                 </Button>
+                <Button variant="outline" className="gap-2" onClick={() => fileInputRef.current?.click()}>
+                  <LayoutGrid className="w-4 h-4" />
+                  בחר כמה קבצים
+                </Button>
+                <Button variant="outline" className="gap-2" onClick={openFolderPicker}>
+                  <FolderUp className="w-4 h-4" />
+                  בחר תיקיה
+                </Button>
+                {sourceFile && (
+                  <Button variant="secondary" className="gap-2" onClick={() => setEnhanceDialogOpen(true)}>
+                    <Sparkles className="w-4 h-4" />
+                    פתח חלון שיפור
+                  </Button>
+                )}
+
+                <Input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="audio/*,video/*"
+                  multiple
+                  className="hidden"
+                  onChange={onPickManyFiles}
+                />
+                <Input
+                  ref={folderInputRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={onPickFolder}
+                />
+              </div>
+
+              {sourceFile ? (
+                <div className="rounded-xl border bg-muted/20 p-4 space-y-2">
+                  <p className="text-sm font-semibold truncate">קובץ מקור פעיל: {sourceFile.name}</p>
+                  <p className="text-xs text-muted-foreground">{formatBytes(sourceFile.size)}</p>
+                  {selectedFiles.length > 1 && (
+                    <p className="text-xs text-muted-foreground">
+                      נבחרו {selectedFiles.length} קבצים • סה"כ {formatBytes(selectedTotalBytes)}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed p-5 text-center text-sm text-muted-foreground">
+                  עדיין לא נבחר קובץ. התחל בגרירה או בכפתורי הבחירה למעלה.
+                </div>
               )}
-              <Input
-                ref={fileInputRef}
-                type="file"
-                accept="audio/*,video/*"
-                className="hidden"
-                onChange={onPickFile}
-              />
-            </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-            {sourceFile ? (
-              <div className="rounded-lg border bg-muted/20 p-3">
-                <p className="text-sm font-medium truncate">{sourceFile.name}</p>
-                <p className="text-xs text-muted-foreground">{formatBytes(sourceFile.size)}</p>
-              </div>
-            ) : (
-              <div className="rounded-lg border border-dashed p-5 text-center text-sm text-muted-foreground">
-                לא נבחר קובץ עדיין. לחץ על "בחר קובץ לשיפור" כדי להתחיל.
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <TabsContent value="batch" className="mt-0">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <FolderOpen className="w-4 h-4 text-primary" />
+                קבצים ותיקיות לטעינה
+              </CardTitle>
+              <CardDescription>
+                תצוגה מרוכזת של כל הפריטים שנקלטו. בחר פריט ולחץ על שיפור כדי לעבור לחלון AI.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {selectedFiles.length === 0 ? (
+                <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                  אין פריטים עדיין. עבור ללשונית "שיפור וטעינה" כדי לגרור קבצים/תיקיות.
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between rounded-lg border bg-muted/20 px-3 py-2 text-xs">
+                    <span>{selectedFiles.length} פריטים</span>
+                    <span className="text-muted-foreground">סה"כ {formatBytes(selectedTotalBytes)}</span>
+                  </div>
+                  <div className="max-h-[320px] overflow-auto space-y-2 pr-1">
+                    {selectedFiles.map((file, idx) => (
+                      <button
+                        key={`${file.name}-${idx}`}
+                        type="button"
+                        onClick={() => setSourceFile(file)}
+                        className={`w-full text-right rounded-lg border px-3 py-2 transition-colors ${
+                          sourceFile?.name === file.name && sourceFile?.size === file.size
+                            ? "border-primary bg-primary/10"
+                            : "hover:bg-muted/40"
+                        }`}
+                      >
+                        <p className="text-sm font-medium truncate">{file.name}</p>
+                        <p className="text-[11px] text-muted-foreground">{formatBytes(file.size)}</p>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button className="gap-2" disabled={!sourceFile} onClick={() => setEnhanceDialogOpen(true)}>
+                      <Sparkles className="w-4 h-4" />
+                      שפר את הפריט הנבחר
+                    </Button>
+                    <Button variant="outline" className="gap-2" disabled={!sourceFile} onClick={() => sourceFile && navigate("/transcribe", { state: { file: sourceFile } })}>
+                      <Mic className="w-4 h-4" />
+                      תמלל את הפריט הנבחר
+                    </Button>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <FileStack className="w-4 h-4 text-primary" />
-              זרימות עבודה
-            </CardTitle>
-            <CardDescription>מעבר מהיר לכלים המתקדמים שכבר קיימים במערכת.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <Button variant="outline" className="w-full justify-between" onClick={() => navigate("/video-to-mp3")}>ממיר + חיתוך + שיפור <Scissors className="w-4 h-4" /></Button>
-            <Button variant="outline" className="w-full justify-between" onClick={() => navigate("/benchmark")}>בדיקת איכות תמלול (A/B) <TestTube2 className="w-4 h-4" /></Button>
-            <Button variant="outline" className="w-full justify-between" onClick={() => navigate("/transcribe")}>תמלול מיידי מקובץ <Mic className="w-4 h-4" /></Button>
-            <Button variant="outline" className="w-full justify-between" onClick={() => navigate("/text-editor")}>עריכה + פילטרים בזמן אמת <AudioLines className="w-4 h-4" /></Button>
-          </CardContent>
-        </Card>
-      </div>
+        <TabsContent value="flows" className="mt-0">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <FileStack className="w-4 h-4 text-primary" />
+                זרימות עבודה
+              </CardTitle>
+              <CardDescription>מעבר מהיר לכלים המתקדמים שכבר קיימים במערכת.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              <Button variant="outline" className="w-full justify-between" onClick={() => navigate("/video-to-mp3")}>ממיר + חיתוך + שיפור <Scissors className="w-4 h-4" /></Button>
+              <Button variant="outline" className="w-full justify-between" onClick={() => navigate("/benchmark")}>בדיקת איכות תמלול (A/B) <TestTube2 className="w-4 h-4" /></Button>
+              <Button variant="outline" className="w-full justify-between" onClick={() => navigate("/transcribe")}>תמלול מיידי מקובץ <Mic className="w-4 h-4" /></Button>
+              <Button variant="outline" className="w-full justify-between" onClick={() => navigate("/text-editor")}>עריכה + פילטרים בזמן אמת <AudioLines className="w-4 h-4" /></Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
       <Card>
         <CardHeader className="pb-2">
