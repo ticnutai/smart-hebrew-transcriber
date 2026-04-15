@@ -1893,11 +1893,27 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
 
         {/* ─── Frequency Spectrum Equalizer Visualization ─────── */}
         {showEqualizer && (
-          <canvas
-            ref={eqCanvasRef}
-            className="w-full rounded-lg"
-            style={{ height: isExpanded ? 80 : 48, background: 'rgba(15, 23, 42, 0.4)' }}
-          />
+          <div className="space-y-1">
+            <div className="flex items-center justify-end gap-1">
+              {([
+                { id: 'bars' as const, label: '▥ עמודות' },
+                { id: 'mirror' as const, label: '⬍ מראה' },
+                { id: 'wave' as const, label: '〰 גל' },
+                { id: 'circle' as const, label: '◎ מעגלי' },
+              ]).map((s) => (
+                <button
+                  key={s.id}
+                  className={`px-1.5 py-0.5 rounded text-[9px] transition-all ${eqVizStyle === s.id ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80 text-muted-foreground'}`}
+                  onClick={() => setEqVizStyle(s.id)}
+                >{s.label}</button>
+              ))}
+            </div>
+            <canvas
+              ref={eqCanvasRef}
+              className="w-full rounded-lg"
+              style={{ height: eqVizStyle === 'circle' ? 120 : (isExpanded ? 80 : 48), background: 'rgba(15, 23, 42, 0.4)' }}
+            />
+          </div>
         )}
 
         {/* ─── Static Waveform (peaks + speaker colors + playhead) ── */}
