@@ -588,7 +588,7 @@ const TextEditor = () => {
 
         {/* Unified action bar — AI quick actions + save, single compact row */}
         {text.trim() && (
-          <div className="flex items-center gap-1.5 flex-wrap py-2 px-3 rounded-lg border bg-muted/20">
+          <div className="flex items-center gap-2 flex-wrap py-3 px-4 rounded-xl border bg-muted/20">
             <Button
               variant="default"
               size="sm"
