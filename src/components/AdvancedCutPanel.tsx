@@ -29,6 +29,7 @@ import {
   submitEnhanceJob,
   type EnhanceQueueJob,
 } from "@/lib/audioEnhanceQueue";
+import { useConversionHistory } from "@/hooks/useConversionHistory";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -61,6 +62,10 @@ import {
   ChevronDown,
   ChevronUp,
   Sparkles,
+  Pencil,
+  FolderOpen,
+  Save,
+  Check,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
