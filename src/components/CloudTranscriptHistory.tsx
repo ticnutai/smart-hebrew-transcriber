@@ -176,51 +176,47 @@ export const CloudTranscriptHistory = memo(({
     setAssigningFolderId(null);
   };
 
+  const handleCardClick = (entry: CloudTranscript) => {
+    navigate('/text-editor', { state: {
+      text: entry.edited_text || entry.text,
+      wordTimings: entry.word_timings || undefined,
+      transcriptId: entry.id,
+      audioFilePath: entry.audio_file_path || undefined,
+    } });
+  };
+
   const renderEntryCard = (entry: CloudTranscript, key?: string) => (
     <div
       key={key}
-      className="p-4 rounded-lg border hover:bg-accent/50 transition-colors text-right"
+      className="group p-4 rounded-xl border border-border/60 hover:border-primary/30 hover:bg-accent/30 hover:shadow-md transition-all duration-200 text-right cursor-pointer"
       style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 220px' }}
+      onClick={() => handleCardClick(entry)}
     >
+      {/* Header row */}
       <div className="flex items-center justify-between mb-2">
+        <Badge variant="outline" className="text-[10px] font-medium px-2 py-0.5">
+          {entry.engine}
+        </Badge>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground font-medium">{entry.engine}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
-            onClick={() => onDelete(entry.id)}
-          >
-            <Trash2 className="w-3 h-3" />
-          </Button>
-          <span className="text-xs text-muted-foreground">{formatDate(entry.created_at)}</span>
+          <span className="text-[11px] text-muted-foreground">{formatDate(entry.created_at)}</span>
         </div>
       </div>
 
       {entry.title && (
-        <p className="text-sm font-medium mb-1 text-right">{entry.title}</p>
+        <p className="text-sm font-semibold mb-1.5 text-right text-foreground">{entry.title}</p>
       )}
 
-      <div className="flex items-start gap-2 mb-3">
-        <FileText className="w-4 h-4 mt-1 flex-shrink-0 text-muted-foreground" />
-        <p className="text-sm line-clamp-2 text-right flex-1 text-muted-foreground">
-          {highlightText(entry.text, searchQuery)}
-        </p>
-      </div>
+      <p className="text-sm line-clamp-2 text-right text-muted-foreground leading-relaxed mb-3">
+        {highlightText(entry.text, searchQuery)}
+      </p>
 
-      <div className="flex gap-1 mt-2">
+      {/* Action icons row - stop propagation so clicking icons doesn't navigate */}
+      <div className="flex items-center gap-1.5 pt-2 border-t border-border/40" onClick={(e) => e.stopPropagation()}>
         <Button
           size="sm"
           variant="outline"
-          className="h-7 w-7 p-0"
-          onClick={() => navigate('/text-editor', { state: {
-            text: entry.edited_text || entry.text,
-            wordTimings: entry.word_timings || undefined,
-            transcriptId: entry.id,
-            audioFilePath: entry.audio_file_path || undefined,
-          } })}
+          className="h-7 w-7 p-0 rounded-lg hover:bg-primary/10 hover:text-primary hover:border-primary/30 transition-colors"
+          onClick={() => handleCardClick(entry)}
           title="ערוך"
         >
           <Edit className="w-3.5 h-3.5" />
@@ -228,7 +224,7 @@ export const CloudTranscriptHistory = memo(({
         <Button
           size="sm"
           variant="ghost"
-          className="h-7 w-7 p-0"
+          className="h-7 w-7 p-0 rounded-lg hover:bg-muted transition-colors"
           onClick={() => onSelect(entry.text)}
           title="טען"
         >
@@ -237,7 +233,7 @@ export const CloudTranscriptHistory = memo(({
         <Button
           variant="ghost"
           size="sm"
-          className="h-7 w-7 p-0"
+          className="h-7 w-7 p-0 rounded-lg hover:bg-muted transition-colors"
           onClick={() => {
             setEditingTagId(editingTagId === entry.id ? null : entry.id);
             setNewTag("");
@@ -249,7 +245,7 @@ export const CloudTranscriptHistory = memo(({
         <Button
           variant="ghost"
           size="sm"
-          className="h-7 w-7 p-0"
+          className="h-7 w-7 p-0 rounded-lg hover:bg-muted transition-colors"
           onClick={() => {
             setAssigningFolderId(assigningFolderId === entry.id ? null : entry.id);
             setShowNewFolder(false);
@@ -257,6 +253,16 @@ export const CloudTranscriptHistory = memo(({
           title="שייך לתיקיה"
         >
           <FolderPlus className="w-3.5 h-3.5" />
+        </Button>
+        <div className="flex-1" />
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 w-7 p-0 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+          onClick={() => onDelete(entry.id)}
+          title="מחק"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
         </Button>
       </div>
 
