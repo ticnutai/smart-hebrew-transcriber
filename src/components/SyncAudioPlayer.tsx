@@ -1872,137 +1872,29 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                 </div>
               </div>
 
-              {/* Advanced / Manual Controls */}
-              {(isManualMode || showAdvanced) && (
-                <div className="space-y-3 bg-muted/20 rounded-lg p-3 border">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-[11px] font-semibold text-muted-foreground">בקרות מתקדמות</span>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        className={`p-1 rounded text-[10px] transition-all ${!advVerticalView ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'}`}
-                        onClick={() => setAdvVerticalView(false)}
-                        title="תצוגה אופקית"
-                      >═</button>
-                      <button
-                        className={`p-1 rounded text-[10px] transition-all ${advVerticalView ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'}`}
-                        onClick={() => setAdvVerticalView(true)}
-                        title="תצוגה אנכית"
-                      >║</button>
-                    </div>
-                  </div>
-
-                  {advVerticalView ? (
-                    /* Vertical layout - mixing console style */
-                    <div className="grid grid-cols-5 gap-2">
-                      {[
-                        { label: 'Highpass', value: manualHighpass, min: 20, max: 400, step: 10, display: `${manualHighpass}Hz`,
-                          set: (v: number) => { setManualHighpass(v); if (isManualMode && highpassRef.current) highpassRef.current.frequency.value = v; } },
-                        { label: 'Lowpass', value: manualLowpass, min: 6000, max: 20000, step: 250, display: `${manualLowpass}Hz`,
-                          set: (v: number) => { setManualLowpass(v); if (isManualMode && lowpassRef.current) lowpassRef.current.frequency.value = v; } },
-                        { label: 'חיזוק', value: manualVoiceBoost, min: 0, max: 12, step: 0.5, display: `${manualVoiceBoost > 0 ? '+' : ''}${manualVoiceBoost}dB`,
-                          set: (v: number) => { setManualVoiceBoost(v); if (isManualMode && voiceBoostRef.current) voiceBoostRef.current.gain.value = v; } },
-                        { label: 'דחיסה', value: manualCompRatio, min: 1, max: 12, step: 0.5, display: `${manualCompRatio}:1`,
-                          set: (v: number) => { setManualCompRatio(v); if (isManualMode && compressorRef.current) { compressorRef.current.ratio.value = v; compressorRef.current.threshold.value = -50 + (v > 1 ? -(v * 3) : 0); } } },
-                        { label: 'Gate', value: manualGate, min: -80, max: 0, step: 5, display: manualGate === 0 ? 'כבוי' : `${manualGate}dB`,
-                          set: (v: number) => setManualGate(v) },
-                      ].map((ctrl) => (
-                        <div key={ctrl.label} className="flex flex-col items-center gap-1">
-                          <span className="text-[9px] font-mono text-muted-foreground">{ctrl.display}</span>
-                          <div className="h-24 flex items-center">
-                            <Slider
-                              orientation="vertical"
-                              value={[ctrl.value]}
-                              min={ctrl.min}
-                              max={ctrl.max}
-                              step={ctrl.step}
-                              onValueChange={([v]) => ctrl.set(v)}
-                              className="h-full"
-                            />
-                          </div>
-                          <span className="text-[9px] font-medium">{ctrl.label}</span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    /* Horizontal layout - original */
-                    <div className="space-y-3">
-                      <div className="space-y-1.5">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs">חתך בסים (Highpass)</span>
-                          <span className="text-xs font-mono tabular-nums">{manualHighpass}Hz</span>
-                        </div>
-                        <Slider value={[manualHighpass]} min={20} max={400} step={10}
-                          onValueChange={([v]) => { setManualHighpass(v); if (isManualMode && highpassRef.current) highpassRef.current.frequency.value = v; }}
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs">חתך היי (Lowpass)</span>
-                          <span className="text-xs font-mono tabular-nums">{manualLowpass}Hz</span>
-                        </div>
-                        <Slider value={[manualLowpass]} min={6000} max={20000} step={250}
-                          onValueChange={([v]) => { setManualLowpass(v); if (isManualMode && lowpassRef.current) lowpassRef.current.frequency.value = v; }}
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs">חיזוק קול</span>
-                          <span className="text-xs font-mono tabular-nums">{manualVoiceBoost > 0 ? '+' : ''}{manualVoiceBoost}dB</span>
-                        </div>
-                        <Slider value={[manualVoiceBoost]} min={0} max={12} step={0.5}
-                          onValueChange={([v]) => { setManualVoiceBoost(v); if (isManualMode && voiceBoostRef.current) voiceBoostRef.current.gain.value = v; }}
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs">דחיסה (Compression)</span>
-                          <span className="text-xs font-mono tabular-nums">{manualCompRatio}:1</span>
-                        </div>
-                        <Slider value={[manualCompRatio]} min={1} max={12} step={0.5}
-                          onValueChange={([v]) => {
-                            setManualCompRatio(v);
-                            if (isManualMode && compressorRef.current) {
-                              compressorRef.current.ratio.value = v;
-                              compressorRef.current.threshold.value = -50 + (v > 1 ? -(v * 3) : 0);
-                            }
-                          }}
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs">סף שער רעש (Gate)</span>
-                          <span className="text-xs font-mono tabular-nums">{manualGate === 0 ? 'כבוי' : `${manualGate}dB`}</span>
-                        </div>
-                        <Slider value={[manualGate]} min={-80} max={0} step={5}
-                          onValueChange={([v]) => setManualGate(v)}
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Notch filter - always horizontal */}
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs">סינון זמזום חשמל (Notch)</span>
-                      <Switch checked={humNotchEnabled} onCheckedChange={setHumNotchEnabled} />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] text-muted-foreground">תדר:</span>
-                      <Select value={humNotchFreq} onValueChange={(v) => setHumNotchFreq(v as '50' | '60' | '100' | '120')}>
-                        <SelectTrigger className="h-7 w-28 text-xs">
-                          <SelectValue placeholder="בחר תדר" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="50">50Hz</SelectItem>
-                          <SelectItem value="60">60Hz</SelectItem>
-                          <SelectItem value="100">100Hz</SelectItem>
-                          <SelectItem value="120">120Hz</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
+              {/* Notch filter + technical details */}
+              <div className="space-y-2 rounded-lg border bg-muted/20 p-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs">סינון זמזום חשמל (Notch)</span>
+                  <Switch checked={humNotchEnabled} onCheckedChange={setHumNotchEnabled} />
                 </div>
-              )}
+                {humNotchEnabled && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] text-muted-foreground">תדר:</span>
+                    <Select value={humNotchFreq} onValueChange={(v) => setHumNotchFreq(v as '50' | '60' | '100' | '120')}>
+                      <SelectTrigger className="h-7 w-28 text-xs">
+                        <SelectValue placeholder="בחר תדר" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="50">50Hz</SelectItem>
+                        <SelectItem value="60">60Hz</SelectItem>
+                        <SelectItem value="100">100Hz</SelectItem>
+                        <SelectItem value="120">120Hz</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
 
               {!isManualMode && presetId !== 'off' && (
                 <Button variant="ghost" size="sm" className="w-full text-xs gap-1" onClick={() => setShowAdvanced(!showAdvanced)}>
