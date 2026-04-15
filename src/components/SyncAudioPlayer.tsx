@@ -2130,34 +2130,6 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
           <span className="text-xs text-muted-foreground tabular-nums">{Math.round((isMuted ? 0 : volume) * 100)}%</span>
         </div>
 
-        {/* ─── Synced Transcript (inline mini view) ─────────── */}
-        {wordTimings.length > 0 && isSyncEnabled && (
-          <>
-            <Separator />
-            <div className="space-y-1">
-              <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                <Zap className="w-3 h-3 no-theme-icon" />
-                תמלול מסונכרן — לחץ על מילה לדלג
-              </p>
-              <div className="flex flex-wrap gap-1 max-h-48 overflow-y-auto p-2 rounded-lg bg-muted/30 text-sm leading-relaxed" dir="rtl">
-                {wordTimings.map((wt, i) => (
-                  <span
-                    key={i}
-                    className={`px-1 py-0.5 rounded cursor-pointer transition-all duration-150
-                      ${i === currentWordIndex
-                        ? 'bg-primary text-primary-foreground font-semibold scale-105 shadow-sm'
-                        : i < currentWordIndex ? 'text-muted-foreground' : 'hover:bg-muted'}
-                    `}
-                    onClick={() => { seekTo(wt.start); onWordClick?.(i, wt); }}
-                    title={`${formatTime(wt.start)} - ${formatTime(wt.end)}`}
-                  >
-                    {wt.word}
-                  </span>
-                ))}
-              </div>
-            </div>
-          </>
-        )}
 
         {/* ─── Keyboard shortcuts hint ──────────────────────── */}
         <p className="text-[10px] text-muted-foreground text-center opacity-60">
