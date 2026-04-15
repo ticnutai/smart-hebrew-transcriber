@@ -1597,6 +1597,46 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                   <AudioLines className="w-3.5 h-3.5 text-primary no-theme-icon" />
                   אקולייזר מקצועי (5 פסים)
                 </p>
+
+                {/* EQ Presets */}
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { id: 'flat', label: 'שטוח', icon: '⚖️', values: [0, 0, 0, 0, 0] },
+                    { id: 'clear-speech', label: 'דיבור ברור', icon: '🎙️', values: [-3, -1, 4, 6, 2] },
+                    { id: 'transcription', label: 'תמלול מדויק', icon: '📝', values: [-6, 0, 5, 8, -2] },
+                    { id: 'deep-voice', label: 'קול עמוק', icon: '🔊', values: [4, 3, 0, -1, -2] },
+                    { id: 'phone-fix', label: 'תיקון טלפון', icon: '📱', values: [3, 2, 3, 5, -4] },
+                    { id: 'room-fix', label: 'תיקון חדר', icon: '🏠', values: [-4, -2, 3, 5, 1] },
+                    { id: 'bass-boost', label: 'בס מוגבר', icon: '🔈', values: [8, 4, 0, 0, -1] },
+                    { id: 'music', label: 'מוזיקה', icon: '🎵', values: [3, 1, 0, 2, 4] },
+                    { id: 'brightness', label: 'בהירות', icon: '✨', values: [-2, 0, 2, 5, 7] },
+                    { id: 'warmth-eq', label: 'חמימות', icon: '☀️', values: [4, 3, -1, -2, -3] },
+                    { id: 'noise-cut', label: 'חיתוך רעש', icon: '🔇', values: [-8, -3, 2, 4, -6] },
+                    { id: 'female-voice', label: 'קול נשי', icon: '👩', values: [-4, -1, 3, 7, 4] },
+                  ].map((preset) => {
+                    const isActive = eqBass === preset.values[0] && eqLowMid === preset.values[1] && eqMid === preset.values[2] && eqHighMid === preset.values[3] && eqTreble === preset.values[4];
+                    return (
+                      <button
+                        key={preset.id}
+                        className={`flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] transition-all
+                          ${isActive ? 'bg-primary text-primary-foreground border-primary shadow-sm' : 'border-border hover:bg-muted'}
+                        `}
+                        onClick={() => {
+                          setEqBass(preset.values[0]);
+                          setEqLowMid(preset.values[1]);
+                          setEqMid(preset.values[2]);
+                          setEqHighMid(preset.values[3]);
+                          setEqTreble(preset.values[4]);
+                        }}
+                      >
+                        <span>{preset.icon}</span>
+                        <span className="font-medium">{preset.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* EQ Band Sliders */}
                 <div className="grid grid-cols-5 gap-2">
                   {[
                     { label: 'בס', freq: '80Hz', value: eqBass, set: setEqBass },
@@ -1629,6 +1669,14 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                   }}>
                     אפס אקולייזר
                   </Button>
+                </div>
+
+                {/* Pro tip for transcription */}
+                <div className="text-[10px] text-muted-foreground bg-muted/30 rounded-md p-2 flex items-start gap-1.5">
+                  <Brain className="w-3 h-3 mt-0.5 shrink-0 text-primary no-theme-icon" />
+                  <span>
+                    <strong>טיפ לתמלול מדויק:</strong> השתמש ב"תמלול מדויק" או "דיבור ברור" — חיזוק תדרי דיבור (1-5kHz) מעלה משמעותית את דיוק זיהוי המילים. לקול טלפוני השתמש ב"תיקון טלפון". שלב עם הפחתת רעש ברמה 40-60% לתוצאה מיטבית.
+                  </span>
                 </div>
               </div>
 
