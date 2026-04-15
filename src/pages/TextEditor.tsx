@@ -80,6 +80,28 @@ const TextEditor = () => {
   const ollama = useOllama();
   const { learn: learnCorrections, applyCorrections } = useCorrectionLearning();
   const originalTextRef = useRef<string>("");
+
+  // Tab settings (visibility + order)
+  const ALL_TABS: TabConfig[] = [
+    { id: "player", label: "נגן", emoji: "🎧", group: "primary" },
+    { id: "edit", label: "עריכת טקסט", group: "primary" },
+    { id: "speakers", label: "זיהוי דוברים", emoji: "👥", group: "primary" },
+    { id: "templates", label: "תבניות", group: "primary" },
+    { id: "ai", label: "עריכה עם AI", group: "primary" },
+    { id: "pipeline", label: "צינור עיבוד", group: "primary" },
+    { id: "prompts", label: "ספריית פרומפטים", group: "primary" },
+    { id: "ollama", label: "Ollama", emoji: "🖥️", group: "secondary" },
+    { id: "learning", label: "למידה", emoji: "🧠", group: "secondary" },
+    { id: "vocab", label: "מילון", emoji: "📖", group: "secondary" },
+    { id: "summary", label: "סיכום", emoji: "📊", group: "secondary" },
+    { id: "ab", label: "A/B", emoji: "⚡", group: "secondary" },
+    { id: "analytics", label: "אנליטיקה", emoji: "📈", group: "secondary" },
+    { id: "compare", label: "השוואה", group: "secondary" },
+    { id: "history", label: "היסטוריה", group: "secondary" },
+  ];
+  const [tabSettings, setTabSettings] = useState(loadTabSettings);
+  const visibleTabs = tabSettings.visible;
+  const tabOrder = tabSettings.order;
   
   // Cloud-synced style settings
   const { preferences, updatePreference } = useCloudPreferences();
