@@ -121,6 +121,7 @@ export const SyncEditableView = ({
             {isEditing ? 'שמור' : 'ערוך'}
           </Button>
         </div>
+      </div>
 
       {isEditing ? (
         <textarea
