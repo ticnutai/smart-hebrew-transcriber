@@ -271,6 +271,8 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
   const [eqHighMid, setEqHighMid] = useState(0);
   const [eqTreble, setEqTreble] = useState(0);
   const [eqVerticalView, setEqVerticalView] = useState(true);
+  const [advVerticalView, setAdvVerticalView] = useState(false);
+  const [eqVizStyle, setEqVizStyle] = useState<'bars' | 'mirror' | 'wave' | 'circle'>('bars');
   const eqBassRef = useRef<BiquadFilterNode | null>(null);
   const eqLowMidRef = useRef<BiquadFilterNode | null>(null);
   const eqMidRef = useRef<BiquadFilterNode | null>(null);
@@ -730,35 +732,103 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
     analyser.getByteFrequencyData(dataArray);
 
     ctx.clearRect(0, 0, W, H);
-
-    // Dark background
     ctx.fillStyle = 'rgba(15, 23, 42, 0.6)';
     ctx.fillRect(0, 0, W, H);
 
     const barCount = 64;
     const step = Math.floor(bufferLength / barCount);
-    const barW = W / barCount;
-    const gap = 1;
 
-    for (let i = 0; i < barCount; i++) {
-      let sum = 0;
-      for (let j = 0; j < step; j++) {
-        sum += dataArray[i * step + j];
+    if (eqVizStyle === 'bars') {
+      const barW = W / barCount;
+      const gap = 1;
+      for (let i = 0; i < barCount; i++) {
+        let sum = 0;
+        for (let j = 0; j < step; j++) sum += dataArray[i * step + j];
+        const avg = sum / step;
+        const barH = (avg / 255) * H * 0.9;
+        const hue = 200 + (i / barCount) * 120;
+        ctx.fillStyle = `hsla(${hue}, 80%, 60%, 0.85)`;
+        ctx.fillRect(i * barW + gap / 2, H - barH, barW - gap, barH);
+        ctx.fillStyle = `hsla(${hue}, 90%, 75%, 0.5)`;
+        ctx.fillRect(i * barW + gap / 2, H - barH, barW - gap, 2);
       }
-      const avg = sum / step;
-      const barH = (avg / 255) * H * 0.9;
-
-      const hue = 200 + (i / barCount) * 120; // blue to green
-      ctx.fillStyle = `hsla(${hue}, 80%, 60%, 0.85)`;
-      ctx.fillRect(i * barW + gap / 2, H - barH, barW - gap, barH);
-
-      // Glow on top
-      ctx.fillStyle = `hsla(${hue}, 90%, 75%, 0.5)`;
-      ctx.fillRect(i * barW + gap / 2, H - barH, barW - gap, 2);
+    } else if (eqVizStyle === 'mirror') {
+      const barW = W / barCount;
+      const gap = 1;
+      const mid = H / 2;
+      for (let i = 0; i < barCount; i++) {
+        let sum = 0;
+        for (let j = 0; j < step; j++) sum += dataArray[i * step + j];
+        const avg = sum / step;
+        const barH = (avg / 255) * mid * 0.85;
+        const hue = 280 + (i / barCount) * 80;
+        ctx.fillStyle = `hsla(${hue}, 75%, 55%, 0.8)`;
+        ctx.fillRect(i * barW + gap / 2, mid - barH, barW - gap, barH);
+        ctx.fillStyle = `hsla(${hue}, 60%, 50%, 0.4)`;
+        ctx.fillRect(i * barW + gap / 2, mid, barW - gap, barH * 0.7);
+      }
+      ctx.strokeStyle = 'hsla(280, 80%, 70%, 0.3)';
+      ctx.lineWidth = 0.5;
+      ctx.beginPath(); ctx.moveTo(0, mid); ctx.lineTo(W, mid); ctx.stroke();
+    } else if (eqVizStyle === 'wave') {
+      ctx.beginPath();
+      ctx.moveTo(0, H);
+      for (let i = 0; i < barCount; i++) {
+        let sum = 0;
+        for (let j = 0; j < step; j++) sum += dataArray[i * step + j];
+        const avg = sum / step;
+        const y = H - (avg / 255) * H * 0.85;
+        const x = (i / barCount) * W;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.lineTo(W, H);
+      ctx.lineTo(0, H);
+      ctx.closePath();
+      const grad = ctx.createLinearGradient(0, 0, 0, H);
+      grad.addColorStop(0, 'hsla(160, 80%, 60%, 0.7)');
+      grad.addColorStop(1, 'hsla(200, 80%, 40%, 0.1)');
+      ctx.fillStyle = grad;
+      ctx.fill();
+      ctx.strokeStyle = 'hsla(160, 90%, 70%, 0.8)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      for (let i = 0; i < barCount; i++) {
+        let sum = 0;
+        for (let j = 0; j < step; j++) sum += dataArray[i * step + j];
+        const avg = sum / step;
+        const y = H - (avg / 255) * H * 0.85;
+        const x = (i / barCount) * W;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    } else if (eqVizStyle === 'circle') {
+      const cx = W / 2;
+      const cy = H / 2;
+      const maxR = Math.min(W, H) * 0.45;
+      const minR = maxR * 0.3;
+      for (let i = 0; i < barCount; i++) {
+        let sum = 0;
+        for (let j = 0; j < step; j++) sum += dataArray[i * step + j];
+        const avg = sum / step;
+        const angle = (i / barCount) * Math.PI * 2 - Math.PI / 2;
+        const r = minR + (avg / 255) * (maxR - minR);
+        const x1 = cx + Math.cos(angle) * minR;
+        const y1 = cy + Math.sin(angle) * minR;
+        const x2 = cx + Math.cos(angle) * r;
+        const y2 = cy + Math.sin(angle) * r;
+        const hue = (i / barCount) * 360;
+        ctx.strokeStyle = `hsla(${hue}, 80%, 60%, 0.8)`;
+        ctx.lineWidth = Math.max(1, (W / barCount) * 0.6);
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+      }
+      ctx.strokeStyle = 'hsla(220, 60%, 50%, 0.2)';
+      ctx.lineWidth = 0.5;
+      ctx.beginPath(); ctx.arc(cx, cy, minR, 0, Math.PI * 2); ctx.stroke();
     }
 
     eqAnimFrameRef.current = requestAnimationFrame(drawEqualizer);
-  }, []);
+  }, [eqVizStyle]);
 
   useEffect(() => {
     if (isPlaying && showEqualizer && analyserRef.current) {
@@ -1726,57 +1796,112 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
               {/* Advanced / Manual Controls */}
               {(isManualMode || showAdvanced) && (
                 <div className="space-y-3 bg-muted/20 rounded-lg p-3 border">
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs">חתך בסים (Highpass)</span>
-                      <span className="text-xs font-mono tabular-nums">{manualHighpass}Hz</span>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[11px] font-semibold text-muted-foreground">בקרות מתקדמות</span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        className={`p-1 rounded text-[10px] transition-all ${!advVerticalView ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'}`}
+                        onClick={() => setAdvVerticalView(false)}
+                        title="תצוגה אופקית"
+                      >═</button>
+                      <button
+                        className={`p-1 rounded text-[10px] transition-all ${advVerticalView ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'}`}
+                        onClick={() => setAdvVerticalView(true)}
+                        title="תצוגה אנכית"
+                      >║</button>
                     </div>
-                    <Slider value={[manualHighpass]} min={20} max={400} step={10}
-                      onValueChange={([v]) => { setManualHighpass(v); if (isManualMode && highpassRef.current) highpassRef.current.frequency.value = v; }}
-                    />
                   </div>
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs">חתך היי (Lowpass)</span>
-                      <span className="text-xs font-mono tabular-nums">{manualLowpass}Hz</span>
+
+                  {advVerticalView ? (
+                    /* Vertical layout - mixing console style */
+                    <div className="grid grid-cols-5 gap-2">
+                      {[
+                        { label: 'Highpass', value: manualHighpass, min: 20, max: 400, step: 10, display: `${manualHighpass}Hz`,
+                          set: (v: number) => { setManualHighpass(v); if (isManualMode && highpassRef.current) highpassRef.current.frequency.value = v; } },
+                        { label: 'Lowpass', value: manualLowpass, min: 6000, max: 20000, step: 250, display: `${manualLowpass}Hz`,
+                          set: (v: number) => { setManualLowpass(v); if (isManualMode && lowpassRef.current) lowpassRef.current.frequency.value = v; } },
+                        { label: 'חיזוק', value: manualVoiceBoost, min: 0, max: 12, step: 0.5, display: `${manualVoiceBoost > 0 ? '+' : ''}${manualVoiceBoost}dB`,
+                          set: (v: number) => { setManualVoiceBoost(v); if (isManualMode && voiceBoostRef.current) voiceBoostRef.current.gain.value = v; } },
+                        { label: 'דחיסה', value: manualCompRatio, min: 1, max: 12, step: 0.5, display: `${manualCompRatio}:1`,
+                          set: (v: number) => { setManualCompRatio(v); if (isManualMode && compressorRef.current) { compressorRef.current.ratio.value = v; compressorRef.current.threshold.value = -50 + (v > 1 ? -(v * 3) : 0); } } },
+                        { label: 'Gate', value: manualGate, min: -80, max: 0, step: 5, display: manualGate === 0 ? 'כבוי' : `${manualGate}dB`,
+                          set: (v: number) => setManualGate(v) },
+                      ].map((ctrl) => (
+                        <div key={ctrl.label} className="flex flex-col items-center gap-1">
+                          <span className="text-[9px] font-mono text-muted-foreground">{ctrl.display}</span>
+                          <div className="h-24 flex items-center">
+                            <Slider
+                              orientation="vertical"
+                              value={[ctrl.value]}
+                              min={ctrl.min}
+                              max={ctrl.max}
+                              step={ctrl.step}
+                              onValueChange={([v]) => ctrl.set(v)}
+                              className="h-full"
+                            />
+                          </div>
+                          <span className="text-[9px] font-medium">{ctrl.label}</span>
+                        </div>
+                      ))}
                     </div>
-                    <Slider value={[manualLowpass]} min={6000} max={20000} step={250}
-                      onValueChange={([v]) => { setManualLowpass(v); if (isManualMode && lowpassRef.current) lowpassRef.current.frequency.value = v; }}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs">חיזוק קול</span>
-                      <span className="text-xs font-mono tabular-nums">{manualVoiceBoost > 0 ? '+' : ''}{manualVoiceBoost}dB</span>
+                  ) : (
+                    /* Horizontal layout - original */
+                    <div className="space-y-3">
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs">חתך בסים (Highpass)</span>
+                          <span className="text-xs font-mono tabular-nums">{manualHighpass}Hz</span>
+                        </div>
+                        <Slider value={[manualHighpass]} min={20} max={400} step={10}
+                          onValueChange={([v]) => { setManualHighpass(v); if (isManualMode && highpassRef.current) highpassRef.current.frequency.value = v; }}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs">חתך היי (Lowpass)</span>
+                          <span className="text-xs font-mono tabular-nums">{manualLowpass}Hz</span>
+                        </div>
+                        <Slider value={[manualLowpass]} min={6000} max={20000} step={250}
+                          onValueChange={([v]) => { setManualLowpass(v); if (isManualMode && lowpassRef.current) lowpassRef.current.frequency.value = v; }}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs">חיזוק קול</span>
+                          <span className="text-xs font-mono tabular-nums">{manualVoiceBoost > 0 ? '+' : ''}{manualVoiceBoost}dB</span>
+                        </div>
+                        <Slider value={[manualVoiceBoost]} min={0} max={12} step={0.5}
+                          onValueChange={([v]) => { setManualVoiceBoost(v); if (isManualMode && voiceBoostRef.current) voiceBoostRef.current.gain.value = v; }}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs">דחיסה (Compression)</span>
+                          <span className="text-xs font-mono tabular-nums">{manualCompRatio}:1</span>
+                        </div>
+                        <Slider value={[manualCompRatio]} min={1} max={12} step={0.5}
+                          onValueChange={([v]) => {
+                            setManualCompRatio(v);
+                            if (isManualMode && compressorRef.current) {
+                              compressorRef.current.ratio.value = v;
+                              compressorRef.current.threshold.value = -50 + (v > 1 ? -(v * 3) : 0);
+                            }
+                          }}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs">סף שער רעש (Gate)</span>
+                          <span className="text-xs font-mono tabular-nums">{manualGate === 0 ? 'כבוי' : `${manualGate}dB`}</span>
+                        </div>
+                        <Slider value={[manualGate]} min={-80} max={0} step={5}
+                          onValueChange={([v]) => setManualGate(v)}
+                        />
+                      </div>
                     </div>
-                    <Slider value={[manualVoiceBoost]} min={0} max={12} step={0.5}
-                      onValueChange={([v]) => { setManualVoiceBoost(v); if (isManualMode && voiceBoostRef.current) voiceBoostRef.current.gain.value = v; }}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs">דחיסה (Compression)</span>
-                      <span className="text-xs font-mono tabular-nums">{manualCompRatio}:1</span>
-                    </div>
-                    <Slider value={[manualCompRatio]} min={1} max={12} step={0.5}
-                      onValueChange={([v]) => {
-                        setManualCompRatio(v);
-                        if (isManualMode && compressorRef.current) {
-                          compressorRef.current.ratio.value = v;
-                          compressorRef.current.threshold.value = -50 + (v > 1 ? -(v * 3) : 0);
-                        }
-                      }}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs">סף שער רעש (Gate)</span>
-                      <span className="text-xs font-mono tabular-nums">{manualGate === 0 ? 'כבוי' : `${manualGate}dB`}</span>
-                    </div>
-                    <Slider value={[manualGate]} min={-80} max={0} step={5}
-                      onValueChange={([v]) => setManualGate(v)}
-                    />
-                  </div>
+                  )}
+
+                  {/* Notch filter - always horizontal */}
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between">
                       <span className="text-xs">סינון זמזום חשמל (Notch)</span>
@@ -1823,11 +1948,27 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
 
         {/* ─── Frequency Spectrum Equalizer Visualization ─────── */}
         {showEqualizer && (
-          <canvas
-            ref={eqCanvasRef}
-            className="w-full rounded-lg"
-            style={{ height: isExpanded ? 80 : 48, background: 'rgba(15, 23, 42, 0.4)' }}
-          />
+          <div className="space-y-1">
+            <div className="flex items-center justify-end gap-1">
+              {([
+                { id: 'bars' as const, label: '▥ עמודות' },
+                { id: 'mirror' as const, label: '⬍ מראה' },
+                { id: 'wave' as const, label: '〰 גל' },
+                { id: 'circle' as const, label: '◎ מעגלי' },
+              ]).map((s) => (
+                <button
+                  key={s.id}
+                  className={`px-1.5 py-0.5 rounded text-[9px] transition-all ${eqVizStyle === s.id ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80 text-muted-foreground'}`}
+                  onClick={() => setEqVizStyle(s.id)}
+                >{s.label}</button>
+              ))}
+            </div>
+            <canvas
+              ref={eqCanvasRef}
+              className="w-full rounded-lg"
+              style={{ height: eqVizStyle === 'circle' ? 120 : (isExpanded ? 80 : 48), background: 'rgba(15, 23, 42, 0.4)' }}
+            />
+          </div>
         )}
 
         {/* ─── Static Waveform (peaks + speaker colors + playhead) ── */}
