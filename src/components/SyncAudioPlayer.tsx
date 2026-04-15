@@ -829,6 +829,8 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
 
     eqAnimFrameRef.current = requestAnimationFrame(drawEqualizer);
   }, [eqVizStyle]);
+
+  useEffect(() => {
     if (isPlaying && showEqualizer && analyserRef.current) {
       drawEqualizer();
     }
