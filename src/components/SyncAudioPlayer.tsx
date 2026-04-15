@@ -118,6 +118,11 @@ interface SyncAudioPlayerProps {
 }
 
 const SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+const QUICK_SPEED_OPTIONS = [0.75, 0.9, 0.95, 1, 1.05, 1.1, 1.25, 1.5];
+
+function clampSpeed(v: number): number {
+  return Math.min(2, Math.max(0.5, Number(v.toFixed(2))));
+}
 
 export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlayerProps>(({
   audioUrl,
@@ -184,9 +189,21 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
   const [volume, setVolume] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
   const [speed, setSpeed] = useState(1);
+  const [showSpeedControl, setShowSpeedControl] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [showEnhance, setShowEnhance] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+
+  // A-B focused processing (speed + enhancement on selected segment only)
+  const [focusEnabled, setFocusEnabled] = useState(false);
+  const [focusStart, setFocusStart] = useState(0);
+  const [focusEnd, setFocusEnd] = useState(0);
+  const [focusLoop, setFocusLoop] = useState(false);
+
+  const hasValidFocusRange = focusEnd > focusStart;
+  const isWithinFocusedSegment = !focusEnabled || !hasValidFocusRange
+    ? true
+    : currentTime >= focusStart && currentTime <= focusEnd;
 
   // Sync toggle (internal + external)
   const [internalSync, setInternalSync] = useState(true);
@@ -353,6 +370,28 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
   useEffect(() => {
     if (!highpassRef.current) return;
 
+    const processingActive = !focusEnabled || !hasValidFocusRange || isWithinFocusedSegment;
+    if (!processingActive) {
+      highpassRef.current.frequency.value = 20;
+      if (lowpassRef.current) lowpassRef.current.frequency.value = 20000;
+      if (voiceBoostRef.current) {
+        voiceBoostRef.current.gain.value = 0;
+        voiceBoostRef.current.Q.value = 1;
+      }
+      if (compressorRef.current) {
+        compressorRef.current.threshold.value = -50;
+        compressorRef.current.ratio.value = 1;
+        compressorRef.current.knee.value = 40;
+        compressorRef.current.attack.value = 0.003;
+        compressorRef.current.release.value = 0.25;
+      }
+      if (deSibilanceRef.current) deSibilanceRef.current.gain.value = 0;
+      if (deRumbleRef.current) deRumbleRef.current.frequency.value = 20;
+      if (presenceRef.current) presenceRef.current.gain.value = 0;
+      if (warmthRef.current) warmthRef.current.gain.value = 0;
+      return;
+    }
+
     const p = isManualMode ? null : currentPreset;
     const hp = p ? p.highpassFreq : manualHighpass;
     const lp = p ? p.lowpassFreq : manualLowpass;
@@ -393,7 +432,19 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
     if (warmthRef.current) {
       warmthRef.current.gain.value = (p?.warmth) ? 3 : 0;
     }
-  }, [presetId, currentPreset, isManualMode, manualHighpass, manualLowpass, manualVoiceBoost, manualGate, manualCompRatio]);
+  }, [
+    presetId,
+    currentPreset,
+    isManualMode,
+    manualHighpass,
+    manualLowpass,
+    manualVoiceBoost,
+    manualGate,
+    manualCompRatio,
+    focusEnabled,
+    hasValidFocusRange,
+    isWithinFocusedSegment,
+  ]);
 
   useEffect(() => {
     if (!humNotchRef.current) return;
@@ -650,9 +701,17 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
   const handleTimeUpdate = useCallback(() => {
     if (!audioRef.current) return;
     const t = audioRef.current.currentTime;
+
+    if (focusEnabled && focusLoop && hasValidFocusRange && t >= focusEnd - 0.01) {
+      audioRef.current.currentTime = focusStart;
+      setCurrentTime(focusStart);
+      onTimeUpdate?.(focusStart);
+      return;
+    }
+
     setCurrentTime(t);
     onTimeUpdate?.(t);
-  }, [onTimeUpdate]);
+  }, [onTimeUpdate, focusEnabled, focusLoop, hasValidFocusRange, focusEnd, focusStart]);
 
   const handleLoadedMetadata = useCallback(() => {
     if (!audioRef.current) return;
@@ -724,6 +783,31 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
     if (audioRef.current) audioRef.current.playbackRate = next;
   }, [speed]);
 
+  const setPlaybackSpeed = useCallback((next: number) => {
+    const clamped = clampSpeed(next);
+    setSpeed(clamped);
+    if (audioRef.current) {
+      const effective = (focusEnabled && hasValidFocusRange && !isWithinFocusedSegment) ? 1 : clamped;
+      audioRef.current.playbackRate = effective;
+    }
+  }, [focusEnabled, hasValidFocusRange, isWithinFocusedSegment]);
+
+  const nudgeSpeed = useCallback((delta: number) => {
+    setPlaybackSpeed(speed + delta);
+  }, [setPlaybackSpeed, speed]);
+
+  const markFocusStartFromCurrent = useCallback(() => {
+    setFocusStart(currentTime);
+    if (focusEnd <= currentTime) {
+      setFocusEnd(Math.min(effectiveDuration || currentTime + 0.1, currentTime + 10));
+    }
+  }, [currentTime, focusEnd, effectiveDuration]);
+
+  const markFocusEndFromCurrent = useCallback(() => {
+    const nextEnd = Math.max(currentTime, focusStart + 0.1);
+    setFocusEnd(nextEnd);
+  }, [currentTime, focusStart]);
+
   const restart = useCallback(() => {
     seekTo(0);
     if (!isPlaying) togglePlay();
@@ -791,6 +875,18 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
 
   // Volume icon selection
   const VolumeIcon = isMuted ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
+
+  useEffect(() => {
+    if (effectiveDuration > 0 && focusEnd <= 0) {
+      setFocusEnd(effectiveDuration);
+    }
+  }, [effectiveDuration, focusEnd]);
+
+  useEffect(() => {
+    if (!audioRef.current) return;
+    const effective = (focusEnabled && hasValidFocusRange && !isWithinFocusedSegment) ? 1 : speed;
+    audioRef.current.playbackRate = effective;
+  }, [speed, focusEnabled, hasValidFocusRange, isWithinFocusedSegment]);
 
   if (!audioUrl) {
     if (compact) return null;
@@ -967,9 +1063,100 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
           )}
 
           <Tooltip><TooltipTrigger asChild>
-            <Button variant="ghost" size="sm" className="h-8 px-2 text-xs font-mono min-w-[40px]" onClick={cycleSpeed}>{speed}x</Button>
-          </TooltipTrigger><TooltipContent>מהירות ניגון</TooltipContent></Tooltip>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 px-2 text-xs font-mono min-w-[46px]"
+              onClick={() => setShowSpeedControl((v) => !v)}
+            >
+              {speed.toFixed(2).replace(/\.00$/, '')}x
+            </Button>
+          </TooltipTrigger><TooltipContent>מהירות ניגון (לחץ לפתיחת סליידר)</TooltipContent></Tooltip>
         </div>
+
+        {/* ─── Speed Control Panel ─────────────────────────── */}
+        {showSpeedControl && (
+          <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-medium">מהירות ניגון מדויקת</p>
+              <div className="flex items-center gap-1">
+                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => nudgeSpeed(-0.05)}>-0.05</Button>
+                <Badge variant="secondary" className="text-xs font-mono">{speed.toFixed(2)}x</Badge>
+                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => nudgeSpeed(0.05)}>+0.05</Button>
+              </div>
+            </div>
+            <Slider value={[speed]} min={0.5} max={2} step={0.01} onValueChange={([v]) => setPlaybackSpeed(v)} />
+            <div className="flex flex-wrap gap-1 justify-end">
+              {QUICK_SPEED_OPTIONS.map((opt) => (
+                <Button
+                  key={opt}
+                  variant={Math.abs(speed - opt) < 0.001 ? 'default' : 'outline'}
+                  size="sm"
+                  className="h-6 px-2 text-[11px] font-mono"
+                  onClick={() => setPlaybackSpeed(opt)}
+                >
+                  {opt}x
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ─── Focus Segment Controls (A-B) ───────────────── */}
+        {!compact && (
+          <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Label className="text-xs font-medium">התמקדות בקטע (A-B)</Label>
+                <Badge variant="outline" className="text-[10px]">{formatTime(focusStart)} → {formatTime(focusEnd)}</Badge>
+              </div>
+              <div className="flex items-center gap-2">
+                <Label className="text-[11px] text-muted-foreground">לופ</Label>
+                <Switch checked={focusLoop} onCheckedChange={setFocusLoop} />
+                <Label className="text-[11px] text-muted-foreground">מצב ממוקד</Label>
+                <Switch checked={focusEnabled} onCheckedChange={setFocusEnabled} />
+              </div>
+            </div>
+
+            <Slider
+              value={[focusStart, Math.max(focusStart + 0.1, focusEnd)]}
+              min={0}
+              max={Math.max(1, effectiveDuration || 1)}
+              step={0.1}
+              onValueChange={([a, b]) => {
+                const start = Math.max(0, Math.min(a, b - 0.1));
+                const end = Math.max(start + 0.1, b);
+                setFocusStart(start);
+                setFocusEnd(end);
+              }}
+            />
+
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div className="flex gap-1">
+                <Button variant="outline" size="sm" className="h-6 px-2" onClick={markFocusStartFromCurrent}>קבע A מהמיקום הנוכחי</Button>
+                <Button variant="outline" size="sm" className="h-6 px-2" onClick={markFocusEndFromCurrent}>קבע B מהמיקום הנוכחי</Button>
+              </div>
+              <div className="flex gap-1">
+                <Button variant="ghost" size="sm" className="h-6 px-2" onClick={() => seekTo(focusStart)}>נגן מ-A</Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2"
+                  onClick={() => {
+                    setFocusStart(0);
+                    setFocusEnd(Math.max(0.1, effectiveDuration || 1));
+                  }}
+                >
+                  אפס טווח
+                </Button>
+              </div>
+            </div>
+
+            <p className="text-[11px] text-muted-foreground">
+              כש"מצב ממוקד" פעיל, שינויי מהירות והפחתת רעש חלים רק בתוך הטווח שנבחר.
+            </p>
+          </div>
+        )}
 
         {/* ─── Volume ──────────────────────────────────────── */}
         <div className="flex items-center gap-2">
