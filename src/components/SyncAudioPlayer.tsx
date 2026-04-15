@@ -1673,139 +1673,230 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
               </div>
             </div>
 
-        {/* ─── Noise Reduction / Enhancement Panel (ABOVE player) ── */}
-        {showEnhance && (
-          <>
-            <Separator />
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold flex items-center gap-1.5">
-                  <Sparkles className="w-4 h-4 text-primary no-theme-icon" />
-                  הפחתת רעש חכמה
+            {/* ─── Frequency Spectrum Equalizer Visualization ─────── */}
+            {showEqualizer && (
+              <div className="space-y-1">
+                <div className="flex items-center justify-end gap-1">
+                  {([
+                    { id: 'bars' as const, label: '▥ עמודות' },
+                    { id: 'mirror' as const, label: '⬍ מראה' },
+                    { id: 'wave' as const, label: '〰 גל' },
+                    { id: 'circle' as const, label: '◎ מעגלי' },
+                  ]).map((s) => (
+                    <button
+                      key={s.id}
+                      className={`px-1.5 py-0.5 rounded text-[9px] transition-all ${eqVizStyle === s.id ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80 text-muted-foreground'}`}
+                      onClick={() => setEqVizStyle(s.id)}
+                    >{s.label}</button>
+                  ))}
+                </div>
+                <canvas
+                  ref={eqCanvasRef}
+                  className="w-full rounded-lg"
+                  style={{ height: eqVizStyle === 'circle' ? 120 : (isExpanded ? 80 : 48), background: 'rgba(15, 23, 42, 0.4)' }}
+                />
+              </div>
+            )}
+
+            {/* ─── Static Waveform ── */}
+            <canvas
+              ref={staticCanvasRef}
+              className="w-full rounded-lg cursor-pointer bg-muted/30"
+              style={{ height: isExpanded ? 120 : 80 }}
+              onClick={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const x = rect.right - e.clientX;
+                seekTo((x / rect.width) * effectiveDuration);
+              }}
+            />
+
+            {/* ─── Live Waveform Canvas ── */}
+            {isPlaying && (
+              <canvas
+                ref={canvasRef}
+                className="w-full rounded-lg cursor-pointer bg-transparent"
+                height={isExpanded ? 50 : 32}
+                onClick={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const x = rect.right - e.clientX;
+                  seekTo((x / rect.width) * effectiveDuration);
+                }}
+              />
+            )}
+
+            {/* ─── Speaker Legend ── */}
+            {speakerSegments && speakerSegments.length > 0 && (
+              <div className="flex flex-wrap gap-2 justify-end">
+                {Object.entries(speakerColorMap).map(([speaker, color]) => (
+                  <div key={speaker} className="flex items-center gap-1 text-xs">
+                    <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: color }} />
+                    <span>{speaker}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* ─── Time Slider ── */}
+            <div className="flex items-center gap-3" dir="ltr">
+              <span className="text-xs text-muted-foreground font-mono min-w-[40px] text-center">{formatTime(effectiveDuration)}</span>
+              <Slider value={[currentTime]} max={effectiveDuration || 1} step={0.1} onValueChange={handleSliderSeek} className="flex-1" dir="rtl" />
+              <span className="text-xs text-muted-foreground font-mono min-w-[40px] text-center">{formatTime(currentTime)}</span>
+            </div>
+
+            {/* ─── Main Controls ── */}
+            <div className="flex items-center justify-center gap-1">
+              <Tooltip><TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={restart}><RotateCcw className="w-4 h-4 no-theme-icon" /></Button>
+              </TooltipTrigger><TooltipContent>התחל מההתחלה</TooltipContent></Tooltip>
+
+              {wordTimings.length > 0 && isSyncEnabled && (
+                <Tooltip><TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => jumpToWord('prev')}><SkipForward className="w-4 h-4 no-theme-icon" /></Button>
+                </TooltipTrigger><TooltipContent>מילה קודמת</TooltipContent></Tooltip>
+              )}
+
+              <Tooltip><TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => seek(-5)}><FastForward className="w-4 h-4 no-theme-icon" /></Button>
+              </TooltipTrigger><TooltipContent>5 שניות אחורה</TooltipContent></Tooltip>
+
+              <Button size="icon" className="h-10 w-10 rounded-full" onClick={togglePlay}>
+                {isPlaying ? <Pause className="w-5 h-5 no-theme-icon" /> : <Play className="w-5 h-5 mr-0.5 no-theme-icon" />}
+              </Button>
+
+              <Tooltip><TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => seek(5)}><Rewind className="w-4 h-4 no-theme-icon" /></Button>
+              </TooltipTrigger><TooltipContent>5 שניות קדימה</TooltipContent></Tooltip>
+
+              {wordTimings.length > 0 && isSyncEnabled && (
+                <Tooltip><TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => jumpToWord('next')}><SkipBack className="w-4 h-4 no-theme-icon" /></Button>
+                </TooltipTrigger><TooltipContent>מילה הבאה</TooltipContent></Tooltip>
+              )}
+
+              <Tooltip><TooltipTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-8 px-2 text-xs font-mono min-w-[46px]" onClick={() => setShowSpeedControl((v) => !v)}>
+                  {speed.toFixed(2).replace(/\.00$/, '')}x
+                </Button>
+              </TooltipTrigger><TooltipContent>מהירות ניגון (לחץ לפתיחת סליידר)</TooltipContent></Tooltip>
+            </div>
+
+            {/* ─── Speed Control ── */}
+            {showSpeedControl && (
+              <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-medium">מהירות ניגון מדויקת</p>
+                  <div className="flex items-center gap-1">
+                    <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => nudgeSpeed(-0.05)}>-0.05</Button>
+                    <Badge variant="secondary" className="text-xs font-mono">{speed.toFixed(2)}x</Badge>
+                    <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => nudgeSpeed(0.05)}>+0.05</Button>
+                  </div>
+                </div>
+                <Slider value={[speed]} min={0.5} max={2} step={0.01} onValueChange={([v]) => setPlaybackSpeed(v)} />
+                <div className="flex flex-wrap gap-1 justify-end">
+                  {QUICK_SPEED_OPTIONS.map((opt) => (
+                    <Button key={opt} variant={Math.abs(speed - opt) < 0.001 ? 'default' : 'outline'} size="sm" className="h-6 px-2 text-[11px] font-mono" onClick={() => setPlaybackSpeed(opt)}>
+                      {opt}x
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ─── Focus Segment (A-B) ── */}
+            {!compact && (
+              <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Label className="text-xs font-medium">התמקדות בקטע (A-B)</Label>
+                    <Badge variant="outline" className="text-[10px]">{formatTime(focusStart)} → {formatTime(focusEnd)}</Badge>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Label className="text-[11px] text-muted-foreground">לופ</Label>
+                    <Switch checked={focusLoop} onCheckedChange={setFocusLoop} />
+                    <Label className="text-[11px] text-muted-foreground">מצב ממוקד</Label>
+                    <Switch checked={focusEnabled} onCheckedChange={setFocusEnabled} />
+                  </div>
+                </div>
+                <Slider
+                  value={[focusStart, Math.max(focusStart + 0.1, focusEnd)]}
+                  min={0}
+                  max={Math.max(1, effectiveDuration || 1)}
+                  step={0.1}
+                  onValueChange={([a, b]) => {
+                    const start = Math.max(0, Math.min(a, b - 0.1));
+                    const end = Math.max(start + 0.1, b);
+                    setFocusStart(start);
+                    setFocusEnd(end);
+                  }}
+                />
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <div className="flex gap-1">
+                    <Button variant="outline" size="sm" className="h-6 px-2" onClick={markFocusStartFromCurrent}>קבע A מהמיקום הנוכחי</Button>
+                    <Button variant="outline" size="sm" className="h-6 px-2" onClick={markFocusEndFromCurrent}>קבע B מהמיקום הנוכחי</Button>
+                    <Button variant="outline" size="sm" className="h-6 px-2" onClick={exportFocusedProcessedSegment} disabled={!hasValidFocusRange}>
+                      <Scissors className="w-3 h-3 ml-1 no-theme-icon" />
+                      ייצוא קטע מעובד
+                    </Button>
+                  </div>
+                  <div className="flex gap-1">
+                    <Button variant="ghost" size="sm" className="h-6 px-2" onClick={() => seekTo(focusStart)}>נגן מ-A</Button>
+                    <Button variant="ghost" size="sm" className="h-6 px-2" onClick={() => { setFocusStart(0); setFocusEnd(Math.max(0.1, effectiveDuration || 1)); }}>
+                      אפס טווח
+                    </Button>
+                  </div>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  כש"מצב ממוקד" פעיל, שינויי מהירות והפחתת רעש חלים רק בתוך הטווח שנבחר.
                 </p>
-                <div className="flex items-center gap-2">
-                  <Label className="text-[11px] text-muted-foreground">השוואת מקור A/B</Label>
-                  <Switch checked={isBypassEnhancement} onCheckedChange={setIsBypassEnhancement} />
-                  <Badge variant="outline" className="text-xs">
-                    {isBypassEnhancement ? 'מקור (Bypass)' : presetId === 'off' ? 'כבוי' : currentPreset.nameHe}
-                  </Badge>
-                </div>
-              </div>
-
-              {/* Strength slider */}
-              <div className="space-y-1.5 rounded-lg border bg-muted/20 p-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs">איכות מול בטיחות דיבור</span>
-                  <span className="text-xs font-mono tabular-nums">{enhancementStrength}%</span>
-                </div>
-                <Slider value={[enhancementStrength]} min={0} max={100} step={1} onValueChange={([v]) => setEnhancementStrength(v)} />
-                <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-                  <span>שומר טבעיות</span>
-                  <span>ניקוי אגרסיבי</span>
-                </div>
-              </div>
-
-              {/* Output Gain (volume boost after processing) */}
-              <div className="space-y-1.5 rounded-lg border bg-muted/20 p-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium flex items-center gap-1">
-                    <Volume2 className="w-3.5 h-3.5 no-theme-icon" />
-                    הגברת עוצמה (פיצוי אחרי עיבוד)
-                  </span>
-                  <span className="text-xs font-mono tabular-nums">{Math.round(outputGain * 100)}%</span>
-                </div>
-                <Slider value={[outputGain]} min={0} max={3} step={0.05} onValueChange={([v]) => setOutputGain(v)} />
-                <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-                  <span>שקט</span>
-                  <span>רגיל (100%)</span>
-                  <span>הגברה מקסימלית (300%)</span>
-                </div>
-              </div>
-
-              {/* User preset save */}
-              <div className="space-y-1.5 rounded-lg border bg-muted/20 p-2">
-                <div className="flex items-center gap-1.5">
-                  <Input
-                    value={userPresetName}
-                    onChange={(e) => setUserPresetName(e.target.value)}
-                    placeholder="שם לפריסט אישי"
-                    className="h-7 text-xs"
-                  />
-                  <Button size="sm" className="h-7 px-2 text-xs" onClick={saveCurrentAsUserPreset} disabled={!userPresetName.trim()}>
-                    <Save className="w-3 h-3 ml-1 no-theme-icon" />
-                    שמור
-                  </Button>
-                </div>
-                {userPresets.length > 0 && (
-                  <div className="space-y-1 max-h-24 overflow-y-auto">
-                    {userPresets.map((preset) => (
-                      <div key={preset.id} className="flex items-center gap-1">
-                        <Button variant="outline" size="sm" className="h-6 px-2 text-[11px] flex-1 justify-start" onClick={() => applyUserPreset(preset)}>
-                          {preset.name}
-                        </Button>
-                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => removeUserPreset(preset.id)} title="מחק פריסט">
-                          <Trash2 className="w-3 h-3 no-theme-icon" />
-                        </Button>
-                      </div>
-                    ))}
+                {problemSegments.length > 0 && (
+                  <div className="space-y-1 rounded-md border bg-background/70 p-2">
+                    <p className="text-[11px] font-medium flex items-center gap-1">
+                      <AlertTriangle className="w-3 h-3 text-amber-500 no-theme-icon" />
+                      קטעים שדורשים תשומת לב ({problemSegments.length})
+                    </p>
+                    <div className="max-h-24 overflow-y-auto space-y-1">
+                      {problemSegments.slice(0, 8).map((seg) => (
+                        <button
+                          key={seg.id}
+                          type="button"
+                          className="w-full text-right text-[11px] rounded border px-2 py-1 hover:bg-muted/60 transition-colors"
+                          onClick={() => {
+                            setFocusStart(seg.start);
+                            setFocusEnd(Math.min(effectiveDuration || seg.end, seg.end + 0.6));
+                            seekTo(seg.start);
+                          }}
+                        >
+                          {seg.issueType === 'clipping' ? 'קליפינג' : seg.issueType === 'low-volume' ? 'עוצמה נמוכה' : 'רעש חד'}
+                          <span className="mx-1">•</span>
+                          {formatTime(seg.start)} - {formatTime(seg.end)}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
+            )}
 
-              {/* Preset Grid */}
-              <div className="grid grid-cols-4 gap-1.5">
-                {NOISE_PRESETS.map(p => {
-                  const Icon = p.icon;
-                  const isActive = presetId === p.id;
-                  return (
-                    <Tooltip key={p.id}>
-                      <TooltipTrigger asChild>
-                        <button
-                          className={`flex flex-col items-center gap-1 py-2 px-1 rounded-lg border text-xs transition-all
-                            ${isActive ? 'bg-primary text-primary-foreground border-primary shadow-md scale-[1.02]' : 'border-border hover:bg-muted'}
-                          `}
-                          onClick={() => setPresetId(p.id)}
-                        >
-                          <Icon className={`w-4 h-4 no-theme-icon ${isActive ? '' : 'text-muted-foreground'}`} />
-                          <span className="font-medium leading-tight">{p.nameHe}</span>
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent side="bottom" className="text-xs">{p.description}</TooltipContent>
-                    </Tooltip>
-                  );
-                })}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      className={`flex flex-col items-center gap-1 py-2 px-1 rounded-lg border text-xs transition-all
-                        ${isManualMode ? 'bg-primary text-primary-foreground border-primary shadow-md scale-[1.02]' : 'border-border hover:bg-muted'}
-                      `}
-                      onClick={() => setPresetId('manual')}
-                    >
-                      <Settings2 className={`w-4 h-4 no-theme-icon ${isManualMode ? '' : 'text-muted-foreground'}`} />
-                      <span className="font-medium leading-tight">ידני</span>
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" className="text-xs">שליטה ידנית מלאה</TooltipContent>
-                </Tooltip>
-              </div>
+            {/* ─── Volume ── */}
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={toggleMute}>
+                <VolumeIcon className="w-3.5 h-3.5 no-theme-icon" />
+              </Button>
+              <Slider value={[isMuted ? 0 : volume]} max={1} step={0.05} onValueChange={handleVolumeChange} className="w-28" />
+              <span className="text-xs text-muted-foreground tabular-nums">{Math.round((isMuted ? 0 : volume) * 100)}%</span>
+            </div>
 
-              {/* Preset active info */}
-              {presetId !== 'off' && !isManualMode && (
-                <div className="text-xs text-muted-foreground bg-muted/30 rounded-lg p-2 flex items-start gap-2">
-                  <Brain className="w-3.5 h-3.5 mt-0.5 shrink-0 text-primary no-theme-icon" />
-                  <div>
-                    <span className="font-medium">{currentPreset.description}</span>
-                    <span className="mx-1">—</span>
-                    {currentPreset.deRumble && <Badge variant="outline" className="text-[10px] ml-1">חתך רעש נמוך</Badge>}
-                    {currentPreset.deSibilance && <Badge variant="outline" className="text-[10px] ml-1">החלקת שין</Badge>}
-                    {currentPreset.presenceBoost && <Badge variant="outline" className="text-[10px] ml-1">חיזוק נוכחות</Badge>}
-                    {currentPreset.warmth && <Badge variant="outline" className="text-[10px] ml-1">חמימות</Badge>}
-                  </div>
-                </div>
-              )}
+            <p className="text-[10px] text-muted-foreground text-center opacity-60">
+              ⌨️ Space=נגן/עצור · Ctrl+←→=±5s · Shift+←→=מילה · M=השתק · Alt+S=מהירות
+            </p>
+          </div>
 
-              {/* ─── 5-Band Parametric EQ + Advanced Controls (Mixing Console) ── */}
+          {/* ═══ LEFT COLUMN: Mixer & Processing ═══ */}
+          {!compact && (
+            <div className="space-y-3 order-2 max-h-[80vh] overflow-y-auto">
+              {mixerPanel}
+
+              {/* ─── EQ + Processing Mixing Console ── */}
               <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
                 <div className="flex items-center justify-between">
                   <p className="text-xs font-semibold flex items-center gap-1.5">
@@ -1868,7 +1959,6 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                 {eqVerticalView ? (
                   <div className="space-y-2">
                     <div className="grid grid-cols-10 gap-1">
-                      {/* 5 EQ Bands */}
                       {[
                         { label: 'בס', freq: '80Hz', value: eqBass, set: setEqBass, min: -12, max: 12, step: 0.5, color: 'text-red-400' },
                         { label: 'נמוך', freq: '300Hz', value: eqLowMid, set: setEqLowMid, min: -12, max: 12, step: 0.5, color: 'text-orange-400' },
@@ -1893,9 +1983,6 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                           <span className="text-[6px] text-muted-foreground">{band.freq}</span>
                         </div>
                       ))}
-
-                      {/* Separator line */}
-                      {/* 5 Processing Controls */}
                       {[
                         { label: 'HP', freq: 'חתך', value: manualHighpass, min: 20, max: 400, step: 10, color: 'text-purple-400',
                           display: `${manualHighpass}`,
@@ -1931,14 +2018,12 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                         </div>
                       ))}
                     </div>
-                    {/* Labels row */}
                     <div className="flex items-center justify-between text-[8px] text-muted-foreground px-1">
                       <span>◀ אקולייזר (5 פסים)</span>
                       <span>עיבוד קול ▶</span>
                     </div>
                   </div>
                 ) : (
-                  /* Horizontal View */
                   <div className="space-y-3">
                     <p className="text-[10px] font-medium text-muted-foreground">אקולייזר</p>
                     {[
@@ -2006,7 +2091,6 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                   </Button>
                 </div>
 
-                {/* Pro tip for transcription */}
                 <div className="text-[10px] text-muted-foreground bg-muted/30 rounded-md p-2 flex items-start gap-1.5">
                   <Brain className="w-3 h-3 mt-0.5 shrink-0 text-primary no-theme-icon" />
                   <span>
@@ -2015,7 +2099,7 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                 </div>
               </div>
 
-              {/* Notch filter + technical details */}
+              {/* Notch filter */}
               <div className="space-y-2 rounded-lg border bg-muted/20 p-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs">סינון זמזום חשמל (Notch)</span>
@@ -2057,227 +2141,8 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                 </div>
               )}
             </div>
-          </>
-        )}
-
-        {/* ─── Frequency Spectrum Equalizer Visualization ─────── */}
-        {showEqualizer && (
-          <div className="space-y-1">
-            <div className="flex items-center justify-end gap-1">
-              {([
-                { id: 'bars' as const, label: '▥ עמודות' },
-                { id: 'mirror' as const, label: '⬍ מראה' },
-                { id: 'wave' as const, label: '〰 גל' },
-                { id: 'circle' as const, label: '◎ מעגלי' },
-              ]).map((s) => (
-                <button
-                  key={s.id}
-                  className={`px-1.5 py-0.5 rounded text-[9px] transition-all ${eqVizStyle === s.id ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80 text-muted-foreground'}`}
-                  onClick={() => setEqVizStyle(s.id)}
-                >{s.label}</button>
-              ))}
-            </div>
-            <canvas
-              ref={eqCanvasRef}
-              className="w-full rounded-lg"
-              style={{ height: eqVizStyle === 'circle' ? 120 : (isExpanded ? 80 : 48), background: 'rgba(15, 23, 42, 0.4)' }}
-            />
-          </div>
-        )}
-
-        {/* ─── Static Waveform (peaks + speaker colors + playhead) ── */}
-        <canvas
-          ref={staticCanvasRef}
-          className="w-full rounded-lg cursor-pointer bg-muted/30"
-          style={{ height: isExpanded ? 120 : 80 }}
-          onClick={(e) => {
-            const rect = e.currentTarget.getBoundingClientRect();
-            const x = rect.right - e.clientX;
-            seekTo((x / rect.width) * effectiveDuration);
-          }}
-        />
-
-        {/* ─── Live Waveform Canvas (overlay, only when playing) ── */}
-        {isPlaying && (
-          <canvas
-            ref={canvasRef}
-            className="w-full rounded-lg cursor-pointer bg-transparent"
-            height={isExpanded ? 50 : 32}
-            onClick={(e) => {
-              const rect = e.currentTarget.getBoundingClientRect();
-              const x = rect.right - e.clientX;
-              seekTo((x / rect.width) * effectiveDuration);
-            }}
-          />
-        )}
-
-        {/* ─── Speaker Legend ──────────────────────────────── */}
-        {speakerSegments && speakerSegments.length > 0 && (
-          <div className="flex flex-wrap gap-2 justify-end">
-            {Object.entries(speakerColorMap).map(([speaker, color]) => (
-              <div key={speaker} className="flex items-center gap-1 text-xs">
-                <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: color }} />
-                <span>{speaker}</span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* ─── Time Slider ─────────────────────────────────── */}
-        <div className="flex items-center gap-3" dir="ltr">
-          <span className="text-xs text-muted-foreground font-mono min-w-[40px] text-center">{formatTime(effectiveDuration)}</span>
-          <Slider value={[currentTime]} max={effectiveDuration || 1} step={0.1} onValueChange={handleSliderSeek} className="flex-1" dir="rtl" />
-          <span className="text-xs text-muted-foreground font-mono min-w-[40px] text-center">{formatTime(currentTime)}</span>
-        </div>
-
-        {/* ─── Main Controls ───────────────────────────────── */}
-        <div className="flex items-center justify-center gap-1">
-          <Tooltip><TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={restart}><RotateCcw className="w-4 h-4 no-theme-icon" /></Button>
-          </TooltipTrigger><TooltipContent>התחל מההתחלה</TooltipContent></Tooltip>
-
-          {wordTimings.length > 0 && isSyncEnabled && (
-            <Tooltip><TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => jumpToWord('prev')}><SkipForward className="w-4 h-4 no-theme-icon" /></Button>
-            </TooltipTrigger><TooltipContent>מילה קודמת</TooltipContent></Tooltip>
           )}
-
-          <Tooltip><TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => seek(-5)}><FastForward className="w-4 h-4 no-theme-icon" /></Button>
-          </TooltipTrigger><TooltipContent>5 שניות אחורה</TooltipContent></Tooltip>
-
-          <Button size="icon" className="h-10 w-10 rounded-full" onClick={togglePlay}>
-            {isPlaying ? <Pause className="w-5 h-5 no-theme-icon" /> : <Play className="w-5 h-5 mr-0.5 no-theme-icon" />}
-          </Button>
-
-          <Tooltip><TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => seek(5)}><Rewind className="w-4 h-4 no-theme-icon" /></Button>
-          </TooltipTrigger><TooltipContent>5 שניות קדימה</TooltipContent></Tooltip>
-
-          {wordTimings.length > 0 && isSyncEnabled && (
-            <Tooltip><TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => jumpToWord('next')}><SkipBack className="w-4 h-4 no-theme-icon" /></Button>
-            </TooltipTrigger><TooltipContent>מילה הבאה</TooltipContent></Tooltip>
-          )}
-
-          <Tooltip><TooltipTrigger asChild>
-            <Button variant="ghost" size="sm" className="h-8 px-2 text-xs font-mono min-w-[46px]" onClick={() => setShowSpeedControl((v) => !v)}>
-              {speed.toFixed(2).replace(/\.00$/, '')}x
-            </Button>
-          </TooltipTrigger><TooltipContent>מהירות ניגון (לחץ לפתיחת סליידר)</TooltipContent></Tooltip>
         </div>
-
-        {/* ─── Speed Control Panel ─────────────────────────── */}
-        {showSpeedControl && (
-          <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-medium">מהירות ניגון מדויקת</p>
-              <div className="flex items-center gap-1">
-                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => nudgeSpeed(-0.05)}>-0.05</Button>
-                <Badge variant="secondary" className="text-xs font-mono">{speed.toFixed(2)}x</Badge>
-                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => nudgeSpeed(0.05)}>+0.05</Button>
-              </div>
-            </div>
-            <Slider value={[speed]} min={0.5} max={2} step={0.01} onValueChange={([v]) => setPlaybackSpeed(v)} />
-            <div className="flex flex-wrap gap-1 justify-end">
-              {QUICK_SPEED_OPTIONS.map((opt) => (
-                <Button key={opt} variant={Math.abs(speed - opt) < 0.001 ? 'default' : 'outline'} size="sm" className="h-6 px-2 text-[11px] font-mono" onClick={() => setPlaybackSpeed(opt)}>
-                  {opt}x
-                </Button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* ─── Focus Segment Controls (A-B) ───────────────── */}
-        {!compact && (
-          <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Label className="text-xs font-medium">התמקדות בקטע (A-B)</Label>
-                <Badge variant="outline" className="text-[10px]">{formatTime(focusStart)} → {formatTime(focusEnd)}</Badge>
-              </div>
-              <div className="flex items-center gap-2">
-                <Label className="text-[11px] text-muted-foreground">לופ</Label>
-                <Switch checked={focusLoop} onCheckedChange={setFocusLoop} />
-                <Label className="text-[11px] text-muted-foreground">מצב ממוקד</Label>
-                <Switch checked={focusEnabled} onCheckedChange={setFocusEnabled} />
-              </div>
-            </div>
-            <Slider
-              value={[focusStart, Math.max(focusStart + 0.1, focusEnd)]}
-              min={0}
-              max={Math.max(1, effectiveDuration || 1)}
-              step={0.1}
-              onValueChange={([a, b]) => {
-                const start = Math.max(0, Math.min(a, b - 0.1));
-                const end = Math.max(start + 0.1, b);
-                setFocusStart(start);
-                setFocusEnd(end);
-              }}
-            />
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-              <div className="flex gap-1">
-                <Button variant="outline" size="sm" className="h-6 px-2" onClick={markFocusStartFromCurrent}>קבע A מהמיקום הנוכחי</Button>
-                <Button variant="outline" size="sm" className="h-6 px-2" onClick={markFocusEndFromCurrent}>קבע B מהמיקום הנוכחי</Button>
-                <Button variant="outline" size="sm" className="h-6 px-2" onClick={exportFocusedProcessedSegment} disabled={!hasValidFocusRange}>
-                  <Scissors className="w-3 h-3 ml-1 no-theme-icon" />
-                  ייצוא קטע מעובד
-                </Button>
-              </div>
-              <div className="flex gap-1">
-                <Button variant="ghost" size="sm" className="h-6 px-2" onClick={() => seekTo(focusStart)}>נגן מ-A</Button>
-                <Button variant="ghost" size="sm" className="h-6 px-2" onClick={() => { setFocusStart(0); setFocusEnd(Math.max(0.1, effectiveDuration || 1)); }}>
-                  אפס טווח
-                </Button>
-              </div>
-            </div>
-            <p className="text-[11px] text-muted-foreground">
-              כש"מצב ממוקד" פעיל, שינויי מהירות והפחתת רעש חלים רק בתוך הטווח שנבחר.
-            </p>
-            {problemSegments.length > 0 && (
-              <div className="space-y-1 rounded-md border bg-background/70 p-2">
-                <p className="text-[11px] font-medium flex items-center gap-1">
-                  <AlertTriangle className="w-3 h-3 text-amber-500 no-theme-icon" />
-                  קטעים שדורשים תשומת לב ({problemSegments.length})
-                </p>
-                <div className="max-h-24 overflow-y-auto space-y-1">
-                  {problemSegments.slice(0, 8).map((seg) => (
-                    <button
-                      key={seg.id}
-                      type="button"
-                      className="w-full text-right text-[11px] rounded border px-2 py-1 hover:bg-muted/60 transition-colors"
-                      onClick={() => {
-                        setFocusStart(seg.start);
-                        setFocusEnd(Math.min(effectiveDuration || seg.end, seg.end + 0.6));
-                        seekTo(seg.start);
-                      }}
-                    >
-                      {seg.issueType === 'clipping' ? 'קליפינג' : seg.issueType === 'low-volume' ? 'עוצמה נמוכה' : 'רעש חד'}
-                      <span className="mx-1">•</span>
-                      {formatTime(seg.start)} - {formatTime(seg.end)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ─── Volume ──────────────────────────────────────── */}
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={toggleMute}>
-            <VolumeIcon className="w-3.5 h-3.5 no-theme-icon" />
-          </Button>
-          <Slider value={[isMuted ? 0 : volume]} max={1} step={0.05} onValueChange={handleVolumeChange} className="w-28" />
-          <span className="text-xs text-muted-foreground tabular-nums">{Math.round((isMuted ? 0 : volume) * 100)}%</span>
-        </div>
-
-
-        {/* ─── Keyboard shortcuts hint ──────────────────────── */}
-        <p className="text-[10px] text-muted-foreground text-center opacity-60">
-          ⌨️ Space=נגן/עצור · Ctrl+←→=±5s · Shift+←→=מילה · M=השתק · Alt+S=מהירות
-        </p>
       </Wrapper>
     </TooltipProvider>
   );
