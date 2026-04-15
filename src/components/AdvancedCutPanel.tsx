@@ -996,7 +996,6 @@ export default function AdvancedCutPanel({
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <ScrollArea className="max-h-[calc(100vh-500px)]">
               <div className="space-y-2 pb-1">
                 {cutJobs.map((job) => (
                   <CutJobCard
@@ -1010,7 +1009,6 @@ export default function AdvancedCutPanel({
                   />
                 ))}
               </div>
-            </ScrollArea>
           </CardContent>
         </Card>
       )}
