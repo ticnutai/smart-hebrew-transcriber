@@ -924,28 +924,6 @@ const TextEditor = () => {
               </div>
             )}
 
-            {/* AI Marking + Dictionary — unified with edit tab */}
-            <div className="mt-5 space-y-4">
-              <LazyErrorBoundary label="סימון ויזואלי (AI)">
-                <TextMarkingOverlay
-                  text={text}
-                  onTextChange={handleEditorChange}
-                  fontSize={fontSize}
-                  fontFamily={fontFamily}
-                  lineHeight={lineHeight}
-                />
-              </LazyErrorBoundary>
-              <LazyErrorBoundary label="בדיקת מילון">
-                <DictionaryValidator text={text} onApplyFix={(original, fixed) => {
-                  const newText = text.replace(new RegExp(`\\b${original.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`), fixed);
-                  if (newText !== text) {
-                    setText(newText);
-                    toast({ title: "תוקן", description: `"${original}" → "${fixed}"` });
-                  }
-                }} />
-              </LazyErrorBoundary>
-            </div>
-
             </LazyErrorBoundary>
           </TabsContent>
 

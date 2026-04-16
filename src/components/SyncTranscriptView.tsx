@@ -3,12 +3,12 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { addDictionaryReplacement, addIgnoredWord } from "@/utils/hebrewGrammarDictionary";
-import { buildIssueMap, type SyncedSpellAssistSettings, type MenuSuggestion } from "@/utils/syncedSpellAssist";
-import { AlignRight, Clock, SpellCheck, Settings2 } from "lucide-react";
+import type { MenuSuggestion } from "@/utils/syncedSpellAssist";
+import { useTextMarking } from "@/hooks/useTextMarking";
+import { MarkingToolbar } from "@/components/MarkingToolbar";
+import { AlignRight, Clock } from "lucide-react";
 import type { WordTiming } from "./SyncAudioPlayer";
 
 interface SyncTranscriptViewProps {
@@ -29,41 +29,8 @@ interface SpellMenuState {
   suggestions: MenuSuggestion[];
 }
 
-const SETTINGS_KEY = "sync_editor_spell_assist_v1";
-
-const DEFAULT_SETTINGS: SyncedSpellAssistSettings = {
-  enabled: false,
-  grammarEnabled: true,
-  duplicateWordsRule: true,
-  punctuationRule: true,
-  latinWordsRule: true,
-  useDictionary: true,
-  markMode: "underline",
-  markColor: "#ef4444",
-  keepMarkedAfterFix: false,
-};
-
 function normalizeWord(word: string): string {
   return word.replace(/[.,;:!?"'׳״()\[\]{}<>\-–—]/g, "").trim();
-}
-
-function loadSettings(): SyncedSpellAssistSettings {
-  try {
-    const raw = localStorage.getItem(SETTINGS_KEY);
-    if (!raw) return DEFAULT_SETTINGS;
-    return { ...DEFAULT_SETTINGS, ...(JSON.parse(raw) as Partial<SyncedSpellAssistSettings>) };
-  } catch {
-    return DEFAULT_SETTINGS;
-  }
-}
-
-function hexToRgba(hex: string, alpha: number): string {
-  const h = hex.replace("#", "");
-  if (h.length !== 6) return `rgba(239, 68, 68, ${alpha})`;
-  const r = parseInt(h.slice(0, 2), 16);
-  const g = parseInt(h.slice(2, 4), 16);
-  const b = parseInt(h.slice(4, 6), 16);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 export const SyncTranscriptView = ({
@@ -78,20 +45,9 @@ export const SyncTranscriptView = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const activeWordRef = useRef<HTMLSpanElement>(null);
 
-  const [settings, setSettings] = useState<SyncedSpellAssistSettings>(() => loadSettings());
-  const [showSettings, setShowSettings] = useState(false);
   const [spellMenu, setSpellMenu] = useState<SpellMenuState | null>(null);
   const [customCorrection, setCustomCorrection] = useState("");
-  const [stickyMarked, setStickyMarked] = useState<Set<number>>(new Set());
   const [dictionaryVersion, setDictionaryVersion] = useState(0);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-    } catch {
-      // Ignore storage errors.
-    }
-  }, [settings]);
 
   useEffect(() => {
     if (!spellMenu) return;
@@ -110,10 +66,8 @@ export const SyncTranscriptView = ({
 
   const words = useMemo(() => wordTimings.map((w) => w.word), [wordTimings]);
 
-  const issueMap = useMemo(
-    () => buildIssueMap(words, settings, stickyMarked),
-    [words, settings, stickyMarked, dictionaryVersion],
-  );
+  // Unified marking hook (local spell + AI analysis)
+  const marking = useTextMarking(words, onWordReplace);
 
   const sentences = useMemo(() => {
     if (!wordTimings.length) return [];
@@ -154,25 +108,6 @@ export const SyncTranscriptView = ({
     return `${m}:${s}`;
   };
 
-  const markStyleForWord = useCallback((wordIndex: number): React.CSSProperties => {
-    if (!settings.enabled || !issueMap.has(wordIndex)) return {};
-
-    if (settings.markMode === "highlight") {
-      return {
-        backgroundColor: hexToRgba(settings.markColor, 0.28),
-        borderRadius: "0.25rem",
-      };
-    }
-
-    return {
-      textDecorationLine: "underline",
-      textDecorationStyle: "wavy",
-      textDecorationColor: settings.markColor,
-      textUnderlineOffset: "3px",
-      textDecorationThickness: "1.5px",
-    };
-  }, [issueMap, settings.enabled, settings.markColor, settings.markMode]);
-
   const applyCorrection = useCallback((wordIndex: number, correctedWord: string) => {
     const fixed = correctedWord.trim();
     if (!fixed) return;
@@ -199,16 +134,9 @@ export const SyncTranscriptView = ({
       }
     }
 
-    setStickyMarked((prev) => {
-      const next = new Set(prev);
-      if (settings.keepMarkedAfterFix) next.add(wordIndex);
-      else next.delete(wordIndex);
-      return next;
-    });
-
     setSpellMenu(null);
     setCustomCorrection("");
-  }, [onWordReplace, settings.keepMarkedAfterFix, words]);
+  }, [onWordReplace, words]);
 
   if (!wordTimings.length) {
     return (
@@ -220,89 +148,30 @@ export const SyncTranscriptView = ({
     );
   }
 
+  // Build combined suggestions for context menu: local + AI
+  const getSuggestions = (wordIndex: number): MenuSuggestion[] => {
+    const local = marking.localIssueMap.get(wordIndex) || [];
+    const aiResult = marking.resultMap.get(wordIndex);
+    const combined = [...local];
+    if (aiResult?.suggestion) {
+      combined.push({ text: aiResult.suggestion, label: aiResult.suggestion, source: aiResult.reason || "AI", score: 1 });
+    }
+    return combined;
+  };
+
+  const hasIssue = (wordIndex: number): boolean => {
+    return marking.getWordMarkingStyle(wordIndex) !== "";
+  };
+
   return (
     <Card className="p-4 flex flex-col h-full" dir="rtl">
-      <div className="flex items-center justify-between mb-3 min-h-10">
+      {/* Header row */}
+      <div className="flex items-center justify-between mb-2 min-h-8">
         <div className="flex items-center gap-2">
           <AlignRight className="w-4 h-4 text-primary" />
           <h3 className="font-semibold text-sm">תמלול מסונכרן</h3>
         </div>
         <div className="flex items-center gap-2">
-          <div className="group relative">
-            <Button
-              variant={settings.enabled ? "default" : "outline"}
-              size="sm"
-              className="h-7 px-2 text-xs gap-1 min-w-[108px]"
-              onClick={() => setSettings((prev) => ({ ...prev, enabled: !prev.enabled }))}
-              title="הפעלת/כיבוי זיהוי שגיאות כתיב ותחביר"
-            >
-              <SpellCheck className="w-3.5 h-3.5" />
-              בדיקת שגיאות
-            </Button>
-
-            {settings.enabled && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 absolute -left-7 top-0 opacity-0 transition-opacity group-hover:opacity-100"
-                onClick={() => setShowSettings((v) => !v)}
-                title="הגדרות סימון"
-              >
-                <Settings2 className="w-3.5 h-3.5" />
-              </Button>
-            )}
-
-            {settings.enabled && showSettings && (
-              <div className="absolute left-0 top-8 z-50 w-72 rounded-md border bg-popover p-3 shadow-xl" onClick={(e) => e.stopPropagation()}>
-                <p className="text-xs font-medium mb-2">הגדרות סימון שגיאות</p>
-                <div className="space-y-3 text-xs">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs">בדיקת תחביר בסיסית</Label>
-                    <Switch checked={settings.grammarEnabled} onCheckedChange={(v) => setSettings((prev) => ({ ...prev, grammarEnabled: v }))} />
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs">זיהוי כפילות מילים</Label>
-                    <Switch checked={settings.duplicateWordsRule} onCheckedChange={(v) => setSettings((prev) => ({ ...prev, duplicateWordsRule: v }))} />
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs">זיהוי פיסוק חריג</Label>
-                    <Switch checked={settings.punctuationRule} onCheckedChange={(v) => setSettings((prev) => ({ ...prev, punctuationRule: v }))} />
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs">זיהוי לטינית בטקסט עברי</Label>
-                    <Switch checked={settings.latinWordsRule} onCheckedChange={(v) => setSettings((prev) => ({ ...prev, latinWordsRule: v }))} />
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs">מילון דקדוקי מותאם</Label>
-                    <Switch checked={settings.useDictionary} onCheckedChange={(v) => setSettings((prev) => ({ ...prev, useDictionary: v }))} />
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs">מצב סימון</Label>
-                    <div className="flex gap-1">
-                      <Button variant={settings.markMode === "underline" ? "default" : "outline"} size="sm" className="h-6 px-2 text-[10px]" onClick={() => setSettings((prev) => ({ ...prev, markMode: "underline" }))}>קו תחתון</Button>
-                      <Button variant={settings.markMode === "highlight" ? "default" : "outline"} size="sm" className="h-6 px-2 text-[10px]" onClick={() => setSettings((prev) => ({ ...prev, markMode: "highlight" }))}>היילייט</Button>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between gap-2">
-                    <Label className="text-xs">צבע סימון</Label>
-                    <Input type="color" className="h-7 w-16 p-1" value={settings.markColor} onChange={(e) => setSettings((prev) => ({ ...prev, markColor: e.target.value }))} />
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs">להשאיר סימון אחרי תיקון</Label>
-                    <Switch checked={settings.keepMarkedAfterFix} onCheckedChange={(v) => setSettings((prev) => ({ ...prev, keepMarkedAfterFix: v }))} />
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
           <Badge variant="outline" className="text-xs min-w-[76px] justify-center">
             <Clock className="w-3 h-3 ml-1" />
             {formatTime(currentTime)}
@@ -313,6 +182,43 @@ export const SyncTranscriptView = ({
         </div>
       </div>
 
+      {/* Unified marking toolbar */}
+      <div className="mb-2">
+        <MarkingToolbar
+          settings={marking.settings}
+          setSettings={marking.setSettings}
+          isActive={marking.isActive}
+          isAnalyzing={marking.isAnalyzing}
+          isPaused={marking.isPaused}
+          progress={marking.progress}
+          stage={marking.stage}
+          cacheSource={marking.cacheSource}
+          canResume={marking.canResume}
+          hasText={words.length > 0}
+          localIssueCount={marking.localIssueCount}
+          issueStats={marking.issueStats}
+          fixableResults={marking.fixableResults}
+          selectedFixes={marking.selectedFixes}
+          showFixPanel={marking.showFixPanel}
+          setShowFixPanel={marking.setShowFixPanel}
+          toggleFixSelection={marking.toggleFixSelection}
+          toggleSelectAll={marking.toggleSelectAll}
+          wordResults={marking.wordResults}
+          runAnalysis={marking.runAnalysis}
+          handlePause={marking.handlePause}
+          handleResume={marking.handleResume}
+          handleCancel={marking.handleCancel}
+          clearResults={marking.clearResults}
+          handleFixAll={marking.handleFixAll}
+          handleFixSelected={marking.handleFixSelected}
+          handleRemoveAllDuplicates={marking.handleRemoveAllDuplicates}
+          selectedDuplicate={marking.selectedDuplicate}
+          setSelectedDuplicate={marking.setSelectedDuplicate}
+          handleRemoveDuplicate={marking.handleRemoveDuplicate}
+        />
+      </div>
+
+      {/* Word display */}
       <div
         ref={containerRef}
         className="flex-1 overflow-y-auto p-4 rounded-lg bg-muted/20 scroll-smooth"
@@ -340,9 +246,9 @@ export const SyncTranscriptView = ({
                 const confidenceTitle = prob != null
                   ? ` | ביטחון: ${(prob * 100).toFixed(0)}%`
                   : "";
-
-                const isIssue = settings.enabled && issueMap.has(wt.globalIndex);
-                const suggestions = isIssue ? (issueMap.get(wt.globalIndex) || []) : [];
+                const markingClass = marking.getWordMarkingStyle(wt.globalIndex);
+                const wordHasIssue = hasIssue(wt.globalIndex);
+                const suggestions = wordHasIssue ? getSuggestions(wt.globalIndex) : [];
 
                 return (
                   <span
@@ -351,16 +257,16 @@ export const SyncTranscriptView = ({
                     className={cn(
                       "px-0.5 py-0.5 rounded cursor-pointer transition-all duration-150 inline-block",
                       confidenceStyle,
+                      markingClass,
                       isActive
                         ? "bg-primary text-primary-foreground font-bold scale-110 shadow-md mx-0.5"
                         : isPast
                           ? "text-muted-foreground hover:bg-muted"
                           : "hover:bg-muted",
                     )}
-                    style={markStyleForWord(wt.globalIndex)}
                     onClick={() => onWordClick(wt.start)}
                     onContextMenu={(e) => {
-                      if (!settings.enabled || !isIssue) return;
+                      if (!wordHasIssue) return;
                       e.preventDefault();
                       setCustomCorrection(wt.word);
                       setSpellMenu({
@@ -371,7 +277,7 @@ export const SyncTranscriptView = ({
                         suggestions,
                       });
                     }}
-                    title={`${formatTime(wt.start)} → ${formatTime(wt.end)}${confidenceTitle}${isIssue ? " | קליק ימני להצעות תיקון" : ""}`}
+                    title={`${formatTime(wt.start)} → ${formatTime(wt.end)}${confidenceTitle}${wordHasIssue ? " | קליק ימני להצעות תיקון" : ""}`}
                   >
                     {wt.word}
                   </span>
