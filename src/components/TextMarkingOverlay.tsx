@@ -236,9 +236,73 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
     if (wordIndex < wordArray.length) {
       wordArray[wordIndex] = suggestion;
       onTextChange(wordArray.join(''));
+      toast({ title: "תוקן" });
       setIsActive(false);
     }
   }, [text, onTextChange]);
+
+  // All fixable results (have a suggestion)
+  const fixableResults = useMemo(() => {
+    return wordResults.filter(r => r.issueType !== 'none' && r.suggestion);
+  }, [wordResults]);
+
+  // Fix all suggestions at once
+  const handleFixAll = useCallback(() => {
+    if (fixableResults.length === 0) return;
+    const wordArray = text.split(/(\s+)/);
+    let count = 0;
+    for (const r of fixableResults) {
+      if (r.suggestion && r.index < wordArray.length) {
+        wordArray[r.index] = r.suggestion;
+        count++;
+      }
+    }
+    onTextChange(wordArray.join(''));
+    toast({ title: "תוקן הכל", description: `${count} מילים תוקנו` });
+    setIsActive(false);
+    setWordResults([]);
+    setSelectedFixes(new Set());
+    setShowFixPanel(false);
+  }, [text, fixableResults, onTextChange]);
+
+  // Fix only selected
+  const handleFixSelected = useCallback(() => {
+    if (selectedFixes.size === 0) return;
+    const wordArray = text.split(/(\s+)/);
+    let count = 0;
+    for (const idx of selectedFixes) {
+      const r = wordResults.find(wr => wr.index === idx);
+      if (r?.suggestion && idx < wordArray.length) {
+        wordArray[idx] = r.suggestion;
+        count++;
+      }
+    }
+    onTextChange(wordArray.join(''));
+    toast({ title: "תוקנו נבחרים", description: `${count} מילים תוקנו` });
+    setIsActive(false);
+    setWordResults([]);
+    setSelectedFixes(new Set());
+    setShowFixPanel(false);
+  }, [text, selectedFixes, wordResults, onTextChange]);
+
+  // Toggle fix selection
+  const toggleFixSelection = useCallback((index: number) => {
+    setSelectedFixes(prev => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  }, []);
+
+  // Select/deselect all fixable
+  const toggleSelectAll = useCallback(() => {
+    if (selectedFixes.size === fixableResults.length) {
+      setSelectedFixes(new Set());
+    } else {
+      setSelectedFixes(new Set(fixableResults.map(r => r.index)));
+    }
+  }, [fixableResults, selectedFixes]);
 
   const getWordStyle = useCallback((wordIndex: number): string => {
     if (!isActive) return '';
