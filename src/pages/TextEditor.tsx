@@ -1049,6 +1049,15 @@ const TextEditor = () => {
             <LazyErrorBoundary label="למידת תיקונים"><CorrectionLearningPanel /></LazyErrorBoundary>
           </TabsContent>
           <TabsContent value="vocab" className="space-y-5">
+            <LazyErrorBoundary label="בדיקת מילון">
+              <DictionaryValidator text={text} onApplyFix={(original, fixed) => {
+                const newText = text.replace(new RegExp(`\\b${original.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`), fixed);
+                if (newText !== text) {
+                  setText(newText);
+                  toast({ title: "תוקן", description: `"${original}" → "${fixed}"` });
+                }
+              }} />
+            </LazyErrorBoundary>
             <LazyErrorBoundary label="אוצר מילים"><VocabularyPanel /></LazyErrorBoundary>
           </TabsContent>
 
