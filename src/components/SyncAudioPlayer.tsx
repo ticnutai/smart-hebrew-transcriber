@@ -392,6 +392,10 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
   const [eqCanvasCollapsed, setEqCanvasCollapsed] = useState(false);
   const [eqStyleBarHover, setEqStyleBarHover] = useState(false);
   const [eqCanvasHover, setEqCanvasHover] = useState(false);
+  const [staticWaveCollapsed, setStaticWaveCollapsed] = useState(false);
+  const [staticWaveHover, setStaticWaveHover] = useState(false);
+  const [seekBarCollapsed, setSeekBarCollapsed] = useState(false);
+  const [seekBarHover, setSeekBarHover] = useState(false);
   const eqBandsRef = useRef<BiquadFilterNode[]>([]);
   // Helper: get/set individual band gain
   const setEqBand = useCallback((index: number, value: number) => {
