@@ -30,7 +30,8 @@ const TranscriptSummary = lazy(() => import("@/components/TranscriptSummary").th
 const EngineCompare = lazy(() => import("@/components/EngineCompare").then(m => ({ default: m.EngineCompare })));
 const AnalyticsDashboard = lazy(() => import("@/components/AnalyticsDashboard").then(m => ({ default: m.AnalyticsDashboard })));
 const SpeakerDiarization = lazy(() => import("@/components/SpeakerDiarization").then(m => ({ default: m.SpeakerDiarization })));
-import { ArrowRight, Home, Wand2, SplitSquareVertical, SpellCheck, Loader2, Columns2, Columns3, AlignJustify, LayoutGrid, Rows3, Save, Copy, LayoutPanelTop, LayoutPanelLeft, Square, StretchHorizontal } from "lucide-react";
+const FloatingPlayerPortal = lazy(() => import("@/components/FloatingPlayerPortal").then(m => ({ default: m.FloatingPlayerPortal })));
+import { ArrowRight, Home, Wand2, SplitSquareVertical, SpellCheck, Loader2, Columns2, Columns3, AlignJustify, LayoutGrid, Rows3, Save, Copy, LayoutPanelTop, LayoutPanelLeft, Square, StretchHorizontal, PictureInPicture2 } from "lucide-react";
 import { TabSettingsManager, TabConfig, loadTabSettings, saveTabSettings, getDefaultTabConfig } from "@/components/TabSettingsManager";
 import { supabase } from "@/integrations/supabase/client";
 import { editTranscriptCloud } from "@/utils/editTranscriptApi";
@@ -203,6 +204,8 @@ const TextEditor = () => {
   // Player layout (cloud-synced)
   const playerLayout = (preferences.player_layout || 'split') as 'split' | 'stacked' | 'full' | 'wide';
   const setPlayerLayout = useCallback((v: 'split' | 'stacked' | 'full' | 'wide') => updatePreference('player_layout', v), [updatePreference]);
+  const [isPlayerFloating, setIsPlayerFloating] = useState(false);
+  const togglePlayerFloating = useCallback(() => setIsPlayerFloating(p => !p), []);
   const setColumns = (v: number) => updatePreference('editor_columns', v);
 
   const columnStyle: React.CSSProperties = columns > 1 ? {
@@ -244,7 +247,18 @@ const TextEditor = () => {
 
   useEffect(() => {
     debugLog.info('TextEditor', '📝 TextEditor mounted');
+
+    // Keyboard shortcut: Ctrl+Shift+F → toggle floating player
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && e.key === 'F') {
+        e.preventDefault();
+        setIsPlayerFloating(p => !p);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
     return () => {
+      window.removeEventListener('keydown', handleKeyDown);
       if (ownedAudioUrlRef.current) {
         URL.revokeObjectURL(ownedAudioUrlRef.current);
         ownedAudioUrlRef.current = null;
@@ -850,7 +864,17 @@ const TextEditor = () => {
           <TabsContent value="player" className="space-y-6">
             <LazyErrorBoundary label="נגן מסונכרן">
             {/* Layout toggle */}
-            <div className="flex justify-end mb-2" dir="rtl">
+            <div className="flex justify-end mb-2 gap-2" dir="rtl">
+              <Button
+                variant={isPlayerFloating ? 'default' : 'outline'}
+                size="sm"
+                className="h-7 px-2 text-xs gap-1"
+                onClick={togglePlayerFloating}
+                title="נגן צף (Ctrl+Shift+F)"
+              >
+                <PictureInPicture2 className="w-3.5 h-3.5" />
+                נגן צף
+              </Button>
               <div className="flex items-center gap-1 bg-muted/40 rounded-xl p-1 border border-border/50 shadow-sm">
                 <Button
                   variant={playerLayout === 'split' ? 'default' : 'ghost'}
@@ -892,16 +916,32 @@ const TextEditor = () => {
             </div>
 
             {/* Top section: Player + Audio Processing */}
-            <div className="rounded-2xl border border-border/40 bg-card/50 shadow-sm p-1">
-              <SyncAudioPlayer
-                audioUrl={audioUrl}
-                wordTimings={wordTimings}
-                currentTime={playerTime}
-                onTimeUpdate={setPlayerTime}
-                syncEnabled={syncEnabled}
-                onSyncToggle={setSyncEnabled}
-              />
-            </div>
+            {isPlayerFloating ? (
+              <Suspense fallback={null}>
+                <FloatingPlayerPortal onClose={togglePlayerFloating}>
+                  <SyncAudioPlayer
+                    audioUrl={audioUrl}
+                    wordTimings={wordTimings}
+                    currentTime={playerTime}
+                    onTimeUpdate={setPlayerTime}
+                    syncEnabled={syncEnabled}
+                    onSyncToggle={setSyncEnabled}
+                    compact
+                  />
+                </FloatingPlayerPortal>
+              </Suspense>
+            ) : (
+              <div className="rounded-2xl border border-border/40 bg-card/50 shadow-sm p-1">
+                <SyncAudioPlayer
+                  audioUrl={audioUrl}
+                  wordTimings={wordTimings}
+                  currentTime={playerTime}
+                  onTimeUpdate={setPlayerTime}
+                  syncEnabled={syncEnabled}
+                  onSyncToggle={setSyncEnabled}
+                />
+              </div>
+            )}
 
             {/* Bottom section: Two synced transcript views */}
             {playerLayout !== 'full' && (
