@@ -411,6 +411,64 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
           </div>
         </TooltipProvider>
       )}
+
+      {/* Fix selection panel */}
+      {isActive && showFixPanel && fixableResults.length > 0 && (
+        <div className="mt-3 rounded-xl border border-border/40 bg-muted/10 p-3" dir="rtl">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <ListChecks className="w-4 h-4 text-emerald-400" />
+              <h4 className="font-medium text-sm">בחר מילים לתיקון</h4>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={toggleSelectAll}>
+                <CheckCheck className="w-3.5 h-3.5" />
+                {selectedFixes.size === fixableResults.length ? 'בטל הכל' : 'בחר הכל'}
+              </Button>
+              <Button
+                size="sm"
+                className="h-7 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700"
+                disabled={selectedFixes.size === 0}
+                onClick={handleFixSelected}
+              >
+                <Wand2 className="w-3.5 h-3.5" />
+                תקן נבחרים ({selectedFixes.size})
+              </Button>
+            </div>
+          </div>
+          <ScrollArea className="max-h-[200px]">
+            <div className="space-y-1">
+              {fixableResults.map((r) => {
+                const isSelected = selectedFixes.has(r.index);
+                const issueColor = r.issueType === 'spelling' || r.issueType === 'unknown_word'
+                  ? 'text-red-400' : r.issueType === 'grammar'
+                  ? 'text-orange-400' : 'text-yellow-400';
+                return (
+                  <div
+                    key={r.index}
+                    className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
+                      isSelected ? 'bg-emerald-500/10 border border-emerald-500/20' : 'bg-white/5 hover:bg-white/10'
+                    }`}
+                    onClick={() => toggleFixSelection(r.index)}
+                  >
+                    <Checkbox
+                      checked={isSelected}
+                      onCheckedChange={() => toggleFixSelection(r.index)}
+                      className="shrink-0"
+                    />
+                    <span className={`font-medium ${issueColor} line-through text-sm`}>{r.word}</span>
+                    <span className="text-white/30 text-xs">→</span>
+                    <span className="font-medium text-emerald-400 text-sm">{r.suggestion}</span>
+                    {r.reason && (
+                      <span className="text-white/30 text-[10px] mr-auto truncate max-w-[150px]">{r.reason}</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </ScrollArea>
+        </div>
+      )}
       <Dialog open={!!selectedDuplicate} onOpenChange={(open) => !open && setSelectedDuplicate(null)}>
         <DialogContent className="max-w-md" dir="rtl">
           <DialogHeader><DialogTitle>ניהול כפילות: "{selectedDuplicate?.word}"</DialogTitle></DialogHeader>
