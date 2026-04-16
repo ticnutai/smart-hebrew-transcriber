@@ -200,6 +200,54 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
     } catch { return null; }
   }, []);
 
+  // Clear cache for a specific text hash
+  const clearCacheForHash = useCallback(async (hash: string) => {
+    // Clear local cache
+    try {
+      localStorage.removeItem(`${LOCAL_CACHE_KEY}_${hash}`);
+    } catch {}
+
+    // Clear cloud cache
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        await supabase.from('text_analysis_cache' as any)
+          .delete()
+          .eq('user_id', user.id)
+          .eq('text_hash', hash);
+      }
+    } catch (err) {
+      console.error('Failed to clear cloud cache:', err);
+    }
+  }, []);
+
+  // Auto-clear cache when text changes
+  useEffect(() => {
+    if (!text.trim()) return;
+
+    const currentHash = hashText(text);
+
+    // If text changed (hash is different) and we had previous analysis
+    if (lastTextHashRef.current && lastTextHashRef.current !== currentHash && isActive) {
+      // Clear old cache asynchronously
+      clearCacheForHash(lastTextHashRef.current);
+
+      // Reset analysis state
+      setWordResults([]);
+      setDuplicates([]);
+      setIsActive(false);
+      setProgress(0);
+      setCacheSource('none');
+      morphResultsRef.current = [];
+      completedBatchesRef.current.clear();
+      completedCountRef.current = 0;
+
+      console.log('🧹 קאש נוקה - הטקסט השתנה');
+    }
+
+    lastTextHashRef.current = currentHash;
+  }, [text, isActive, clearCacheForHash]);
+
   const runAnalysis = useCallback(async (resume = false, forceRefresh = false) => {
     if (!text.trim()) return;
     cancelRef.current = false;
