@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
@@ -8,7 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Eye, Settings2, Loader2, XCircle, Trash2, Check, RefreshCw, Wand2, ListChecks, CheckCheck, Pause, Play } from "lucide-react";
+import { Eye, Settings2, Loader2, XCircle, Trash2, Check, RefreshCw, Wand2, ListChecks, CheckCheck, Pause, Play, Database, Zap } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { analyzeMorphology } from "@/utils/dictaApi";
 import { supabase } from "@/integrations/supabase/client";
@@ -27,6 +27,12 @@ interface DuplicateGroup {
   indices: number[];
 }
 
+interface CachedAnalysis {
+  wordResults: WordValidation[];
+  duplicates: DuplicateGroup[];
+  timestamp: number;
+}
+
 interface Props {
   text: string;
   onTextChange: (text: string) => void;
@@ -36,7 +42,38 @@ interface Props {
 }
 
 const BATCH_SIZE = 40;
-const PARALLEL_LIMIT = 3;
+const PARALLEL_LIMIT = 4;
+const LOCAL_CACHE_KEY = 'text_analysis_cache';
+const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+// Fast text hash using simple djb2
+const hashText = (text: string): string => {
+  let hash = 5381;
+  for (let i = 0; i < text.length; i++) {
+    hash = ((hash << 5) + hash + text.charCodeAt(i)) >>> 0;
+  }
+  return hash.toString(36) + '_' + text.length;
+};
+
+// Local cache helpers
+const getLocalCache = (hash: string): CachedAnalysis | null => {
+  try {
+    const raw = localStorage.getItem(`${LOCAL_CACHE_KEY}_${hash}`);
+    if (!raw) return null;
+    const cached: CachedAnalysis = JSON.parse(raw);
+    if (Date.now() - cached.timestamp > CACHE_MAX_AGE_MS) {
+      localStorage.removeItem(`${LOCAL_CACHE_KEY}_${hash}`);
+      return null;
+    }
+    return cached;
+  } catch { return null; }
+};
+
+const setLocalCache = (hash: string, data: CachedAnalysis) => {
+  try {
+    localStorage.setItem(`${LOCAL_CACHE_KEY}_${hash}`, JSON.stringify(data));
+  } catch { /* quota exceeded — ignore */ }
+};
 
 export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFamily = 'Assistant', lineHeight = 1.8 }: Props) => {
   const [settings, setSettings] = useState<MarkingSettings>({
@@ -55,6 +92,7 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
   const [selectedDuplicate, setSelectedDuplicate] = useState<DuplicateGroup | null>(null);
   const [selectedFixes, setSelectedFixes] = useState<Set<number>>(new Set());
   const [showFixPanel, setShowFixPanel] = useState(false);
+  const [cacheSource, setCacheSource] = useState<'none' | 'local' | 'cloud'>('none');
 
   // Resume tracking
   const completedBatchesRef = useRef<Set<number>>(new Set());
