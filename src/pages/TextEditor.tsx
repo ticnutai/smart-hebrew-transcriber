@@ -871,6 +871,15 @@ const TextEditor = () => {
                   <LayoutPanelTop className="w-3.5 h-3.5" />
                 </Button>
                 <Button
+                  variant={playerLayout === 'wide' ? 'default' : 'ghost'}
+                  size="sm"
+                  className="h-7 w-7 p-0 rounded-lg"
+                  onClick={() => setPlayerLayout('wide')}
+                  title="פריסה רחבה — נגן+אקווילייזר רוחב מלא, תמלולים צד-בצד"
+                >
+                  <StretchHorizontal className="w-3.5 h-3.5" />
+                </Button>
+                <Button
                   variant={playerLayout === 'full' ? 'default' : 'ghost'}
                   size="sm"
                   className="h-7 w-7 p-0 rounded-lg"
