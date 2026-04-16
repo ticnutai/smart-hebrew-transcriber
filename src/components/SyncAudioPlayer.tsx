@@ -27,6 +27,118 @@ export interface WordTiming {
   probability?: number;
 }
 
+// ─── Visual Knob Component ─────────────────────────────────────
+const Knob = ({ value, min, max, onChange, label, className }: { value: number, min: number, max: number, onChange: (val: number) => void, label: string, className?: string }) => {
+  const knobRef = useRef<HTMLDivElement>(null);
+  
+  const handleDrag = useCallback((e: React.MouseEvent | React.TouchEvent | MouseEvent | TouchEvent) => {
+    e.preventDefault();
+    if (!knobRef.current) return;
+    const rect = knobRef.current.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    
+    const clientX = 'touches' in e ? e.touches[0].clientX : (e as MouseEvent).clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : (e as MouseEvent).clientY;
+    
+    // Calculate angle from center to mouse
+    const dx = clientX - centerX;
+    const dy = clientY - centerY;
+    let angle = Math.atan2(dy, dx) * (180 / Math.PI) + 90; // +90 to make 0 deg at top
+    if (angle < 0) angle += 360;
+
+    // We want the knob to go from ~225 deg (min) to ~135 deg (max), giving a 270 deg range
+    // 0 deg is top.
+    // Let's make physical angle range:
+    // Left: -135 deg
+    // Right: 135 deg
+    let angleFromTop = angle <= 180 ? angle : angle - 360;
+    
+    // Clamp to -135 .. 135
+    if (angleFromTop < -135) angleFromTop = -135;
+    if (angleFromTop > 135) angleFromTop = 135;
+
+    const percent = (angleFromTop + 135) / 270;
+    let newVal = min + percent * (max - min);
+    
+    // Snap to 0.5 steps
+    newVal = Math.round(newVal * 2) / 2;
+    onChange(newVal);
+  }, [min, max, onChange]);
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    
+    const onMove = (moveEv: PointerEvent) => handleDrag(moveEv);
+    const onUp = (upEv: PointerEvent) => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+
+  const percent = (value - min) / (max - min);
+  const angle = -135 + percent * 270;
+
+  return (
+    <div className={`flex flex-col items-center gap-1 ${className || ''}`}>
+      <span className="text-[10px] font-mono text-muted-foreground">{label}</span>
+      <div 
+        ref={knobRef}
+        className="relative w-8 h-8 rounded-full bg-accent border select-none cursor-ns-resize shadow-inner flex items-center justify-center"
+        onPointerDown={handlePointerDown}
+      >
+        <div 
+          className="absolute w-0.5 h-3.5 bg-primary rounded-full top-1 transition-transform"
+          style={{ transform: `rotate(${angle}deg)`, transformOrigin: '50% 12px' }}
+        />
+      </div>
+      <span className="text-[9px] font-mono">{value > 0 ? '+' : ''}{value}</span>
+    </div>
+  );
+};
+
+
+// ─── 31-Band EQ Definition (1/3 octave, ISO standard) ──────────
+const EQ_BANDS_31 = [
+  { freq: 20, label: '20', q: 4.3, color: 'text-rose-500' },
+  { freq: 25, label: '25', q: 4.3, color: 'text-rose-500' },
+  { freq: 31, label: '31', q: 4.3, color: 'text-rose-400' },
+  { freq: 40, label: '40', q: 4.3, color: 'text-red-400' },
+  { freq: 50, label: '50', q: 4.3, color: 'text-red-400' },
+  { freq: 63, label: '63', q: 4.3, color: 'text-red-400' },
+  { freq: 80, label: '80', q: 4.3, color: 'text-orange-400' },
+  { freq: 100, label: '100', q: 4.3, color: 'text-orange-400' },
+  { freq: 125, label: '125', q: 4.3, color: 'text-orange-400' },
+  { freq: 160, label: '160', q: 4.3, color: 'text-amber-400' },
+  { freq: 200, label: '200', q: 4.3, color: 'text-amber-400' },
+  { freq: 250, label: '250', q: 4.3, color: 'text-amber-400' },
+  { freq: 315, label: '315', q: 4.3, color: 'text-yellow-400' },
+  { freq: 400, label: '400', q: 4.3, color: 'text-yellow-400' },
+  { freq: 500, label: '500', q: 4.3, color: 'text-yellow-400' },
+  { freq: 630, label: '630', q: 4.3, color: 'text-lime-400' },
+  { freq: 800, label: '800', q: 4.3, color: 'text-lime-400' },
+  { freq: 1000, label: '1k', q: 4.3, color: 'text-green-400' },
+  { freq: 1250, label: '1.2k', q: 4.3, color: 'text-green-400' },
+  { freq: 1600, label: '1.6k', q: 4.3, color: 'text-emerald-400' },
+  { freq: 2000, label: '2k', q: 4.3, color: 'text-emerald-400' },
+  { freq: 2500, label: '2.5k', q: 4.3, color: 'text-teal-400' },
+  { freq: 3150, label: '3.1k', q: 4.3, color: 'text-teal-400' },
+  { freq: 4000, label: '4k', q: 4.3, color: 'text-cyan-400' },
+  { freq: 5000, label: '5k', q: 4.3, color: 'text-cyan-400' },
+  { freq: 6300, label: '6.3k', q: 4.3, color: 'text-sky-400' },
+  { freq: 8000, label: '8k', q: 4.3, color: 'text-blue-400' },
+  { freq: 10000, label: '10k', q: 4.3, color: 'text-blue-400' },
+  { freq: 12500, label: '12.5k', q: 4.3, color: 'text-indigo-400' },
+  { freq: 16000, label: '16k', q: 4.3, color: 'text-violet-400' },
+  { freq: 20000, label: '20k', q: 4.3, color: 'text-purple-400' },
+] as const;
+
+type EqBandCount = 10 | 31;
+const EQ_BANDS_10_INDICES = [2, 5, 8, 11, 14, 17, 20, 23, 26, 29]; // indices into EQ_BANDS_31 for the classic 10-band
+
 // ─── AI Noise Reduction Presets ───────────────────────────────
 interface NoisePreset {
   id: string;
@@ -265,22 +377,36 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
   const [showEnhance, setShowEnhance] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showAdvancedDialog, setShowAdvancedDialog] = useState(false);
+  const [isNoisePanelCollapsed, setIsNoisePanelCollapsed] = useState(false);
+  const [isFocusPanelCollapsed, setIsFocusPanelCollapsed] = useState(false);
+  const [isMixerConsoleCollapsed, setIsMixerConsoleCollapsed] = useState(false);
   const [outputGain, setOutputGain] = useState(1.0); // 0.0 to 3.0 (multiply)
   const [showEqualizer, setShowEqualizer] = useState(true);
-  // 5-band parametric EQ user controls (dB, -12 to +12)
-  const [eqBass, setEqBass] = useState(0);
-  const [eqLowMid, setEqLowMid] = useState(0);
-  const [eqMid, setEqMid] = useState(0);
-  const [eqHighMid, setEqHighMid] = useState(0);
-  const [eqTreble, setEqTreble] = useState(0);
-  const [eqVerticalView, setEqVerticalView] = useState(true);
+  // 31-band parametric EQ user controls (dB, -12 to +12)
+  const [eqGains, setEqGains] = useState<number[]>(() => new Array(31).fill(0));
+  const [eqBandCount, setEqBandCount] = useState<EqBandCount>(31);
+  const [eqViewMode, setEqViewMode] = useState<'vertical' | 'horizontal' | 'circular'>('vertical');
   const [advVerticalView, setAdvVerticalView] = useState(false);
-  const [eqVizStyle, setEqVizStyle] = useState<'bars' | 'mirror' | 'wave' | 'circle'>('bars');
-  const eqBassRef = useRef<BiquadFilterNode | null>(null);
-  const eqLowMidRef = useRef<BiquadFilterNode | null>(null);
-  const eqMidRef = useRef<BiquadFilterNode | null>(null);
-  const eqHighMidRef = useRef<BiquadFilterNode | null>(null);
-  const eqTrebleRef = useRef<BiquadFilterNode | null>(null);
+  const [eqVizStyle, setEqVizStyle] = useState<'bars' | 'mirror' | 'wave' | 'circle' | 'spectrum' | 'flame' | 'radar' | 'dots'>('bars');
+  const eqBandsRef = useRef<BiquadFilterNode[]>([]);
+  // Helper: get/set individual band gain
+  const setEqBand = useCallback((index: number, value: number) => {
+    setEqGains(prev => { const next = [...prev]; next[index] = value; return next; });
+  }, []);
+  // Legacy aliases for backward compat with presets (map to 31-band indices)
+  const eq31 = eqGains[2]; const eq63 = eqGains[5]; const eq125 = eqGains[8];
+  const eq250 = eqGains[11]; const eq500 = eqGains[14]; const eq1k = eqGains[17];
+  const eq2k = eqGains[20]; const eq4k = eqGains[23]; const eq8k = eqGains[26]; const eq16k = eqGains[29];
+  const setEq31 = (v: number) => setEqBand(2, v);
+  const setEq63 = (v: number) => setEqBand(5, v);
+  const setEq125 = (v: number) => setEqBand(8, v);
+  const setEq250 = (v: number) => setEqBand(11, v);
+  const setEq500 = (v: number) => setEqBand(14, v);
+  const setEq1k = (v: number) => setEqBand(17, v);
+  const setEq2k = (v: number) => setEqBand(20, v);
+  const setEq4k = (v: number) => setEqBand(23, v);
+  const setEq8k = (v: number) => setEqBand(26, v);
+  const setEq16k = (v: number) => setEqBand(29, v);
 
   // A-B focused processing (speed + enhancement on selected segment only)
   const [focusEnabled, setFocusEnabled] = useState(false);
@@ -605,25 +731,20 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
     humNotch.Q.value = 8;
     humNotchRef.current = humNotch;
 
-    // 5-band parametric EQ
-    const makeEqBand = (freq: number, q: number, gainVal: number) => {
+    // 31-band parametric EQ (1/3 octave, ISO standard)
+    const eqNodes: BiquadFilterNode[] = EQ_BANDS_31.map((band, i) => {
       const f = ctx.createBiquadFilter();
       f.type = 'peaking';
-      f.frequency.value = freq;
-      f.Q.value = q;
-      f.gain.value = gainVal;
+      f.frequency.value = band.freq;
+      f.Q.value = band.q;
+      f.gain.value = eqGains[i] || 0;
       return f;
-    };
-    const eBass = makeEqBand(80, 0.7, eqBass);
-    const eLowMid = makeEqBand(300, 1.0, eqLowMid);
-    const eMid = makeEqBand(1000, 1.0, eqMid);
-    const eHighMid = makeEqBand(3500, 1.0, eqHighMid);
-    const eTreble = makeEqBand(10000, 0.7, eqTreble);
-    eqBassRef.current = eBass;
-    eqLowMidRef.current = eLowMid;
-    eqMidRef.current = eMid;
-    eqHighMidRef.current = eHighMid;
-    eqTrebleRef.current = eTreble;
+    });
+    // Chain EQ nodes together
+    for (let i = 1; i < eqNodes.length; i++) {
+      eqNodes[i - 1].connect(eqNodes[i]);
+    }
+    eqBandsRef.current = eqNodes;
 
     // Analyser
     const analyser = ctx.createAnalyser();
@@ -640,12 +761,8 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
     deSibilance.connect(presence);
     presence.connect(warmth);
     warmth.connect(compressor);
-    compressor.connect(eBass);
-    eBass.connect(eLowMid);
-    eLowMid.connect(eMid);
-    eMid.connect(eHighMid);
-    eHighMid.connect(eTreble);
-    eTreble.connect(outGain);
+    compressor.connect(eqNodes[0]);
+    eqNodes[eqNodes.length - 1].connect(outGain);
     outGain.connect(gain);
     gain.connect(analyser);
     analyser.connect(ctx.destination);
@@ -731,14 +848,12 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
     }
   }, [outputGain]);
 
-  // ─── 5-band EQ real-time update ─────────────────────────────
+  // ─── 31-band EQ real-time update ─────────────────────────────
   useEffect(() => {
-    if (eqBassRef.current) eqBassRef.current.gain.value = eqBass;
-    if (eqLowMidRef.current) eqLowMidRef.current.gain.value = eqLowMid;
-    if (eqMidRef.current) eqMidRef.current.gain.value = eqMid;
-    if (eqHighMidRef.current) eqHighMidRef.current.gain.value = eqHighMid;
-    if (eqTrebleRef.current) eqTrebleRef.current.gain.value = eqTreble;
-  }, [eqBass, eqLowMid, eqMid, eqHighMid, eqTreble]);
+    eqBandsRef.current.forEach((node, i) => {
+      if (node) node.gain.value = eqGains[i] || 0;
+    });
+  }, [eqGains]);
 
   // ─── Frequency Spectrum (Equalizer) Visualization ────────────
   const drawEqualizer = useCallback(() => {
@@ -856,6 +971,125 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
       ctx.strokeStyle = 'hsla(220, 60%, 50%, 0.2)';
       ctx.lineWidth = 0.5;
       ctx.beginPath(); ctx.arc(cx, cy, minR, 0, Math.PI * 2); ctx.stroke();
+    } else if (eqVizStyle === 'spectrum') {
+      // Smooth spectrum curve with glowing peaks
+      const points: {x:number,y:number}[] = [];
+      for (let i = 0; i < barCount; i++) {
+        let sum = 0;
+        for (let j = 0; j < step; j++) sum += dataArray[i * step + j];
+        const avg = sum / step;
+        const x = (i / (barCount - 1)) * W;
+        const y = H - (avg / 255) * H * 0.85;
+        points.push({x, y});
+      }
+      // Filled gradient area
+      ctx.beginPath();
+      ctx.moveTo(0, H);
+      for (const p of points) ctx.lineTo(p.x, p.y);
+      ctx.lineTo(W, H);
+      ctx.closePath();
+      const grad = ctx.createLinearGradient(0, 0, W, 0);
+      grad.addColorStop(0, 'hsla(280, 80%, 50%, 0.3)');
+      grad.addColorStop(0.33, 'hsla(200, 80%, 50%, 0.3)');
+      grad.addColorStop(0.66, 'hsla(120, 80%, 50%, 0.3)');
+      grad.addColorStop(1, 'hsla(40, 80%, 50%, 0.3)');
+      ctx.fillStyle = grad;
+      ctx.fill();
+      // Smooth curve on top
+      ctx.strokeStyle = 'hsla(200, 90%, 70%, 0.9)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length - 1; i++) {
+        const cpx = (points[i].x + points[i + 1].x) / 2;
+        const cpy = (points[i].y + points[i + 1].y) / 2;
+        ctx.quadraticCurveTo(points[i].x, points[i].y, cpx, cpy);
+      }
+      ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+      ctx.stroke();
+      // Peak dots
+      for (const p of points) {
+        if (p.y < H * 0.5) {
+          ctx.fillStyle = 'hsla(50, 100%, 70%, 0.9)';
+          ctx.beginPath(); ctx.arc(p.x, p.y, 2, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+    } else if (eqVizStyle === 'flame') {
+      // Flame-style rising columns with gradient fire
+      const barW = W / barCount;
+      for (let i = 0; i < barCount; i++) {
+        let sum = 0;
+        for (let j = 0; j < step; j++) sum += dataArray[i * step + j];
+        const avg = sum / step;
+        const barH = (avg / 255) * H * 0.92;
+        const x = i * barW;
+        const grad = ctx.createLinearGradient(x, H, x, H - barH);
+        grad.addColorStop(0, 'hsla(0, 100%, 50%, 0.9)');
+        grad.addColorStop(0.35, 'hsla(30, 100%, 55%, 0.8)');
+        grad.addColorStop(0.65, 'hsla(50, 100%, 60%, 0.6)');
+        grad.addColorStop(1, 'hsla(60, 100%, 80%, 0.1)');
+        ctx.fillStyle = grad;
+        // Rounded top
+        const r = Math.min(barW * 0.4, barH * 0.15);
+        ctx.beginPath();
+        ctx.moveTo(x + 0.5, H);
+        ctx.lineTo(x + 0.5, H - barH + r);
+        ctx.quadraticCurveTo(x + 0.5, H - barH, x + barW / 2, H - barH);
+        ctx.quadraticCurveTo(x + barW - 0.5, H - barH, x + barW - 0.5, H - barH + r);
+        ctx.lineTo(x + barW - 0.5, H);
+        ctx.closePath();
+        ctx.fill();
+      }
+    } else if (eqVizStyle === 'radar') {
+      // Rotating radar sweep with afterglow
+      const cx = W / 2;
+      const cy = H / 2;
+      const maxR = Math.min(W, H) * 0.45;
+      // Concentric grid
+      for (let r = 1; r <= 3; r++) {
+        ctx.strokeStyle = `hsla(140, 60%, 40%, ${0.15})`;
+        ctx.lineWidth = 0.5;
+        ctx.beginPath(); ctx.arc(cx, cy, maxR * r / 3, 0, Math.PI * 2); ctx.stroke();
+      }
+      // Data as filled polygon
+      ctx.beginPath();
+      for (let i = 0; i < barCount; i++) {
+        let sum = 0;
+        for (let j = 0; j < step; j++) sum += dataArray[i * step + j];
+        const avg = sum / step;
+        const angle = (i / barCount) * Math.PI * 2 - Math.PI / 2;
+        const r = (avg / 255) * maxR;
+        const x = cx + Math.cos(angle) * r;
+        const y = cy + Math.sin(angle) * r;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      const rGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, maxR);
+      rGrad.addColorStop(0, 'hsla(140, 80%, 60%, 0.4)');
+      rGrad.addColorStop(1, 'hsla(140, 60%, 40%, 0.1)');
+      ctx.fillStyle = rGrad;
+      ctx.fill();
+      ctx.strokeStyle = 'hsla(140, 90%, 65%, 0.7)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    } else if (eqVizStyle === 'dots') {
+      // Floating dots / particles
+      for (let i = 0; i < barCount; i++) {
+        let sum = 0;
+        for (let j = 0; j < step; j++) sum += dataArray[i * step + j];
+        const avg = sum / step;
+        const x = (i / barCount) * W + (W / barCount) / 2;
+        const baseY = H;
+        const dotCount = Math.floor((avg / 255) * 8) + 1;
+        const hue = (i / barCount) * 360;
+        for (let d = 0; d < dotCount; d++) {
+          const y = baseY - (d + 1) * (H / 10) - (avg / 255) * (d * 2);
+          const radius = 1.5 + (avg / 255) * 2.5;
+          const alpha = 0.3 + (1 - d / dotCount) * 0.6;
+          ctx.fillStyle = `hsla(${hue}, 80%, 60%, ${alpha})`;
+          ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2); ctx.fill();
+        }
+      }
     }
 
     eqAnimFrameRef.current = requestAnimationFrame(drawEqualizer);
@@ -1613,13 +1847,24 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
 
   // ─── Mixer Panel (extracted for split layout) ───────────────
   const mixerPanel = (
-    <div className="space-y-3">
+    <div className="space-y-2 rounded-lg border bg-background/40 p-2 group/panel-noise">
       <div className="flex items-center justify-between">
         <p className="text-sm font-semibold flex items-center gap-1.5">
           <Sparkles className="w-4 h-4 text-primary no-theme-icon" />
           הפחתת רעש חכמה
         </p>
         <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 opacity-0 transition-opacity group-hover/panel-noise:opacity-100 focus-visible:opacity-100"
+            onClick={() => setIsNoisePanelCollapsed((v) => !v)}
+            title={isNoisePanelCollapsed ? "הרחב פונקציות" : "מזער פונקציות"}
+          >
+            {isNoisePanelCollapsed
+              ? <ChevronDown className="w-3.5 h-3.5 no-theme-icon" />
+              : <ChevronUp className="w-3.5 h-3.5 no-theme-icon" />}
+          </Button>
           <Label className="text-[11px] text-muted-foreground">השוואת מקור A/B</Label>
           <Switch checked={isBypassEnhancement} onCheckedChange={setIsBypassEnhancement} />
           <Badge variant="outline" className="text-xs">
@@ -1627,6 +1872,13 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
           </Badge>
         </div>
       </div>
+
+      {isNoisePanelCollapsed && (
+        <p className="text-[11px] text-muted-foreground px-1">פונקציות ניקוי רעש ממוזערות. רחף על הכרטיס ולחץ על האייקון כדי לפתוח שוב.</p>
+      )}
+
+      {!isNoisePanelCollapsed && (
+        <>
 
       {/* Strength slider */}
       <div className="space-y-1.5 rounded-lg border bg-muted/20 p-2">
@@ -1740,6 +1992,8 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
           </div>
         </div>
       )}
+        </>
+      )}
     </div>
   );
 
@@ -1823,6 +2077,10 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                     { id: 'mirror' as const, label: '⬍ מראה' },
                     { id: 'wave' as const, label: '〰 גל' },
                     { id: 'circle' as const, label: '◎ מעגלי' },
+                    { id: 'spectrum' as const, label: '📈 ספקטרום' },
+                    { id: 'flame' as const, label: '🔥 להבה' },
+                    { id: 'radar' as const, label: '📡 רדאר' },
+                    { id: 'dots' as const, label: '✦ נקודות' },
                   ]).map((s) => (
                     <button
                       key={s.id}
@@ -1834,7 +2092,7 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                 <canvas
                   ref={eqCanvasRef}
                   className="w-full rounded-lg"
-                  style={{ height: eqVizStyle === 'circle' ? 120 : (isExpanded ? 80 : 48), background: 'rgba(15, 23, 42, 0.4)' }}
+                  style={{ height: ['circle', 'radar', 'dots'].includes(eqVizStyle) ? 140 : (isExpanded ? 80 : 48), background: 'rgba(15, 23, 42, 0.4)' }}
                 />
               </div>
             )}
@@ -1945,19 +2203,35 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
 
             {/* ─── Focus Segment (A-B) ── */}
             {!compact && (
-              <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
+              <div className="space-y-2 rounded-lg border bg-muted/20 p-3 group/panel-focus">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Label className="text-xs font-medium">התמקדות בקטע (A-B)</Label>
                     <Badge variant="outline" className="text-[10px]">{formatTime(focusStart)} → {formatTime(focusEnd)}</Badge>
                   </div>
                   <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 opacity-0 transition-opacity group-hover/panel-focus:opacity-100 focus-visible:opacity-100"
+                      onClick={() => setIsFocusPanelCollapsed((v) => !v)}
+                      title={isFocusPanelCollapsed ? "הרחב פונקציות" : "מזער פונקציות"}
+                    >
+                      {isFocusPanelCollapsed
+                        ? <ChevronDown className="w-3.5 h-3.5 no-theme-icon" />
+                        : <ChevronUp className="w-3.5 h-3.5 no-theme-icon" />}
+                    </Button>
                     <Label className="text-[11px] text-muted-foreground">לופ</Label>
                     <Switch checked={focusLoop} onCheckedChange={setFocusLoop} />
                     <Label className="text-[11px] text-muted-foreground">מצב ממוקד</Label>
                     <Switch checked={focusEnabled} onCheckedChange={setFocusEnabled} />
                   </div>
                 </div>
+                {isFocusPanelCollapsed && (
+                  <p className="text-[11px] text-muted-foreground">פונקציות ההתמקדות ממוזערות. רחף ולחץ על האייקון כדי להרחיב.</p>
+                )}
+                {!isFocusPanelCollapsed && (
+                  <>
                 <Slider
                   value={[focusStart, Math.max(focusStart + 0.1, focusEnd)]}
                   min={0}
@@ -2015,6 +2289,8 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                     </div>
                   </div>
                 )}
+                  </>
+                )}
               </div>
             )}
 
@@ -2038,13 +2314,24 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
               {mixerPanel}
 
               {/* ─── EQ + Processing Mixing Console ── */}
-              <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
+              <div className="space-y-2 rounded-lg border bg-muted/20 p-3 group/panel-mixer">
                 <div className="flex items-center justify-between">
                   <p className="text-xs font-semibold flex items-center gap-1.5">
                     <AudioLines className="w-3.5 h-3.5 text-primary no-theme-icon" />
                     מיקסר מקצועי (אקולייזר + עיבוד)
                   </p>
                   <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 opacity-0 transition-opacity group-hover/panel-mixer:opacity-100 focus-visible:opacity-100"
+                      onClick={() => setIsMixerConsoleCollapsed((v) => !v)}
+                      title={isMixerConsoleCollapsed ? "הרחב פונקציות" : "מזער פונקציות"}
+                    >
+                      {isMixerConsoleCollapsed
+                        ? <ChevronDown className="w-3.5 h-3.5 no-theme-icon" />
+                        : <ChevronUp className="w-3.5 h-3.5 no-theme-icon" />}
+                    </Button>
                     <Button
                       variant={showAdvancedDialog ? "default" : "outline"}
                       size="sm"
@@ -2055,35 +2342,52 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                       מתקדם
                     </Button>
                     <button
-                      className={`p-1 rounded text-[10px] transition-all ${!eqVerticalView ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'}`}
-                      onClick={() => setEqVerticalView(false)}
+                      className={`p-1 rounded text-[10px] transition-all font-mono ${eqBandCount === 31 ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'}`}
+                      onClick={() => setEqBandCount(eqBandCount === 31 ? 10 : 31)}
+                      title={eqBandCount === 31 ? 'מעבר ל-10 רצועות' : 'מעבר ל-31 רצועות'}
+                    >{eqBandCount}b</button>
+                    <button
+                      className={`p-1 rounded text-[10px] transition-all ${eqViewMode === 'horizontal' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'}`}
+                      onClick={() => setEqViewMode('horizontal')}
                       title="תצוגה אופקית"
                     >═</button>
                     <button
-                      className={`p-1 rounded text-[10px] transition-all ${eqVerticalView ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'}`}
-                      onClick={() => setEqVerticalView(true)}
+                      className={`p-1 rounded text-[10px] transition-all ${eqViewMode === 'vertical' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'}`}
+                      onClick={() => setEqViewMode('vertical')}
                       title="תצוגה אנכית (מיקסר)"
                     >║</button>
+                    <button
+                      className={`p-1 rounded text-[10px] transition-all ${eqViewMode === 'circular' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'}`}
+                      onClick={() => setEqViewMode('circular')}
+                      title="תצוגת כפתורים מעגליים"
+                    >◒</button>
                   </div>
                 </div>
+
+                {isMixerConsoleCollapsed && (
+                  <p className="text-[11px] text-muted-foreground">המיקסר ממוזער. רחף על הכרטיס ולחץ על האייקון כדי לפתוח מחדש.</p>
+                )}
+
+                {!isMixerConsoleCollapsed && (
+                  <>
 
                 {/* EQ Presets */}
                 <div className="flex flex-wrap gap-1.5">
                   {[
-                    { id: 'flat', label: 'שטוח', icon: '⚖️', values: [0, 0, 0, 0, 0] },
-                    { id: 'clear-speech', label: 'דיבור ברור', icon: '🎙️', values: [-3, -1, 4, 6, 2] },
-                    { id: 'transcription', label: 'תמלול מדויק', icon: '📝', values: [-6, 0, 5, 8, -2] },
-                    { id: 'deep-voice', label: 'קול עמוק', icon: '🔊', values: [4, 3, 0, -1, -2] },
-                    { id: 'phone-fix', label: 'תיקון טלפון', icon: '📱', values: [3, 2, 3, 5, -4] },
-                    { id: 'room-fix', label: 'תיקון חדר', icon: '🏠', values: [-4, -2, 3, 5, 1] },
-                    { id: 'bass-boost', label: 'בס מוגבר', icon: '🔈', values: [8, 4, 0, 0, -1] },
-                    { id: 'music', label: 'מוזיקה', icon: '🎵', values: [3, 1, 0, 2, 4] },
-                    { id: 'brightness', label: 'בהירות', icon: '✨', values: [-2, 0, 2, 5, 7] },
-                    { id: 'warmth-eq', label: 'חמימות', icon: '☀️', values: [4, 3, -1, -2, -3] },
-                    { id: 'noise-cut', label: 'חיתוך רעש', icon: '🔇', values: [-8, -3, 2, 4, -6] },
-                    { id: 'female-voice', label: 'קול נשי', icon: '👩', values: [-4, -1, 3, 7, 4] },
+                    { id: 'flat', label: 'שטוח', icon: '⚖️', values: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+                    { id: 'clear-speech', label: 'דיבור ברור', icon: '🎙️', values: [-3, -2, -1, 0, 2, 4, 6, 4, 2, 0] },
+                    { id: 'transcription', label: 'תמלול מדויק', icon: '📝', values: [-6, -4, -2, 0, 3, 5, 8, 6, 0, -2] },
+                    { id: 'deep-voice', label: 'קול עמוק', icon: '🔊', values: [4, 5, 3, 1, 0, -1, -2, -2, -3, -4] },
+                    { id: 'phone-fix', label: 'תיקון טלפון', icon: '📱', values: [3, 4, 2, 1, 2, 3, 5, 3, -2, -4] },
+                    { id: 'room-fix', label: 'תיקון חדר', icon: '🏠', values: [-4, -3, -2, -1, 1, 3, 5, 4, 1, 0] },
+                    { id: 'bass-boost', label: 'בס מוגבר', icon: '🔈', values: [8, 6, 4, 2, 0, 0, 0, 0, -1, -2] },
+                    { id: 'music', label: 'מוזיקה', icon: '🎵', values: [3, 2, 1, 0, 0, 1, 2, 3, 4, 3] },
+                    { id: 'brightness', label: 'בהירות', icon: '✨', values: [-2, -1, 0, 0, 1, 2, 5, 6, 7, 5] },
+                    { id: 'warmth-eq', label: 'חמימות', icon: '☀️', values: [4, 5, 3, 2, -1, -1, -2, -2, -3, -4] },
+                    { id: 'noise-cut', label: 'חיתוך רעש', icon: '🔇', values: [-8, -6, -3, -1, 1, 2, 4, 2, -4, -6] },
+                    { id: 'female-voice', label: 'קול נשי', icon: '👩', values: [-4, -3, -1, 0, 2, 3, 7, 6, 4, 2] },
                   ].map((preset) => {
-                    const isActive = eqBass === preset.values[0] && eqLowMid === preset.values[1] && eqMid === preset.values[2] && eqHighMid === preset.values[3] && eqTreble === preset.values[4];
+                    const isActive = EQ_BANDS_10_INDICES.every((idx, i) => eqGains[idx] === preset.values[i]);
                     return (
                       <button
                         key={preset.id}
@@ -2091,11 +2395,25 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                           ${isActive ? 'bg-primary text-primary-foreground border-primary shadow-sm' : 'border-border hover:bg-muted'}
                         `}
                         onClick={() => {
-                          setEqBass(preset.values[0]);
-                          setEqLowMid(preset.values[1]);
-                          setEqMid(preset.values[2]);
-                          setEqHighMid(preset.values[3]);
-                          setEqTreble(preset.values[4]);
+                          // Interpolate 10-band preset to 31 bands
+                          const v = preset.values;
+                          const newGains = new Array(31).fill(0);
+                          EQ_BANDS_10_INDICES.forEach((idx, i) => { newGains[idx] = v[i]; });
+                          // Interpolate in-between bands
+                          for (let i = 0; i < EQ_BANDS_10_INDICES.length - 1; i++) {
+                            const startIdx = EQ_BANDS_10_INDICES[i];
+                            const endIdx = EQ_BANDS_10_INDICES[i + 1];
+                            const startVal = v[i];
+                            const endVal = v[i + 1];
+                            for (let j = startIdx + 1; j < endIdx; j++) {
+                              const t = (j - startIdx) / (endIdx - startIdx);
+                              newGains[j] = Math.round((startVal + (endVal - startVal) * t) * 2) / 2;
+                            }
+                          }
+                          // Fill below first and above last
+                          for (let j = 0; j < EQ_BANDS_10_INDICES[0]; j++) newGains[j] = v[0];
+                          for (let j = EQ_BANDS_10_INDICES[9] + 1; j < 31; j++) newGains[j] = v[9];
+                          setEqGains(newGains);
                         }}
                       >
                         <span>{preset.icon}</span>
@@ -2105,34 +2423,30 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                   })}
                 </div>
 
-                {/* Unified Vertical Mixing Console (EQ + Processing) */}
-                {eqVerticalView ? (
-                  <div className="space-y-2">
-                    <div className="grid grid-cols-10 gap-1">
-                      {[
-                        { label: 'בס', freq: '80Hz', value: eqBass, set: setEqBass, min: -12, max: 12, step: 0.5, color: 'text-red-400' },
-                        { label: 'נמוך', freq: '300Hz', value: eqLowMid, set: setEqLowMid, min: -12, max: 12, step: 0.5, color: 'text-orange-400' },
-                        { label: 'אמצע', freq: '1kHz', value: eqMid, set: setEqMid, min: -12, max: 12, step: 0.5, color: 'text-yellow-400' },
-                        { label: 'גבוה', freq: '3.5k', value: eqHighMid, set: setEqHighMid, min: -12, max: 12, step: 0.5, color: 'text-green-400' },
-                        { label: 'טרבל', freq: '10kHz', value: eqTreble, set: setEqTreble, min: -12, max: 12, step: 0.5, color: 'text-blue-400' },
-                      ].map((band) => (
+                {/* Unified Mixing Console (EQ + Processing) */}
+                <div className="space-y-3">
+                  {/* EQ Section */}
+                  {eqViewMode === 'vertical' && (
+                    <div className="overflow-x-auto pb-2">
+                      <div className={`grid gap-0.5`} style={{ gridTemplateColumns: `repeat(${(eqBandCount === 31 ? 31 : 10) + 1 + 5}, minmax(0, 1fr))` }}>
+                      {(eqBandCount === 31 ? EQ_BANDS_31.map((b, i) => ({ ...b, index: i })) : EQ_BANDS_10_INDICES.map(i => ({ ...EQ_BANDS_31[i], index: i }))).map((band) => (
                         <div key={band.freq} className="flex flex-col items-center gap-0.5">
-                          <span className={`text-[8px] font-mono ${band.color}`}>{band.value > 0 ? '+' : ''}{band.value}</span>
+                          <span className={`text-[8px] font-mono ${band.color}`}>{eqGains[band.index] > 0 ? '+' : ''}{eqGains[band.index]}</span>
                           <div className="h-24 flex items-center">
                             <Slider
                               orientation="vertical"
-                              value={[band.value]}
-                              min={band.min}
-                              max={band.max}
-                              step={band.step}
-                              onValueChange={([v]) => band.set(v)}
-                              className="h-full"
+                              value={[eqGains[band.index]]}
+                              min={-12}
+                              max={12}
+                              step={0.5}
+                              onValueChange={([v]) => setEqBand(band.index, v)}
+                              className="h-full w-2"
                             />
                           </div>
                           <span className="text-[7px] font-medium leading-tight text-center">{band.label}</span>
-                          <span className="text-[6px] text-muted-foreground">{band.freq}</span>
                         </div>
                       ))}
+                      <div className="w-px bg-border/40 min-h-[4rem] self-center mx-1"></div>
                       {[
                         { label: 'HP', freq: 'חתך', value: manualHighpass, min: 20, max: 400, step: 10, color: 'text-purple-400',
                           display: `${manualHighpass}`,
@@ -2140,18 +2454,18 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                         { label: 'LP', freq: 'חתך', value: manualLowpass, min: 6000, max: 20000, step: 250, color: 'text-pink-400',
                           display: `${(manualLowpass/1000).toFixed(1)}k`,
                           set: (v: number) => { setManualLowpass(v); if (isManualMode && lowpassRef.current) lowpassRef.current.frequency.value = v; } },
-                        { label: 'חיזוק', freq: 'קול', value: manualVoiceBoost, min: 0, max: 12, step: 0.5, color: 'text-cyan-400',
+                        { label: 'Voc', freq: 'חיזוק', value: manualVoiceBoost, min: 0, max: 12, step: 0.5, color: 'text-cyan-400',
                           display: `+${manualVoiceBoost}`,
                           set: (v: number) => { setManualVoiceBoost(v); if (isManualMode && voiceBoostRef.current) voiceBoostRef.current.gain.value = v; } },
-                        { label: 'דחיסה', freq: 'יחס', value: manualCompRatio, min: 1, max: 12, step: 0.5, color: 'text-amber-400',
+                        { label: 'Comp', freq: 'יחס', value: manualCompRatio, min: 1, max: 12, step: 0.5, color: 'text-amber-400',
                           display: `${manualCompRatio}:1`,
                           set: (v: number) => { setManualCompRatio(v); if (isManualMode && compressorRef.current) { compressorRef.current.ratio.value = v; compressorRef.current.threshold.value = -50 + (v > 1 ? -(v * 3) : 0); } } },
                         { label: 'Gate', freq: 'סף', value: manualGate, min: -80, max: 0, step: 5, color: 'text-emerald-400',
                           display: manualGate === 0 ? 'כבוי' : `${manualGate}`,
                           set: (v: number) => setManualGate(v) },
                       ].map((ctrl) => (
-                        <div key={ctrl.label} className="flex flex-col items-center gap-0.5 border-r border-border/30 first:border-r-0 pr-0.5">
-                          <span className={`text-[8px] font-mono ${ctrl.color}`}>{ctrl.display}</span>
+                        <div key={ctrl.label} className="flex flex-col items-center gap-0.5 min-w-[24px]">
+                          <span className={`text-[7px] font-mono ${ctrl.color}`}>{ctrl.display}</span>
                           <div className="h-24 flex items-center">
                             <Slider
                               orientation="vertical"
@@ -2160,77 +2474,85 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                               max={ctrl.max}
                               step={ctrl.step}
                               onValueChange={([v]) => ctrl.set(v)}
-                              className="h-full"
+                              className="h-full w-2"
                             />
                           </div>
                           <span className="text-[7px] font-medium leading-tight text-center">{ctrl.label}</span>
-                          <span className="text-[6px] text-muted-foreground">{ctrl.freq}</span>
                         </div>
                       ))}
                     </div>
-                    <div className="flex items-center justify-between text-[8px] text-muted-foreground px-1">
-                      <span>◀ אקולייזר (5 פסים)</span>
-                      <span>עיבוד קול ▶</span>
                     </div>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    <p className="text-[10px] font-medium text-muted-foreground">אקולייזר</p>
-                    {[
-                      { label: 'בס', freq: '80Hz', value: eqBass, set: setEqBass },
-                      { label: 'נמוך-אמצע', freq: '300Hz', value: eqLowMid, set: setEqLowMid },
-                      { label: 'אמצע', freq: '1kHz', value: eqMid, set: setEqMid },
-                      { label: 'גבוה-אמצע', freq: '3.5kHz', value: eqHighMid, set: setEqHighMid },
-                      { label: 'טרבל', freq: '10kHz', value: eqTreble, set: setEqTreble },
-                    ].map((band) => (
-                      <div key={band.freq} className="space-y-0.5">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-mono text-muted-foreground">{band.value > 0 ? '+' : ''}{band.value}dB</span>
-                          <span className="text-[10px] font-medium">{band.label} ({band.freq})</span>
+                  )}
+
+                  {eqViewMode === 'horizontal' && (
+                    <div className="space-y-3">
+                      <p className="text-[10px] font-medium text-muted-foreground">אקולייזר רוחבי — {eqBandCount} רצועות</p>
+                      {(eqBandCount === 31 ? EQ_BANDS_31.map((b, i) => ({ ...b, index: i })) : EQ_BANDS_10_INDICES.map(i => ({ ...EQ_BANDS_31[i], index: i }))).map((band) => (
+                        <div key={band.freq} className="space-y-0.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-mono text-muted-foreground">{eqGains[band.index] > 0 ? '+' : ''}{eqGains[band.index]}dB</span>
+                            <span className="text-[10px] font-medium">{band.label}Hz</span>
+                          </div>
+                          <Slider
+                            value={[eqGains[band.index]]}
+                            min={-12}
+                            max={12}
+                            step={0.5}
+                            onValueChange={([v]) => setEqBand(band.index, v)}
+                          />
                         </div>
-                        <Slider
-                          value={[band.value]}
-                          min={-12}
-                          max={12}
-                          step={0.5}
-                          onValueChange={([v]) => band.set(v)}
-                        />
-                      </div>
-                    ))}
-                    <Separator />
-                    <p className="text-[10px] font-medium text-muted-foreground">עיבוד קול</p>
-                    {[
-                      { label: 'חתך בסים (Highpass)', value: manualHighpass, min: 20, max: 400, step: 10, display: `${manualHighpass}Hz`,
-                        set: (v: number) => { setManualHighpass(v); if (isManualMode && highpassRef.current) highpassRef.current.frequency.value = v; } },
-                      { label: 'חתך היי (Lowpass)', value: manualLowpass, min: 6000, max: 20000, step: 250, display: `${manualLowpass}Hz`,
-                        set: (v: number) => { setManualLowpass(v); if (isManualMode && lowpassRef.current) lowpassRef.current.frequency.value = v; } },
-                      { label: 'חיזוק קול', value: manualVoiceBoost, min: 0, max: 12, step: 0.5, display: `${manualVoiceBoost > 0 ? '+' : ''}${manualVoiceBoost}dB`,
-                        set: (v: number) => { setManualVoiceBoost(v); if (isManualMode && voiceBoostRef.current) voiceBoostRef.current.gain.value = v; } },
-                      { label: 'דחיסה', value: manualCompRatio, min: 1, max: 12, step: 0.5, display: `${manualCompRatio}:1`,
-                        set: (v: number) => { setManualCompRatio(v); if (isManualMode && compressorRef.current) { compressorRef.current.ratio.value = v; compressorRef.current.threshold.value = -50 + (v > 1 ? -(v * 3) : 0); } } },
-                      { label: 'סף שער רעש (Gate)', value: manualGate, min: -80, max: 0, step: 5, display: manualGate === 0 ? 'כבוי' : `${manualGate}dB`,
-                        set: (v: number) => setManualGate(v) },
-                    ].map((ctrl) => (
-                      <div key={ctrl.label} className="space-y-0.5">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-mono text-muted-foreground">{ctrl.display}</span>
-                          <span className="text-[10px] font-medium">{ctrl.label}</span>
+                      ))}
+                      <Separator />
+                      <p className="text-[10px] font-medium text-muted-foreground">עיבוד חכם חיתוך ודחיסה</p>
+                      {[
+                        { label: 'Highpass (חתך נמוכים)', value: manualHighpass, min: 20, max: 400, step: 10, display: `${manualHighpass}Hz`, set: (v: number) => { setManualHighpass(v); if (isManualMode && highpassRef.current) highpassRef.current.frequency.value = v; } },
+                        { label: 'Lowpass (חתך גבוהים)', value: manualLowpass, min: 6000, max: 20000, step: 250, display: `${(manualLowpass/1000).toFixed(1)}k`, set: (v: number) => { setManualLowpass(v); if (isManualMode && lowpassRef.current) lowpassRef.current.frequency.value = v; } },
+                        { label: 'חיזוק קול (Voice)', value: manualVoiceBoost, min: 0, max: 12, step: 0.5, display: `${manualVoiceBoost > 0 ? '+' : ''}${manualVoiceBoost}dB`, set: (v: number) => { setManualVoiceBoost(v); if (isManualMode && voiceBoostRef.current) voiceBoostRef.current.gain.value = v; } },
+                        { label: 'Comp (דחיסה)', value: manualCompRatio, min: 1, max: 12, step: 0.5, display: `${manualCompRatio}:1`, set: (v: number) => { setManualCompRatio(v); if (isManualMode && compressorRef.current) { compressorRef.current.ratio.value = v; compressorRef.current.threshold.value = -50 + (v > 1 ? -(v * 3) : 0); } } },
+                        { label: 'Gate (שער רעש)', value: manualGate, min: -80, max: 0, step: 5, display: manualGate === 0 ? 'כבוי' : `${manualGate}dB`, set: (v: number) => setManualGate(v) },
+                      ].map((ctrl) => (
+                        <div key={ctrl.label} className="space-y-0.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-mono text-muted-foreground">{ctrl.display}</span>
+                            <span className="text-[10px] font-medium">{ctrl.label}</span>
+                          </div>
+                          <Slider
+                            value={[ctrl.value]}
+                            min={ctrl.min}
+                            max={ctrl.max}
+                            step={ctrl.step}
+                            onValueChange={([v]) => ctrl.set(v)}
+                          />
                         </div>
-                        <Slider
-                          value={[ctrl.value]}
-                          min={ctrl.min}
-                          max={ctrl.max}
-                          step={ctrl.step}
-                          onValueChange={([v]) => ctrl.set(v)}
-                        />
+                      ))}
+                    </div>
+                  )}
+
+                  {eqViewMode === 'circular' && (
+                    <div className="flex flex-col gap-4 overflow-x-auto pb-2 items-center">
+                      <div className="flex flex-wrap items-center justify-center gap-3" style={{ maxWidth: eqBandCount === 31 ? 520 : 280 }}>
+                        {(eqBandCount === 31 ? EQ_BANDS_31.map((b, i) => ({ ...b, index: i })) : EQ_BANDS_10_INDICES.map(i => ({ ...EQ_BANDS_31[i], index: i }))).map((band) => (
+                          <Knob key={band.freq} label={band.label} value={eqGains[band.index]} min={-12} max={12} onChange={(v) => setEqBand(band.index, v)} />
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                )}
+                      <Separator className="w-full" />
+                      <div className="flex flex-wrap items-center justify-center gap-4 max-w-[280px]">
+                        {[
+                          { label: 'HP', value: manualHighpass, min: 20, max: 400, set: (v) => { setManualHighpass(v); if (isManualMode && highpassRef.current) highpassRef.current.frequency.value = v; } },
+                          { label: 'LP', value: manualLowpass / 100, min: 60, max: 200, set: (v) => { setManualLowpass(v * 100); if (isManualMode && lowpassRef.current) lowpassRef.current.frequency.value = v * 100; } },
+                          { label: 'Voc', value: manualVoiceBoost, min: 0, max: 12, set: (v) => { setManualVoiceBoost(v); if (isManualMode && voiceBoostRef.current) voiceBoostRef.current.gain.value = v; } },
+                          { label: 'Comp', value: manualCompRatio, min: 1, max: 12, set: (v) => { setManualCompRatio(v); if (isManualMode && compressorRef.current) { compressorRef.current.ratio.value = v; compressorRef.current.threshold.value = -50 + (v > 1 ? -(v * 3) : 0); } } },
+                          { label: 'Gate', value: manualGate, min: -80, max: 0, set: (v) => setManualGate(v) },
+                        ].map((c) => (
+                          <Knob key={c.label} label={c.label} value={c.value} min={c.min} max={c.max} onChange={(v) => c.set(v)} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                 <div className="flex justify-center gap-2">
                   <Button variant="ghost" size="sm" className="h-6 px-3 text-[10px]" onClick={() => {
-                    setEqBass(0); setEqLowMid(0); setEqMid(0); setEqHighMid(0); setEqTreble(0);
+                    setEqGains(new Array(31).fill(0));
                   }}>
                     אפס אקולייזר
                   </Button>
@@ -2247,6 +2569,9 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                     <strong>טיפ לתמלול מדויק:</strong> השתמש ב"תמלול מדויק" או "דיבור ברור" — חיזוק תדרי דיבור (1-5kHz) מעלה משמעותית את דיוק זיהוי המילים. לקול טלפוני השתמש ב"תיקון טלפון". שלב עם הפחתת רעש ברמה 40-60% לתוצאה מיטבית.
                   </span>
                 </div>
+                </div>
+                  </>
+                )}
               </div>
 
 

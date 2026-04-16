@@ -6,7 +6,16 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import {
+  getDefaultDevFloatingButtonsVisibility,
+  loadDevFloatingButtonsVisibility,
+  saveDevFloatingButtonsVisibility,
+  type DevFloatingButtonId,
+  type DevFloatingButtonsVisibility,
+} from "@/lib/devFloatingButtons";
 import {
   Play,
   Copy,
@@ -25,6 +34,7 @@ import {
   Database,
   Code2,
   ScrollText,
+  LayoutGrid,
 } from "lucide-react";
 
 interface MigrationLog {
@@ -89,6 +99,33 @@ ORDER BY tablename, policyname;`,
   },
 ];
 
+const DEV_FLOATING_BUTTON_OPTIONS: Array<{
+  id: DevFloatingButtonId;
+  label: string;
+  description: string;
+}> = [
+  {
+    id: "smartConsole",
+    label: "קונסול חכם",
+    description: "כפתור צף לקונסול התראות ולוגים",
+  },
+  {
+    id: "transcriptionAnalytics",
+    label: "ניתוח תמלולים",
+    description: "כפתור צף לגרפים וסטטיסטיקות תמלול",
+  },
+  {
+    id: "pwaInstall",
+    label: "התקנת אפליקציה",
+    description: "כפתור צף להתקנת האפליקציה (PWA)",
+  },
+  {
+    id: "diarizationStatus",
+    label: "סטטוס זיהוי דוברים",
+    description: "כפתור/פאנל צף לתור זיהוי דוברים",
+  },
+];
+
 const DevToolsPanel = () => {
   const [sqlContent, setSqlContent] = useState("");
   const [isRunning, setIsRunning] = useState(false);
@@ -100,6 +137,7 @@ const DevToolsPanel = () => {
     error?: string;
     executionTime: number;
   } | null>(null);
+  const [floatingButtons, setFloatingButtons] = useState<DevFloatingButtonsVisibility>(() => loadDevFloatingButtonsVisibility());
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -237,10 +275,26 @@ const DevToolsPanel = () => {
     }
   };
 
+  const toggleFloatingButton = (id: DevFloatingButtonId, nextVisible: boolean) => {
+    const updated: DevFloatingButtonsVisibility = {
+      ...floatingButtons,
+      [id]: nextVisible,
+    };
+    setFloatingButtons(updated);
+    saveDevFloatingButtonsVisibility(updated);
+  };
+
+  const resetFloatingButtons = () => {
+    const defaults = getDefaultDevFloatingButtonsVisibility();
+    setFloatingButtons(defaults);
+    saveDevFloatingButtonsVisibility(defaults);
+    toast.success("כפתורי הפיתוח אופסו לברירת מחדל");
+  };
+
   return (
     <div className="space-y-4" dir="rtl">
       <Tabs defaultValue="editor" className="w-full">
-        <TabsList className="grid w-full grid-cols-3 h-12">
+        <TabsList className="grid w-full grid-cols-4 h-12">
           <TabsTrigger value="editor" className="gap-2 text-sm">
             <Code2 className="w-4 h-4" />
             עורך SQL
@@ -252,6 +306,10 @@ const DevToolsPanel = () => {
           <TabsTrigger value="templates" className="gap-2 text-sm">
             <Database className="w-4 h-4" />
             תבניות
+          </TabsTrigger>
+          <TabsTrigger value="dev-buttons" className="gap-2 text-sm">
+            <LayoutGrid className="w-4 h-4" />
+            כפתורי פיתוח
           </TabsTrigger>
         </TabsList>
 
@@ -542,6 +600,44 @@ const DevToolsPanel = () => {
               </Card>
             ))}
           </div>
+        </TabsContent>
+
+        <TabsContent value="dev-buttons" className="space-y-4 mt-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <CardTitle className="text-base">כפתורי פיתוח צפים</CardTitle>
+                  <CardDescription>
+                    בחר אילו כפתורים יוצגו במסך הראשי. ההעדפה נשמרת אוטומטית.
+                  </CardDescription>
+                </div>
+                <Button variant="outline" size="sm" onClick={resetFloatingButtons}>
+                  איפוס
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {DEV_FLOATING_BUTTON_OPTIONS.map((item, index) => (
+                <div key={item.id}>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <Label htmlFor={`dev-floating-${item.id}`} className="text-sm font-medium">
+                        {item.label}
+                      </Label>
+                      <p className="text-xs text-muted-foreground mt-0.5">{item.description}</p>
+                    </div>
+                    <Switch
+                      id={`dev-floating-${item.id}`}
+                      checked={floatingButtons[item.id]}
+                      onCheckedChange={(checked) => toggleFloatingButton(item.id, checked)}
+                    />
+                  </div>
+                  {index < DEV_FLOATING_BUTTON_OPTIONS.length - 1 && <Separator className="mt-3" />}
+                </div>
+              ))}
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>

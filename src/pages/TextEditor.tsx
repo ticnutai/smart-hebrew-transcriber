@@ -548,6 +548,24 @@ const TextEditor = () => {
     handleEditorChange(newText);
   }, [handleEditorChange]);
 
+  const handleSyncedWordReplace = useCallback((wordIndex: number, replacement: string) => {
+    const fixed = replacement.trim();
+    const isDelete = fixed === "__DELETE__";
+
+    setWordTimings((prev) => {
+      if (!prev.length || wordIndex < 0 || wordIndex >= prev.length) return prev;
+      if (isDelete) {
+        const next = prev.filter((_, i) => i !== wordIndex);
+        setText(next.map((w) => w.word).join(' '));
+        return next;
+      }
+      if (!fixed) return prev;
+      const next = prev.map((w, i) => (i === wordIndex ? { ...w, word: fixed } : w));
+      setText(next.map((w) => w.word).join(' '));
+      return next;
+    });
+  }, []);
+
   const buildSyncedTimings = useCallback((editedText: string): WordTiming[] | null => {
     if (!wordTimings.length) return null;
     const totalDuration = wordTimings[wordTimings.length - 1]?.end || 0;
@@ -882,6 +900,7 @@ const TextEditor = () => {
                     wordTimings={wordTimings}
                     currentTime={playerTime}
                     onWordClick={(time) => setPlayerTime(time)}
+                    onWordReplace={handleSyncedWordReplace}
                     fontSize={fontSize}
                     fontFamily={fontFamily}
                     syncEnabled={syncEnabled}
@@ -894,6 +913,7 @@ const TextEditor = () => {
                     text={text}
                     onTextChange={handlePlayerEditorChange}
                     onWordClick={(time) => setPlayerTime(time)}
+                    onWordReplace={handleSyncedWordReplace}
                     fontSize={fontSize}
                     fontFamily={fontFamily}
                     syncEnabled={syncEnabled}

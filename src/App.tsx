@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -19,6 +19,12 @@ import { DiarizationFloatingStatus } from "./components/DiarizationFloatingStatu
 import { useTheme } from "./hooks/useTheme";
 import { debugLog } from "./lib/debugLogger";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import {
+  DEV_FLOATING_BUTTONS_EVENT,
+  DEV_FLOATING_BUTTONS_STORAGE_KEY,
+  loadDevFloatingButtonsVisibility,
+  type DevFloatingButtonsVisibility,
+} from "./lib/devFloatingButtons";
 
 // Lazy load with logging + auto-reload on stale chunk
 function lazyWithLog(name: string, factory: () => Promise<{ default: React.ComponentType<unknown> }>) {
@@ -52,9 +58,11 @@ const Benchmark = lazyWithLog('Benchmark', () => import("./pages/Benchmark"));
 const Diarization = lazyWithLog('Diarization', () => import("./pages/Diarization"));
 const DiarizationCompare = lazyWithLog('DiarizationCompare', () => import("./pages/DiarizationComparePage"));
 const VoiceStudio = lazyWithLog('VoiceStudio', () => import("./pages/VoiceStudio"));
+const AudacityLab = lazyWithLog('AudacityLab', () => import("./pages/AudacityLab"));
 const NotFound = lazyWithLog('NotFound', () => import("./pages/NotFound"));
 const ResetPassword = lazyWithLog('ResetPassword', () => import("./pages/ResetPassword"));
 const VideoToMp3 = lazyWithLog('VideoToMp3', () => import("./pages/VideoToMp3"));
+const AudioCleanLab = lazyWithLog('AudioCleanLab', () => import("./pages/AudioCleanLab"));
 
 /** Logs route changes */
 const RouteLogger = () => {
@@ -104,10 +112,35 @@ const App = () => {
   // Initialize theme on app load
   useTheme();
   const queryClient = useMemo(() => new QueryClient(), []);
+  const [devFloatingButtons, setDevFloatingButtons] = useState<DevFloatingButtonsVisibility>(() => loadDevFloatingButtonsVisibility());
 
   useEffect(() => {
     debugLog.info('App', '📦 App component mounted');
     return () => debugLog.info('App', '📦 App component unmounted');
+  }, []);
+
+  useEffect(() => {
+    const handleConfigEvent = (event: Event) => {
+      const customEvent = event as CustomEvent<DevFloatingButtonsVisibility>;
+      if (customEvent.detail) {
+        setDevFloatingButtons(customEvent.detail);
+      } else {
+        setDevFloatingButtons(loadDevFloatingButtonsVisibility());
+      }
+    };
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === DEV_FLOATING_BUTTONS_STORAGE_KEY) {
+        setDevFloatingButtons(loadDevFloatingButtonsVisibility());
+      }
+    };
+
+    window.addEventListener(DEV_FLOATING_BUTTONS_EVENT, handleConfigEvent as EventListener);
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener(DEV_FLOATING_BUTTONS_EVENT, handleConfigEvent as EventListener);
+      window.removeEventListener("storage", handleStorage);
+    };
   }, []);
 
   return (
@@ -123,10 +156,10 @@ const App = () => {
           <CloudKeySync />
           <BackgroundSync />
           <SWUpdateNotifier />
-          <SmartConsole />
-          <TranscriptionAnalytics />
-          <PWAInstallButton />
-          <DiarizationFloatingStatus />
+          {devFloatingButtons.smartConsole && <SmartConsole />}
+          {devFloatingButtons.transcriptionAnalytics && <TranscriptionAnalytics />}
+          {devFloatingButtons.pwaInstall && <PWAInstallButton />}
+          {devFloatingButtons.diarizationStatus && <DiarizationFloatingStatus />}
           <AppSidebar />
           <AppLayout>
             <Suspense fallback={<PageLoader label="suspense" />}>
@@ -141,9 +174,11 @@ const App = () => {
                 <Route path="/folders" element={<ProtectedRoute><Folders /></ProtectedRoute>} />
                 <Route path="/benchmark" element={<ProtectedRoute><Benchmark /></ProtectedRoute>} />
                 <Route path="/voice-studio" element={<ProtectedRoute><VoiceStudio /></ProtectedRoute>} />
+                <Route path="/audacity-lab" element={<ProtectedRoute><AudacityLab /></ProtectedRoute>} />
                 <Route path="/diarization" element={<ProtectedRoute><Diarization /></ProtectedRoute>} />
                 <Route path="/diarization/compare" element={<ProtectedRoute><DiarizationCompare /></ProtectedRoute>} />
                 <Route path="/video-to-mp3" element={<ProtectedRoute><VideoToMp3 /></ProtectedRoute>} />
+                <Route path="/audio-clean" element={<ProtectedRoute><AudioCleanLab /></ProtectedRoute>} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </Suspense>

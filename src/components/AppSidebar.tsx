@@ -27,6 +27,8 @@ import {
   Users,
   GitCompareArrows,
   Waves,
+  SlidersHorizontal,
+  Wand2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
@@ -49,6 +51,8 @@ const navItems: NavItem[] = [
   { label: "דשבורד", icon: LayoutDashboard, path: "/" },
   { label: "תמלול", icon: Mic, path: "/transcribe" },
   { label: "סטודיו קול", icon: Waves, path: "/voice-studio" },
+  { label: "אודסיטי לאב", icon: SlidersHorizontal, path: "/audacity-lab" },
+  { label: "ניקוי קול", icon: Wand2, path: "/audio-clean" },
   { label: "תיקיות", icon: FolderOpen, path: "/folders" },
   { label: "עורך טקסט", icon: FileText, path: "/text-editor" },
   { label: "בנצ'מארק", icon: BarChart3, path: "/benchmark" },

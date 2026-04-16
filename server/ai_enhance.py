@@ -38,12 +38,41 @@ if os.name == "nt":
 
     os.symlink = _safe_symlink
 
-# ── SpeechBrain 1.1.x k2_fsa lazy-import bug workaround ────────────
+# ── SpeechBrain 1.1.x lazy-import bug workaround ────────────
 # inspect.getmodule() accidentally triggers speechbrain's lazy import of
 # k2_fsa via hasattr(module, '__file__'), which crashes if k2 isn't installed.
 # Providing a stub k2 module prevents the ImportError.
 if "k2" not in sys.modules:
     sys.modules["k2"] = types.ModuleType("k2")
+
+
+def _neutralize_speechbrain_lazy_modules():
+    """Replace all SpeechBrain lazy/deprecated stubs in sys.modules with real modules.
+
+    SpeechBrain 1.1.x registers DeprecatedModuleRedirect and LazyModule objects
+    in sys.modules for deprecated and optional sub-packages.  Python's
+    inspect.getmodule() walks sys.modules and calls hasattr(mod, '__file__')
+    which triggers lazy loading, crashing if optional deps aren't installed.
+
+    This function must be called AFTER 'import speechbrain' so that all stubs
+    are already registered, then replaces them with harmless empty modules.
+    """
+    dangerous_classes = {"DeprecatedModuleRedirect", "LazyModule", "_LazyModule", "LazyModuleMixin"}
+    to_replace = []
+    for name, mod in list(sys.modules.items()):
+        if not name.startswith("speechbrain"):
+            continue
+        cls = type(mod).__name__
+        if cls in dangerous_classes:
+            to_replace.append(name)
+    for name in to_replace:
+        stub = types.ModuleType(name)
+        stub.__file__ = f"<speechbrain-stub:{name}>"
+        stub.__path__ = []
+        stub.__package__ = name.rsplit(".", 1)[0] if "." in name else name
+        sys.modules[name] = stub
+    if to_replace:
+        _log.info(f"[ai_enhance] Neutralized {len(to_replace)} SpeechBrain lazy stubs: {to_replace}")
 
 _log = logging.getLogger("ai_enhance")
 
@@ -87,12 +116,18 @@ def _load_metricgan():
         import speechbrain.lobes.models.MetricGAN  # noqa: F401
         from speechbrain.inference import SpectralMaskEnhancement
 
+        # Neutralize lazy stubs BEFORE from_hparams (which calls inspect)
+        _neutralize_speechbrain_lazy_modules()
+
         device = "cuda" if torch.cuda.is_available() else "cpu"
         model = SpectralMaskEnhancement.from_hparams(
             source="speechbrain/metricgan-plus-voicebank",
             savedir=str(Path(__file__).parent / "models" / "metricgan"),
             run_opts={"device": device},
         )
+
+        # Neutralize AGAIN — from_hparams may register new lazy stubs
+        _neutralize_speechbrain_lazy_modules()
         _metricgan_model = model
         _log.info(f"[ai_enhance] MetricGAN-U loaded on {device} in {time.time() - t0:.1f}s")
         return model
@@ -173,12 +208,18 @@ def enhance_metricgan(input_path: str, output_wav_path: str) -> bool:
     model = _load_metricgan()
 
     import torch
-    import torchaudio
 
     # Load and prepare audio
     wav_tmp = _convert_to_wav(input_path)
     try:
-        noisy = model.load_audio(wav_tmp)
+        # Bypass model.load_audio() which uses speechbrain.fetch() —
+        # that function incorrectly joins source='./' with absolute Windows
+        # paths, producing invalid double-rooted paths like C:\cwd\C:\temp\...
+        # Instead, load directly with soundfile and apply the model's normalizer.
+        import soundfile as sf
+        data, sr = sf.read(wav_tmp, dtype="float32")
+        signal = torch.from_numpy(data).unsqueeze(-1).to(model.device)  # (samples, 1)
+        noisy = model.audio_normalizer(signal, sr)
         noisy = noisy.unsqueeze(0)  # Add batch dimension
 
         # Enhance

@@ -103,7 +103,7 @@ export function DiarizationFloatingStatus() {
             ? 'bg-primary/90 text-primary-foreground border-primary/50 hover:bg-primary'
             : errorCount > 0
             ? 'bg-destructive/90 text-destructive-foreground border-destructive/50 hover:bg-destructive'
-            : 'bg-card/95 text-card-foreground border-border hover:bg-card'
+            : 'bg-background/95 text-foreground border-border hover:bg-background'
         }`}
       >
         <div className="flex items-center gap-2 text-sm font-medium">

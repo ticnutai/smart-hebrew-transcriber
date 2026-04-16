@@ -2091,7 +2091,8 @@ def enhance_audio():
                         "details": result.stderr.decode("utf-8", errors="replace")[-700:],
                     }), 500
             except Exception as ai_err:
-                _log.error(f"AI enhance error ({preset}): {ai_err}")
+                import traceback
+                _log.error(f"AI enhance error ({preset}): {ai_err}\n{traceback.format_exc()}")
                 return jsonify({"error": f"AI enhancement failed: {str(ai_err)}"}), 500
             finally:
                 try:
@@ -2130,7 +2131,8 @@ def enhance_audio():
     except subprocess.TimeoutExpired:
         return jsonify({"error": "Enhancement timed out (10 min limit)"}), 504
     except Exception as e:
-        _log.error(f"enhance-audio error: {e}")
+        import traceback
+        _log.error(f"enhance-audio error: {e}\n{traceback.format_exc()}")
         return jsonify({"error": str(e)}), 500
     finally:
         for p in (input_path, output_path):

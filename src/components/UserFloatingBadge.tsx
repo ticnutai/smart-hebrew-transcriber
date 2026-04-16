@@ -27,7 +27,7 @@ const UserFloatingBadge = () => {
 
   return (
     <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2" dir="rtl">
-      <div className="flex items-center gap-2 bg-card border border-border rounded-full shadow-lg pl-2 pr-4 h-11">
+      <div className="flex items-center gap-2 bg-background border border-border rounded-full shadow-lg pl-2 pr-4 h-11">
         <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center">
           <User className="w-4 h-4 text-primary" />
         </div>
