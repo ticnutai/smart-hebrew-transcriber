@@ -905,7 +905,7 @@ const TextEditor = () => {
 
             {/* Bottom section: Two synced transcript views */}
             {playerLayout !== 'full' && (
-              <div className={`grid gap-5 flex-1 ${playerLayout === 'stacked' ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-2'}`} style={{ minHeight: '60vh' }}>
+              <div className={`grid gap-5 flex-1 ${playerLayout === 'stacked' ? 'grid-cols-1' : playerLayout === 'wide' ? 'grid-cols-2' : 'grid-cols-1 lg:grid-cols-2'}`} style={{ minHeight: '60vh' }}>
                 <div className="rounded-2xl border border-border/40 bg-card/50 shadow-sm overflow-hidden flex flex-col" style={{ minHeight: '60vh' }}>
                   <SyncTranscriptView
                     wordTimings={wordTimings}
