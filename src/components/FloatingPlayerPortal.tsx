@@ -5,28 +5,33 @@ import { Minimize2, Maximize2, GripHorizontal, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface FloatingPlayerPortalProps {
-  children: ReactNode;
+  children?: ReactNode;
   onClose: () => void;
+  title?: string;
+  storageKey?: string;
+  defaultWidth?: number;
+  defaultHeight?: number;
+  contentRef?: (el: HTMLDivElement | null) => void;
 }
 
 const STORAGE_KEY = "floating_player_pos_v1";
 
 interface Pos { x: number; y: number; w: number; h: number; minimized: boolean }
 
-function loadPos(): Pos {
+function loadPos(key: string, defW: number, defH: number): Pos {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return { ...defaultPos(), ...JSON.parse(raw) };
+    const raw = localStorage.getItem(key);
+    if (raw) return { ...defaultPos(defW, defH), ...JSON.parse(raw) };
   } catch { /* ignore */ }
-  return defaultPos();
+  return defaultPos(defW, defH);
 }
 
-function defaultPos(): Pos {
+function defaultPos(w = 480, h = 300): Pos {
   return {
-    x: Math.max(16, window.innerWidth - 520),
-    y: Math.max(16, window.innerHeight - 340),
-    w: 480,
-    h: 300,
+    x: Math.max(16, window.innerWidth - w - 40),
+    y: Math.max(16, window.innerHeight - h - 40),
+    w,
+    h,
     minimized: false,
   };
 }
@@ -35,16 +40,16 @@ function clamp(val: number, min: number, max: number) {
   return Math.max(min, Math.min(max, val));
 }
 
-export function FloatingPlayerPortal({ children, onClose }: FloatingPlayerPortalProps) {
-  const [pos, setPos] = useState<Pos>(loadPos);
+export function FloatingPlayerPortal({ children, onClose, title = '🎵 נגן צף', storageKey = STORAGE_KEY, defaultWidth = 480, defaultHeight = 300, contentRef }: FloatingPlayerPortalProps) {
+  const [pos, setPos] = useState<Pos>(() => loadPos(storageKey, defaultWidth, defaultHeight));
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
   const resizeRef = useRef<{ startX: number; startY: number; origW: number; origH: number } | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
   // persist position
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(pos));
-  }, [pos]);
+    localStorage.setItem(storageKey, JSON.stringify(pos));
+  }, [pos, storageKey]);
 
   // --- Drag ---
   const onDragStart = useCallback((e: React.PointerEvent) => {
@@ -118,7 +123,7 @@ export function FloatingPlayerPortal({ children, onClose }: FloatingPlayerPortal
       >
         <div className="flex items-center gap-1.5">
           <GripHorizontal className="w-4 h-4 text-muted-foreground" />
-          <span className="text-xs font-medium">🎵 נגן צף</span>
+          <span className="text-xs font-medium">{title}</span>
         </div>
         <div className="flex items-center gap-0.5">
           <Button variant="ghost" size="icon" className="h-6 w-6" onClick={toggleMinimize} title={pos.minimized ? "הרחב" : "מזער"}>
@@ -132,7 +137,7 @@ export function FloatingPlayerPortal({ children, onClose }: FloatingPlayerPortal
 
       {/* Content */}
       {!pos.minimized && (
-        <div className="flex-1 overflow-auto min-h-0">
+        <div className="flex-1 overflow-auto min-h-0" ref={contentRef}>
           {children}
         </div>
       )}

@@ -206,6 +206,9 @@ const TextEditor = () => {
   const setPlayerLayout = useCallback((v: 'split' | 'stacked' | 'full' | 'wide' | 'eq-wide') => updatePreference('player_layout', v), [updatePreference]);
   const [isPlayerFloating, setIsPlayerFloating] = useState(false);
   const togglePlayerFloating = useCallback(() => setIsPlayerFloating(p => !p), []);
+  const [isEqFloating, setIsEqFloating] = useState(false);
+  const toggleEqFloating = useCallback(() => setIsEqFloating(p => !p), []);
+  const [eqPortalTarget, setEqPortalTarget] = useState<HTMLDivElement | null>(null);
   const setColumns = (v: number) => updatePreference('editor_columns', v);
 
   const columnStyle: React.CSSProperties = columns > 1 ? {
@@ -253,6 +256,10 @@ const TextEditor = () => {
       if (e.ctrlKey && e.shiftKey && e.key === 'F') {
         e.preventDefault();
         setIsPlayerFloating(p => !p);
+      }
+      if (e.ctrlKey && e.shiftKey && e.key === 'E') {
+        e.preventDefault();
+        setIsEqFloating(p => !p);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -875,6 +882,16 @@ const TextEditor = () => {
                 <PictureInPicture2 className="w-3.5 h-3.5" />
                 נגן צף
               </Button>
+              <Button
+                variant={isEqFloating ? 'default' : 'outline'}
+                size="sm"
+                className="h-7 px-2 text-xs gap-1"
+                onClick={toggleEqFloating}
+                title="איקולייזר צף (Ctrl+Shift+E)"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+                EQ צף
+              </Button>
               <div className="flex items-center gap-1 bg-muted/40 rounded-xl p-1 border border-border/50 shadow-sm">
                 <Button
                   variant={playerLayout === 'split' ? 'default' : 'ghost'}
@@ -935,7 +952,9 @@ const TextEditor = () => {
                     onTimeUpdate={setPlayerTime}
                     syncEnabled={syncEnabled}
                     onSyncToggle={setSyncEnabled}
-                    compact
+                    compact={!isEqFloating}
+                    eqFloating={isEqFloating}
+                    eqPortalTarget={eqPortalTarget}
                   />
                 </FloatingPlayerPortal>
               </Suspense>
@@ -949,8 +968,24 @@ const TextEditor = () => {
                   syncEnabled={syncEnabled}
                   onSyncToggle={setSyncEnabled}
                   eqWide={playerLayout === 'eq-wide'}
+                  eqFloating={isEqFloating}
+                  eqPortalTarget={eqPortalTarget}
                 />
               </div>
+            )}
+
+            {/* Floating EQ window */}
+            {isEqFloating && (
+              <Suspense fallback={null}>
+                <FloatingPlayerPortal
+                  onClose={toggleEqFloating}
+                  title="🎛️ איקולייזר צף"
+                  storageKey="floating_eq_pos_v1"
+                  defaultWidth={600}
+                  defaultHeight={500}
+                  contentRef={setEqPortalTarget}
+                />
+              </Suspense>
             )}
 
             {/* Bottom section: Two synced transcript views */}

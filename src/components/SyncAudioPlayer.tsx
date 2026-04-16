@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo, memo, forwardRef, useImperativeHandle } from "react";
+import { createPortal } from "react-dom";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -230,6 +231,8 @@ interface SyncAudioPlayerProps {
   onSyncToggle?: (enabled: boolean) => void;
   compact?: boolean;
   eqWide?: boolean;
+  eqFloating?: boolean;
+  eqPortalTarget?: HTMLDivElement | null;
   onPlayStateChange?: (playing: boolean) => void;
   speakerSegments?: SpeakerSegmentForWaveform[];
 }
@@ -314,6 +317,8 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
   onSyncToggle,
   compact,
   eqWide,
+  eqFloating,
+  eqPortalTarget,
   onPlayStateChange,
   speakerSegments,
 }, ref) => {
@@ -2479,8 +2484,9 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
           </div>
 
           {/* ═══ LEFT COLUMN: Mixer & Processing ═══ */}
-          {!compact && (
-            <div className={`space-y-3 order-2 ${eqWide ? 'col-span-full' : ''}`}>
+          {!compact && (() => {
+            const eqEl = (
+            <div className={`space-y-3 ${eqFloating ? '' : 'order-2'} ${eqWide && !eqFloating ? 'col-span-full' : ''}`}>
               {mixerPanel}
 
               {/* ─── EQ + Processing Mixing Console ── */}
@@ -3017,7 +3023,9 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                 </div>
               )}
             </div>
-          )}
+            );
+            return eqFloating && eqPortalTarget ? createPortal(eqEl, eqPortalTarget) : eqEl;
+          })()}
         </div>
 
         {/* ─── Keyboard shortcuts panel ──────────────────────── */}
