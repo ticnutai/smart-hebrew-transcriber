@@ -51,6 +51,8 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
   const [duplicates, setDuplicates] = useState<DuplicateGroup[]>([]);
   const [isActive, setIsActive] = useState(false);
   const [selectedDuplicate, setSelectedDuplicate] = useState<DuplicateGroup | null>(null);
+  const [selectedFixes, setSelectedFixes] = useState<Set<number>>(new Set());
+  const [showFixPanel, setShowFixPanel] = useState(false);
 
   const words = useMemo(() => {
     if (!text.trim()) return [];
