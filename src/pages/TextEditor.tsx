@@ -31,13 +31,15 @@ const EngineCompare = lazy(() => import("@/components/EngineCompare").then(m => 
 const AnalyticsDashboard = lazy(() => import("@/components/AnalyticsDashboard").then(m => ({ default: m.AnalyticsDashboard })));
 const SpeakerDiarization = lazy(() => import("@/components/SpeakerDiarization").then(m => ({ default: m.SpeakerDiarization })));
 const FloatingPlayerPortal = lazy(() => import("@/components/FloatingPlayerPortal").then(m => ({ default: m.FloatingPlayerPortal })));
-import { ArrowRight, Home, Wand2, SplitSquareVertical, SpellCheck, Loader2, Columns2, Columns3, AlignJustify, LayoutGrid, Rows3, Save, Copy, LayoutPanelTop, LayoutPanelLeft, Square, StretchHorizontal, PictureInPicture2, SlidersHorizontal } from "lucide-react";
+const KeyboardShortcutsDialog = lazy(() => import("@/components/KeyboardShortcutsDialog").then(m => ({ default: m.KeyboardShortcutsDialog })));
+import { ArrowRight, Home, Wand2, SplitSquareVertical, SpellCheck, Loader2, Columns2, Columns3, AlignJustify, LayoutGrid, Rows3, Save, Copy, LayoutPanelTop, LayoutPanelLeft, Square, StretchHorizontal, PictureInPicture2, SlidersHorizontal, Search, ChevronUp, ChevronDown, X, Keyboard } from "lucide-react";
 import { TabSettingsManager, TabConfig, loadTabSettings, saveTabSettings, getDefaultTabConfig } from "@/components/TabSettingsManager";
 import { supabase } from "@/integrations/supabase/client";
 import { editTranscriptCloud } from "@/utils/editTranscriptApi";
 import { toast } from "@/hooks/use-toast";
 import { useCloudPreferences } from "@/hooks/useCloudPreferences";
 import { useCloudTranscripts } from "@/hooks/useCloudTranscripts";
+import { useUndoRedo } from "@/hooks/useUndoRedo";
 import { useCloudVersions } from "@/hooks/useCloudVersions";
 import { useOllama, isOllamaModel } from "@/hooks/useOllama";
 import { db } from "@/lib/localDb";
@@ -95,7 +97,7 @@ function toKnownSource(source: string): TextVersion['source'] {
 const TextEditor = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const [text, setText] = useState("");
+  const { value: text, setValue: setText, undo: undoText, redo: redoText, canUndo, canRedo } = useUndoRedo("");
   const [versions, setVersions] = useState<TextVersion[]>([]);
   const [selectedVersionId, setSelectedVersionId] = useState<string>();
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
@@ -209,6 +211,15 @@ const TextEditor = () => {
   const [isEqFloating, setIsEqFloating] = useState(false);
   const toggleEqFloating = useCallback(() => setIsEqFloating(p => !p), []);
   const [eqPortalTarget, setEqPortalTarget] = useState<HTMLDivElement | null>(null);
+
+  // Search in transcript
+  const [transcriptSearchOpen, setTranscriptSearchOpen] = useState(false);
+  const [transcriptSearchQuery, setTranscriptSearchQuery] = useState("");
+  const [transcriptSearchIdx, setTranscriptSearchIdx] = useState(0);
+  const [transcriptMatchCount, setTranscriptMatchCount] = useState(0);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+
   const setColumns = (v: number) => updatePreference('editor_columns', v);
 
   const columnStyle: React.CSSProperties = columns > 1 ? {
@@ -260,6 +271,29 @@ const TextEditor = () => {
       if (e.ctrlKey && e.shiftKey && e.key === 'E') {
         e.preventDefault();
         setIsEqFloating(p => !p);
+      }
+      if (e.ctrlKey && !e.shiftKey && e.key === 'f') {
+        e.preventDefault();
+        setTranscriptSearchOpen(p => {
+          if (!p) setTimeout(() => searchInputRef.current?.focus(), 50);
+          else { setTranscriptSearchQuery(""); setTranscriptSearchIdx(0); }
+          return !p;
+        });
+      }
+      // Global undo/redo (only when not in an input/contenteditable)
+      const tag = (document.activeElement as HTMLElement)?.tagName;
+      const isEditable = (document.activeElement as HTMLElement)?.isContentEditable;
+      const inInput = tag === 'INPUT' || tag === 'TEXTAREA' || isEditable;
+      if (e.ctrlKey && e.shiftKey && e.key === 'Z' && !inInput) {
+        e.preventDefault();
+        redoText();
+      } else if (e.ctrlKey && !e.shiftKey && e.key === 'z' && !inInput) {
+        e.preventDefault();
+        undoText();
+      }
+      if (e.key === '?' && !inInput) {
+        e.preventDefault();
+        setShortcutsOpen(p => !p);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -988,6 +1022,46 @@ const TextEditor = () => {
               </Suspense>
             )}
 
+            {/* Search bar for transcript */}
+            {transcriptSearchOpen && (
+              <div className="flex items-center gap-2 p-2 rounded-lg border border-primary/30 bg-muted/50 shadow-sm" dir="rtl">
+                <Search className="w-4 h-4 text-muted-foreground shrink-0" />
+                <input
+                  ref={searchInputRef}
+                  className="flex-1 bg-transparent border-none outline-none text-sm placeholder:text-muted-foreground"
+                  placeholder="חיפוש בתמלול..."
+                  value={transcriptSearchQuery}
+                  onChange={(e) => { setTranscriptSearchQuery(e.target.value); setTranscriptSearchIdx(0); }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      setTranscriptSearchOpen(false);
+                      setTranscriptSearchQuery("");
+                      setTranscriptSearchIdx(0);
+                    }
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      setTranscriptSearchIdx(i => (i + 1) % Math.max(1, transcriptMatchCount));
+                    }
+                    if (e.key === 'Enter' && e.shiftKey) {
+                      setTranscriptSearchIdx(i => (i - 1 + Math.max(1, transcriptMatchCount)) % Math.max(1, transcriptMatchCount));
+                    }
+                  }}
+                  autoFocus
+                />
+                <span className="text-xs text-muted-foreground min-w-[60px] text-center">
+                  {transcriptMatchCount > 0 ? `${transcriptSearchIdx + 1} / ${transcriptMatchCount}` : transcriptSearchQuery ? 'לא נמצא' : ''}
+                </span>
+                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setTranscriptSearchIdx(i => (i - 1 + Math.max(1, transcriptMatchCount)) % Math.max(1, transcriptMatchCount))} title="הקודם (Shift+Enter)">
+                  <ChevronUp className="w-3.5 h-3.5" />
+                </Button>
+                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setTranscriptSearchIdx(i => (i + 1) % Math.max(1, transcriptMatchCount))} title="הבא (Enter)">
+                  <ChevronDown className="w-3.5 h-3.5" />
+                </Button>
+                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { setTranscriptSearchOpen(false); setTranscriptSearchQuery(""); setTranscriptSearchIdx(0); }} title="סגור (Escape)">
+                  <X className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+            )}
+
             {/* Bottom section: Two synced transcript views */}
             {playerLayout !== 'full' && (
               <div className={`grid gap-5 flex-1 ${playerLayout === 'stacked' || playerLayout === 'eq-wide' ? 'grid-cols-1' : playerLayout === 'wide' ? 'grid-cols-2' : 'grid-cols-1 lg:grid-cols-2'}`} style={{ minHeight: '60vh' }}>
@@ -1000,6 +1074,9 @@ const TextEditor = () => {
                     fontSize={fontSize}
                     fontFamily={fontFamily}
                     syncEnabled={syncEnabled}
+                    searchQuery={transcriptSearchOpen ? transcriptSearchQuery : undefined}
+                    searchActiveIndex={transcriptSearchIdx}
+                    onSearchMatchCount={setTranscriptMatchCount}
                   />
                 </div>
                 <div className="rounded-2xl border border-border/40 bg-card/50 shadow-sm overflow-hidden flex flex-col" style={{ minHeight: '60vh' }}>
@@ -1013,6 +1090,8 @@ const TextEditor = () => {
                     fontSize={fontSize}
                     fontFamily={fontFamily}
                     syncEnabled={syncEnabled}
+                    searchQuery={transcriptSearchOpen ? transcriptSearchQuery : undefined}
+                    searchActiveIndex={transcriptSearchIdx}
                   />
                 </div>
               </div>
@@ -1222,9 +1301,19 @@ const TextEditor = () => {
             <ArrowRight className="w-3.5 h-3.5" />
             חזרה לעמוד הראשי
           </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShortcutsOpen(true)}
+            className="gap-1.5 text-muted-foreground hover:text-foreground"
+            title="קיצורי מקלדת"
+          >
+            <Keyboard className="w-3.5 h-3.5" />
+          </Button>
         </div>
       </div>
     </div>
+    <KeyboardShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
     </Suspense>
   );
 };

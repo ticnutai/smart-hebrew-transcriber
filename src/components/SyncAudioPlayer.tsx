@@ -429,6 +429,32 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
   const [focusEnd, setFocusEnd] = useState(0);
   const [focusLoop, setFocusLoop] = useState(false);
 
+  // Waveform bookmarks
+  interface Bookmark { time: number; label: string; color: string }
+  const BOOKMARK_STORAGE = 'waveform_bookmarks_v1';
+  const [bookmarks, setBookmarks] = useState<Bookmark[]>(() => {
+    try { const raw = localStorage.getItem(BOOKMARK_STORAGE); return raw ? JSON.parse(raw) : []; } catch { return []; }
+  });
+  const [editingBookmarkIdx, setEditingBookmarkIdx] = useState<number | null>(null);
+
+  useEffect(() => {
+    localStorage.setItem(BOOKMARK_STORAGE, JSON.stringify(bookmarks));
+  }, [bookmarks]);
+
+  const addBookmark = useCallback((time: number) => {
+    const COLORS = ['#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899'];
+    setBookmarks(prev => [...prev, { time, label: `סימנייה ${prev.length + 1}`, color: COLORS[prev.length % COLORS.length] }]);
+  }, []);
+
+  const removeBookmark = useCallback((idx: number) => {
+    setBookmarks(prev => prev.filter((_, i) => i !== idx));
+    setEditingBookmarkIdx(null);
+  }, []);
+
+  const updateBookmarkLabel = useCallback((idx: number, label: string) => {
+    setBookmarks(prev => prev.map((b, i) => i === idx ? { ...b, label } : b));
+  }, []);
+
   const hasValidFocusRange = focusEnd > focusStart;
   const isWithinFocusedSegment = !focusEnabled || !hasValidFocusRange
     ? true
@@ -1393,7 +1419,32 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
       ctx.lineTo(headX, H);
       ctx.stroke();
     }
-  }, [currentTime, effectiveDuration, peaksData, speakerSegments, speakerColorMap]);
+
+    // Bookmark pins on waveform
+    if (dur > 0 && bookmarks.length > 0) {
+      for (const bm of bookmarks) {
+        const fraction = bm.time / dur;
+        const bx = W - fraction * W; // RTL
+        // Vertical dashed line
+        ctx.strokeStyle = bm.color;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.moveTo(bx, 0);
+        ctx.lineTo(bx, H);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        // Pin triangle at top
+        ctx.fillStyle = bm.color;
+        ctx.beginPath();
+        ctx.moveTo(bx, 0);
+        ctx.lineTo(bx - 5, 10);
+        ctx.lineTo(bx + 5, 10);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+  }, [currentTime, effectiveDuration, peaksData, speakerSegments, speakerColorMap, bookmarks]);
 
   // Redraw static waveform on time/peaks change
   useEffect(() => {
@@ -2211,7 +2262,12 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                   onClick={(e) => {
                     const rect = e.currentTarget.getBoundingClientRect();
                     const x = rect.right - e.clientX;
-                    seekTo((x / rect.width) * effectiveDuration);
+                    const time = (x / rect.width) * effectiveDuration;
+                    if (e.ctrlKey || e.metaKey) {
+                      addBookmark(time);
+                    } else {
+                      seekTo(time);
+                    }
                   }}
                 />
               </div>
@@ -2261,6 +2317,45 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                     <span>{speaker}</span>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* ─── Bookmarks ── */}
+            {bookmarks.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 items-center" dir="rtl">
+                <span className="text-[10px] text-muted-foreground">📌</span>
+                {bookmarks.map((bm, i) => (
+                  <div key={i} className="flex items-center gap-0.5">
+                    {editingBookmarkIdx === i ? (
+                      <input
+                        className="h-5 w-24 text-[10px] px-1 rounded border bg-background"
+                        defaultValue={bm.label}
+                        autoFocus
+                        onBlur={(e) => { updateBookmarkLabel(i, e.target.value); setEditingBookmarkIdx(null); }}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { updateBookmarkLabel(i, (e.target as HTMLInputElement).value); setEditingBookmarkIdx(null); } if (e.key === 'Escape') setEditingBookmarkIdx(null); }}
+                      />
+                    ) : (
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] h-5 cursor-pointer hover:bg-muted gap-1"
+                        style={{ borderColor: bm.color, color: bm.color }}
+                        onClick={() => seekTo(bm.time)}
+                        onDoubleClick={() => setEditingBookmarkIdx(i)}
+                        title={`${formatTime(bm.time)} — דאבל קליק לשינוי שם`}
+                      >
+                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: bm.color }} />
+                        {bm.label}
+                      </Badge>
+                    )}
+                    <button
+                      className="text-[10px] text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                      style={{ opacity: 0.5 }}
+                      onClick={() => removeBookmark(i)}
+                      title="הסר סימנייה"
+                    >×</button>
+                  </div>
+                ))}
+                <span className="text-[9px] text-muted-foreground/60 mr-2">Ctrl+קליק על הגל להוספה</span>
               </div>
             )}
 

@@ -8,7 +8,7 @@ import { addDictionaryReplacement, addIgnoredWord } from "@/utils/hebrewGrammarD
 import type { MenuSuggestion } from "@/utils/syncedSpellAssist";
 import { useTextMarking } from "@/hooks/useTextMarking";
 import { MarkingToolbar } from "@/components/MarkingToolbar";
-import { AlignRight, Clock } from "lucide-react";
+import { AlignRight, Clock, Search, ChevronUp, ChevronDown, X } from "lucide-react";
 import type { WordTiming } from "./SyncAudioPlayer";
 
 interface SyncTranscriptViewProps {
@@ -19,6 +19,9 @@ interface SyncTranscriptViewProps {
   fontSize?: number;
   fontFamily?: string;
   syncEnabled?: boolean;
+  searchQuery?: string;
+  searchActiveIndex?: number;
+  onSearchMatchCount?: (count: number) => void;
 }
 
 interface SpellMenuState {
@@ -41,6 +44,9 @@ export const SyncTranscriptView = ({
   fontSize = 18,
   fontFamily = "Assistant",
   syncEnabled = true,
+  searchQuery,
+  searchActiveIndex,
+  onSearchMatchCount,
 }: SyncTranscriptViewProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const activeWordRef = useRef<HTMLSpanElement>(null);
@@ -63,6 +69,24 @@ export const SyncTranscriptView = ({
     }
     return -1;
   }, [currentTime, wordTimings, syncEnabled]);
+
+  // Search matching
+  const searchMatchIndices = useMemo(() => {
+    if (!searchQuery?.trim()) return new Set<number>();
+    const q = searchQuery.trim().toLowerCase();
+    const matches = new Set<number>();
+    wordTimings.forEach((wt, i) => {
+      if (wt.word.toLowerCase().includes(q)) matches.add(i);
+    });
+    return matches;
+  }, [wordTimings, searchQuery]);
+
+  const searchMatchList = useMemo(() => [...searchMatchIndices].sort((a, b) => a - b), [searchMatchIndices]);
+  const activeSearchWordIndex = searchMatchList[searchActiveIndex ?? 0] ?? -1;
+
+  useEffect(() => {
+    onSearchMatchCount?.(searchMatchList.length);
+  }, [searchMatchList.length, onSearchMatchCount]);
 
   const words = useMemo(() => wordTimings.map((w) => w.word), [wordTimings]);
 
@@ -249,16 +273,23 @@ export const SyncTranscriptView = ({
                 const markingClass = marking.getWordMarkingStyle(wt.globalIndex);
                 const wordHasIssue = hasIssue(wt.globalIndex);
                 const suggestions = wordHasIssue ? getSuggestions(wt.globalIndex) : [];
+                const isSearchMatch = searchMatchIndices.has(wt.globalIndex);
+                const isSearchActive = wt.globalIndex === activeSearchWordIndex;
 
                 return (
                   <span
                     key={wt.globalIndex}
-                    ref={isActive ? activeWordRef : undefined}
+                    ref={isActive || isSearchActive ? activeWordRef : undefined}
                     className={cn(
                       "px-0.5 py-0.5 rounded cursor-pointer transition-all duration-150 inline-block",
                       confidenceStyle,
                       markingClass,
-                      isActive
+                      isSearchActive
+                        ? "bg-yellow-400 text-black font-bold ring-2 ring-yellow-500 shadow-md"
+                        : isSearchMatch
+                          ? "bg-yellow-200/70 dark:bg-yellow-800/40"
+                          : "",
+                      isActive && !isSearchActive
                         ? "bg-primary text-primary-foreground font-bold scale-110 shadow-md mx-0.5"
                         : isPast
                           ? "text-muted-foreground hover:bg-muted"
