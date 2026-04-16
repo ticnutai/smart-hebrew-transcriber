@@ -101,6 +101,7 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
   const pauseRef = useRef(false);
   const totalBatchesRef = useRef(0);
   const completedCountRef = useRef(0);
+  const lastTextHashRef = useRef<string>('');
 
   const words = useMemo(() => {
     if (!text.trim()) return [];
