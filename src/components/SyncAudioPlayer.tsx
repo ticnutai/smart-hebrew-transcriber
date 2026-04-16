@@ -2258,11 +2258,57 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
             )}
 
             {/* ─── Time Slider ── */}
-            <div className="flex items-center gap-3" dir="ltr">
-              <span className="text-xs text-muted-foreground font-mono min-w-[40px] text-center">{formatTime(effectiveDuration)}</span>
-              <Slider value={[currentTime]} max={effectiveDuration || 1} step={0.1} onValueChange={handleSliderSeek} className="flex-1" dir="rtl" />
-              <span className="text-xs text-muted-foreground font-mono min-w-[40px] text-center">{formatTime(currentTime)}</span>
-            </div>
+            {!seekBarCollapsed ? (
+              <div
+                className="relative"
+                onMouseEnter={() => setSeekBarHover(true)}
+                onMouseLeave={() => setSeekBarHover(false)}
+              >
+                {seekBarHover && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="absolute -top-3 left-0 h-5 w-5 z-10 bg-background/80 backdrop-blur border shadow-sm"
+                        onClick={() => setSeekBarCollapsed(true)}
+                      >
+                        <Minimize2 className="w-3 h-3 no-theme-icon" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">מזער פס סינכרון</TooltipContent>
+                  </Tooltip>
+                )}
+                <div className="flex items-center gap-3" dir="ltr">
+                  <span className="text-xs text-muted-foreground font-mono min-w-[40px] text-center">{formatTime(effectiveDuration)}</span>
+                  <Slider value={[currentTime]} max={effectiveDuration || 1} step={0.1} onValueChange={handleSliderSeek} className="flex-1" dir="rtl" />
+                  <span className="text-xs text-muted-foreground font-mono min-w-[40px] text-center">{formatTime(currentTime)}</span>
+                </div>
+              </div>
+            ) : (
+              <div
+                className="relative flex items-center justify-between rounded-lg bg-muted/30 px-3 py-1 border border-dashed"
+                onMouseEnter={() => setSeekBarHover(true)}
+                onMouseLeave={() => setSeekBarHover(false)}
+              >
+                <span className="text-[10px] text-muted-foreground font-mono">
+                  {formatTime(currentTime)} / {formatTime(effectiveDuration)}
+                </span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6"
+                      onClick={() => setSeekBarCollapsed(false)}
+                    >
+                      <Maximize2 className="w-3.5 h-3.5 no-theme-icon" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">הרחב פס סינכרון</TooltipContent>
+                </Tooltip>
+              </div>
+            )}
 
             {/* ─── Main Controls ── */}
             <div className="flex items-center justify-center gap-1">
