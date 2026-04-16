@@ -8,11 +8,12 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Eye, Settings2, Loader2, XCircle, Trash2, Check, RefreshCw, Wand2, ListChecks, CheckCheck, Pause, Play, Database, Zap } from "lucide-react";
+import { Eye, Settings2, Loader2, XCircle, Trash2, Check, RefreshCw, Wand2, ListChecks, CheckCheck, Pause, Play, Database, Zap, SpellCheck } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { analyzeMorphology } from "@/utils/dictaApi";
 import { supabase } from "@/integrations/supabase/client";
 import { Progress } from "@/components/ui/progress";
+import { buildIssueMap, type SyncedSpellAssistSettings } from "@/utils/syncedSpellAssist";
 import type { WordValidation } from "./DictionaryValidator";
 
 interface MarkingSettings {
@@ -20,6 +21,7 @@ interface MarkingSettings {
   showGrammar: boolean;
   showContext: boolean;
   showDuplicates: boolean;
+  localSpellCheck: boolean;
 }
 
 interface DuplicateGroup {
@@ -81,6 +83,7 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
     showGrammar: true,
     showContext: false,
     showDuplicates: true,
+    localSpellCheck: true,
   });
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -585,11 +588,36 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
     }
   }, [fixableResults, selectedFixes]);
 
+  // Local instant spell-check (rules-based, no API)
+  const localSpellSettings = useMemo<SyncedSpellAssistSettings>(() => ({
+    enabled: settings.localSpellCheck,
+    grammarEnabled: true,
+    duplicateWordsRule: true,
+    punctuationRule: true,
+    latinWordsRule: true,
+    useDictionary: true,
+    markMode: "underline",
+    markColor: "#f59e0b",
+    keepMarkedAfterFix: false,
+  }), [settings.localSpellCheck]);
+
+  const localIssueMap = useMemo(() => {
+    if (!settings.localSpellCheck || !text.trim()) return new Map();
+    const plainWords = text.split(/\s+/).filter(w => w.length > 0);
+    return buildIssueMap(plainWords, localSpellSettings, new Set());
+  }, [text, settings.localSpellCheck, localSpellSettings]);
+
   const getWordStyle = useCallback((wordIndex: number) => {
-    if (!isActive) return '';
+    const styles: string[] = [];
+
+    // Local spell-check rules (instant, always available)
+    if (settings.localSpellCheck && localIssueMap.has(wordIndex)) {
+      styles.push('decoration-amber-400 decoration-wavy underline decoration-2');
+    }
+
+    if (!isActive) return styles.join(' ');
     const result = resultMap.get(wordIndex);
     const isDuplicate = settings.showDuplicates && duplicateIndices.has(wordIndex);
-    const styles: string[] = [];
     if (isDuplicate) styles.push('decoration-blue-400 decoration-wavy underline decoration-2');
     if (result) {
       if (settings.showUnknown && (result.issueType === 'unknown_word' || result.issueType === 'spelling')) styles.push('decoration-red-500 decoration-wavy underline decoration-2');
@@ -597,7 +625,9 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
       else if (settings.showContext && result.issueType === 'context') styles.push('decoration-yellow-400 decoration-wavy underline decoration-2');
     }
     return styles.join(' ');
-  }, [isActive, resultMap, duplicateIndices, settings]);
+  }, [isActive, resultMap, duplicateIndices, settings, localIssueMap]);
+
+  const localIssueCount = localIssueMap.size;
 
   const issueStats = useMemo(() => {
     const unknown = wordResults.filter(r => r.issueType === 'unknown_word' || r.issueType === 'spelling').length;
@@ -620,6 +650,10 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
           <PopoverContent className="w-72" dir="rtl" align="start">
             <div className="space-y-4">
               <h4 className="font-medium text-sm">סוגי סימון</h4>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2"><div className="w-3 h-0.5 bg-amber-400 rounded" /><Label className="text-xs">בדיקה מקומית מיידית</Label></div>
+                <Switch checked={settings.localSpellCheck} onCheckedChange={(v) => setSettings(s => ({ ...s, localSpellCheck: v }))} />
+              </div>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2"><div className="w-3 h-0.5 bg-red-500 rounded" /><Label className="text-xs">מילים לא קיימות</Label></div>
                 <Switch checked={settings.showUnknown} onCheckedChange={(v) => setSettings(s => ({ ...s, showUnknown: v }))} />
@@ -718,12 +752,13 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
         )}
 
         {/* Stats badges */}
-        {isActive && (
+        {(isActive || localIssueCount > 0) && (
           <div className="flex gap-1 mr-auto">
-            {issueStats.unknown > 0 && <Badge variant="outline" className="text-[10px] bg-red-500/10 text-red-400 border-red-500/20">{issueStats.unknown} לא ידוע</Badge>}
-            {issueStats.grammar > 0 && <Badge variant="outline" className="text-[10px] bg-orange-500/10 text-orange-400 border-orange-500/20">{issueStats.grammar} דקדוק</Badge>}
-            {issueStats.context > 0 && <Badge variant="outline" className="text-[10px] bg-yellow-500/10 text-yellow-400 border-yellow-500/20">{issueStats.context} הקשר</Badge>}
-            {issueStats.duplicates > 0 && <Badge variant="outline" className="text-[10px] bg-blue-500/10 text-blue-400 border-blue-500/20 cursor-pointer" onClick={handleRemoveAllDuplicates}><Trash2 className="w-3 h-3 ml-1" />{issueStats.duplicates} כפילויות</Badge>}
+            {localIssueCount > 0 && <Badge variant="outline" className="text-[10px] bg-amber-500/10 text-amber-400 border-amber-500/20"><SpellCheck className="w-3 h-3 ml-1" />{localIssueCount} מקומי</Badge>}
+            {isActive && issueStats.unknown > 0 && <Badge variant="outline" className="text-[10px] bg-red-500/10 text-red-400 border-red-500/20">{issueStats.unknown} לא ידוע</Badge>}
+            {isActive && issueStats.grammar > 0 && <Badge variant="outline" className="text-[10px] bg-orange-500/10 text-orange-400 border-orange-500/20">{issueStats.grammar} דקדוק</Badge>}
+            {isActive && issueStats.context > 0 && <Badge variant="outline" className="text-[10px] bg-yellow-500/10 text-yellow-400 border-yellow-500/20">{issueStats.context} הקשר</Badge>}
+            {isActive && issueStats.duplicates > 0 && <Badge variant="outline" className="text-[10px] bg-blue-500/10 text-blue-400 border-blue-500/20 cursor-pointer" onClick={handleRemoveAllDuplicates}><Trash2 className="w-3 h-3 ml-1" />{issueStats.duplicates} כפילויות</Badge>}
           </div>
         )}
       </div>
@@ -740,8 +775,8 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
         </div>
       )}
 
-      {/* Marked text display — shown even during analysis for incremental results */}
-      {(isActive || (isAnalyzing && wordResults.length > 0)) && (
+      {/* Marked text display — shown when AI active, local spell active, or analyzing */}
+      {(isActive || (isAnalyzing && wordResults.length > 0) || (settings.localSpellCheck && localIssueCount > 0)) && (
         <TooltipProvider>
           <div className="p-4 rounded-xl border border-border/40 bg-muted/10 overflow-y-auto max-h-[50vh]" style={{ fontSize: `${fontSize}px`, fontFamily, lineHeight, direction: 'rtl' }} dir="rtl">
             {words.map((word, i) => {
@@ -749,14 +784,32 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
               const style = getWordStyle(i);
               const result = resultMap.get(i);
               const isDuplicate = settings.showDuplicates && duplicateIndices.has(i);
+              const localIssues = localIssueMap.get(i);
               if (style === '') return <span key={i} className="inline">{word}</span>;
               return (
                 <Tooltip key={i}>
                   <TooltipTrigger asChild>
-                    <span className={`inline cursor-pointer ${style} rounded px-0.5 transition-colors hover:bg-white/10`} onClick={() => { if (isDuplicate) { const group = duplicates.find(d => d.indices.includes(i)); if (group) setSelectedDuplicate(group); } else if (result?.suggestion) handleApplyFix(i, result.suggestion); }}>{word}</span>
+                    <span className={`inline cursor-pointer ${style} rounded px-0.5 transition-colors hover:bg-white/10`} onClick={() => {
+                      if (isDuplicate) {
+                        const group = duplicates.find(d => d.indices.includes(i));
+                        if (group) setSelectedDuplicate(group);
+                      } else if (result?.suggestion) {
+                        handleApplyFix(i, result.suggestion);
+                      } else if (localIssues && localIssues.length > 0) {
+                        const firstFix = localIssues.find(s => s.text !== "__IGNORE__" && s.text !== "__DELETE__");
+                        if (firstFix) handleApplyFix(i, firstFix.text);
+                      }
+                    }}>{word}</span>
                   </TooltipTrigger>
                   <TooltipContent side="top" className="max-w-xs text-xs" dir="rtl">
                     <div className="space-y-1">
+                      {localIssues && localIssues.length > 0 && (
+                        <div className="space-y-0.5">
+                          {localIssues.filter(s => s.text !== "__IGNORE__" && s.text !== "__DELETE__").slice(0, 3).map((s, si) => (
+                            <p key={si} className="text-amber-400">💡 {s.label || s.text} <span className="text-white/40 text-[10px]">({s.source})</span></p>
+                          ))}
+                        </div>
+                      )}
                       {result?.reason && <p>{result.reason}</p>}
                       {result?.suggestion && <p className="text-emerald-400 font-medium">לחץ לתקן → {result.suggestion}</p>}
                       {isDuplicate && <p className="text-blue-400 font-medium">לחץ לניהול כפילות</p>}
