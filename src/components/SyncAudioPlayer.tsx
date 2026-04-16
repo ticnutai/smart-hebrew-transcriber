@@ -392,6 +392,10 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
   const [eqCanvasCollapsed, setEqCanvasCollapsed] = useState(false);
   const [eqStyleBarHover, setEqStyleBarHover] = useState(false);
   const [eqCanvasHover, setEqCanvasHover] = useState(false);
+  const [staticWaveCollapsed, setStaticWaveCollapsed] = useState(false);
+  const [staticWaveHover, setStaticWaveHover] = useState(false);
+  const [seekBarCollapsed, setSeekBarCollapsed] = useState(false);
+  const [seekBarHover, setSeekBarHover] = useState(false);
   const eqBandsRef = useRef<BiquadFilterNode[]>([]);
   // Helper: get/set individual band gain
   const setEqBand = useCallback((index: number, value: number) => {
@@ -2172,16 +2176,60 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
             )}
 
             {/* ─── Static Waveform ── */}
-            <canvas
-              ref={staticCanvasRef}
-              className="w-full rounded-lg cursor-pointer bg-muted/30"
-              style={{ height: isExpanded ? 120 : 80 }}
-              onClick={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                const x = rect.right - e.clientX;
-                seekTo((x / rect.width) * effectiveDuration);
-              }}
-            />
+            {!staticWaveCollapsed ? (
+              <div
+                className="relative"
+                onMouseEnter={() => setStaticWaveHover(true)}
+                onMouseLeave={() => setStaticWaveHover(false)}
+              >
+                {staticWaveHover && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="absolute top-1 left-1 h-6 w-6 z-10 bg-background/80 backdrop-blur border shadow-sm"
+                        onClick={() => setStaticWaveCollapsed(true)}
+                      >
+                        <Minimize2 className="w-3.5 h-3.5 no-theme-icon" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">מזער גל סטטי</TooltipContent>
+                  </Tooltip>
+                )}
+                <canvas
+                  ref={staticCanvasRef}
+                  className="w-full rounded-lg cursor-pointer bg-muted/30"
+                  style={{ height: isExpanded ? 120 : 80 }}
+                  onClick={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const x = rect.right - e.clientX;
+                    seekTo((x / rect.width) * effectiveDuration);
+                  }}
+                />
+              </div>
+            ) : (
+              <div
+                className="relative flex items-center justify-between rounded-lg bg-muted/30 px-3 py-1.5 border border-dashed"
+                onMouseEnter={() => setStaticWaveHover(true)}
+                onMouseLeave={() => setStaticWaveHover(false)}
+              >
+                <span className="text-[10px] text-muted-foreground">גל סטטי מוזער</span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6"
+                      onClick={() => setStaticWaveCollapsed(false)}
+                    >
+                      <Maximize2 className="w-3.5 h-3.5 no-theme-icon" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">הרחב גל סטטי</TooltipContent>
+                </Tooltip>
+              </div>
+            )}
 
             {/* ─── Live Waveform Canvas ── */}
             {isPlaying && (
@@ -2210,11 +2258,57 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
             )}
 
             {/* ─── Time Slider ── */}
-            <div className="flex items-center gap-3" dir="ltr">
-              <span className="text-xs text-muted-foreground font-mono min-w-[40px] text-center">{formatTime(effectiveDuration)}</span>
-              <Slider value={[currentTime]} max={effectiveDuration || 1} step={0.1} onValueChange={handleSliderSeek} className="flex-1" dir="rtl" />
-              <span className="text-xs text-muted-foreground font-mono min-w-[40px] text-center">{formatTime(currentTime)}</span>
-            </div>
+            {!seekBarCollapsed ? (
+              <div
+                className="relative"
+                onMouseEnter={() => setSeekBarHover(true)}
+                onMouseLeave={() => setSeekBarHover(false)}
+              >
+                {seekBarHover && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="absolute -top-3 left-0 h-5 w-5 z-10 bg-background/80 backdrop-blur border shadow-sm"
+                        onClick={() => setSeekBarCollapsed(true)}
+                      >
+                        <Minimize2 className="w-3 h-3 no-theme-icon" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">מזער פס סינכרון</TooltipContent>
+                  </Tooltip>
+                )}
+                <div className="flex items-center gap-3" dir="ltr">
+                  <span className="text-xs text-muted-foreground font-mono min-w-[40px] text-center">{formatTime(effectiveDuration)}</span>
+                  <Slider value={[currentTime]} max={effectiveDuration || 1} step={0.1} onValueChange={handleSliderSeek} className="flex-1" dir="rtl" />
+                  <span className="text-xs text-muted-foreground font-mono min-w-[40px] text-center">{formatTime(currentTime)}</span>
+                </div>
+              </div>
+            ) : (
+              <div
+                className="relative flex items-center justify-between rounded-lg bg-muted/30 px-3 py-1 border border-dashed"
+                onMouseEnter={() => setSeekBarHover(true)}
+                onMouseLeave={() => setSeekBarHover(false)}
+              >
+                <span className="text-[10px] text-muted-foreground font-mono">
+                  {formatTime(currentTime)} / {formatTime(effectiveDuration)}
+                </span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6"
+                      onClick={() => setSeekBarCollapsed(false)}
+                    >
+                      <Maximize2 className="w-3.5 h-3.5 no-theme-icon" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">הרחב פס סינכרון</TooltipContent>
+                </Tooltip>
+              </div>
+            )}
 
             {/* ─── Main Controls ── */}
             <div className="flex items-center justify-center gap-1">
