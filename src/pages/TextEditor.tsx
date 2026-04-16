@@ -23,6 +23,7 @@ const SyncAudioPlayer = lazy(() => import("@/components/SyncAudioPlayer").then(m
 const SyncEditableView = lazy(() => import("@/components/SyncEditableView").then(m => ({ default: m.SyncEditableView })));
 const SyncTranscriptView = lazy(() => import("@/components/SyncTranscriptView").then(m => ({ default: m.SyncTranscriptView })));
 const VocabularyPanel = lazy(() => import("@/components/VocabularyPanel").then(m => ({ default: m.VocabularyPanel })));
+const DictionaryValidator = lazy(() => import("@/components/DictionaryValidator").then(m => ({ default: m.DictionaryValidator })));
 const AutoSummaryCard = lazy(() => import("@/components/AutoSummaryCard").then(m => ({ default: m.AutoSummaryCard })));
 const TranscriptSummary = lazy(() => import("@/components/TranscriptSummary").then(m => ({ default: m.TranscriptSummary })));
 const EngineCompare = lazy(() => import("@/components/EngineCompare").then(m => ({ default: m.EngineCompare })));
@@ -1049,6 +1050,15 @@ const TextEditor = () => {
             <LazyErrorBoundary label="למידת תיקונים"><CorrectionLearningPanel /></LazyErrorBoundary>
           </TabsContent>
           <TabsContent value="vocab" className="space-y-5">
+            <LazyErrorBoundary label="בדיקת מילון">
+              <DictionaryValidator text={text} onApplyFix={(original, fixed) => {
+                const newText = text.replace(new RegExp(`\\b${original.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`), fixed);
+                if (newText !== text) {
+                  setText(newText);
+                  toast({ title: "תוקן", description: `"${original}" → "${fixed}"` });
+                }
+              }} />
+            </LazyErrorBoundary>
             <LazyErrorBoundary label="אוצר מילים"><VocabularyPanel /></LazyErrorBoundary>
           </TabsContent>
 
