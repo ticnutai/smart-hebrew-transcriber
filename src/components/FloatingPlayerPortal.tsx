@@ -54,13 +54,14 @@ export function FloatingPlayerPortal({ children, onClose }: FloatingPlayerPortal
   }, [pos.x, pos.y]);
 
   const onDragMove = useCallback((e: React.PointerEvent) => {
-    if (!dragRef.current) return;
-    const dx = e.clientX - dragRef.current.startX;
-    const dy = e.clientY - dragRef.current.startY;
+    const drag = dragRef.current;
+    if (!drag) return;
+    const dx = e.clientX - drag.startX;
+    const dy = e.clientY - drag.startY;
     setPos(p => ({
       ...p,
-      x: clamp(dragRef.current!.origX + dx, 0, window.innerWidth - 120),
-      y: clamp(dragRef.current!.origY + dy, 0, window.innerHeight - 40),
+      x: clamp(drag.origX + dx, 0, window.innerWidth - 120),
+      y: clamp(drag.origY + dy, 0, window.innerHeight - 40),
     }));
   }, []);
 
@@ -75,13 +76,14 @@ export function FloatingPlayerPortal({ children, onClose }: FloatingPlayerPortal
   }, [pos.w, pos.h]);
 
   const onResizeMove = useCallback((e: React.PointerEvent) => {
-    if (!resizeRef.current) return;
-    const dx = e.clientX - resizeRef.current.startX;
-    const dy = e.clientY - resizeRef.current.startY;
+    const resize = resizeRef.current;
+    if (!resize) return;
+    const dx = e.clientX - resize.startX;
+    const dy = e.clientY - resize.startY;
     setPos(p => ({
       ...p,
-      w: clamp(resizeRef.current!.origW + dx, 320, window.innerWidth - p.x),
-      h: clamp(resizeRef.current!.origH + dy, 80, window.innerHeight - p.y),
+      w: clamp(resize.origW + dx, 320, window.innerWidth - p.x),
+      h: clamp(resize.origH + dy, 80, window.innerHeight - p.y),
     }));
   }, []);
 
