@@ -359,7 +359,21 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
         <Button size="sm" className="h-8 gap-1.5 text-xs" onClick={runAnalysis} disabled={isAnalyzing || !text.trim()} variant={isActive ? "secondary" : "default"}>
           {isAnalyzing ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />{stage}</> : isActive ? <><RefreshCw className="w-3.5 h-3.5" />בדוק שוב</> : <><Eye className="w-3.5 h-3.5" />הפעל סימון</>}
         </Button>
-        {isActive && <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => { setIsActive(false); setWordResults([]); setDuplicates([]); }}><XCircle className="w-3.5 h-3.5 ml-1" />נקה</Button>}
+        {isActive && <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => { setIsActive(false); setWordResults([]); setDuplicates([]); setSelectedFixes(new Set()); setShowFixPanel(false); }}><XCircle className="w-3.5 h-3.5 ml-1" />נקה</Button>}
+
+        {/* Fix All + Select buttons */}
+        {isActive && fixableResults.length > 0 && (
+          <>
+            <Button size="sm" variant="default" className="h-8 gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-700" onClick={handleFixAll}>
+              <Wand2 className="w-3.5 h-3.5" />
+              תקן הכל ({fixableResults.length})
+            </Button>
+            <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={() => setShowFixPanel(!showFixPanel)}>
+              <ListChecks className="w-3.5 h-3.5" />
+              {showFixPanel ? 'סגור בחירה' : 'בחר לתיקון'}
+            </Button>
+          </>
+        )}
         {isActive && (
           <div className="flex gap-1 mr-auto">
             {issueStats.unknown > 0 && <Badge variant="outline" className="text-[10px] bg-red-500/10 text-red-400 border-red-500/20">{issueStats.unknown} לא ידוע</Badge>}
