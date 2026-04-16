@@ -601,6 +601,20 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
           }
         </Button>
 
+        {/* Force refresh (skip cache) */}
+        {isActive && !isAnalyzing && (
+          <Button size="sm" variant="ghost" className="h-8 gap-1 text-xs" onClick={() => runAnalysis(false, true)} title="בדיקה מחדש ללא קאש">
+            <Zap className="w-3.5 h-3.5" /> בדוק מחדש
+          </Button>
+        )}
+
+        {/* Cache source indicator */}
+        {isActive && cacheSource !== 'none' && (
+          <Badge variant="outline" className="text-[10px] h-6 gap-1">
+            {cacheSource === 'local' ? <><Zap className="w-3 h-3" />מקאש מקומי</> : <><Database className="w-3 h-3" />מהענן</>}
+          </Badge>
+        )}
+
         {/* Pause / Resume / Cancel during analysis */}
         {isAnalyzing && (
           <>
