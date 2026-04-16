@@ -3,10 +3,12 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Eye, Settings2, Loader2, XCircle, Trash2, Check, RefreshCw } from "lucide-react";
+import { Eye, Settings2, Loader2, XCircle, Trash2, Check, RefreshCw, Wand2, ListChecks, CheckCheck } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { analyzeMorphology } from "@/utils/dictaApi";
 import { supabase } from "@/integrations/supabase/client";
@@ -49,6 +51,8 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
   const [duplicates, setDuplicates] = useState<DuplicateGroup[]>([]);
   const [isActive, setIsActive] = useState(false);
   const [selectedDuplicate, setSelectedDuplicate] = useState<DuplicateGroup | null>(null);
+  const [selectedFixes, setSelectedFixes] = useState<Set<number>>(new Set());
+  const [showFixPanel, setShowFixPanel] = useState(false);
 
   const words = useMemo(() => {
     if (!text.trim()) return [];
@@ -232,9 +236,73 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
     if (wordIndex < wordArray.length) {
       wordArray[wordIndex] = suggestion;
       onTextChange(wordArray.join(''));
+      toast({ title: "תוקן" });
       setIsActive(false);
     }
   }, [text, onTextChange]);
+
+  // All fixable results (have a suggestion)
+  const fixableResults = useMemo(() => {
+    return wordResults.filter(r => r.issueType !== 'none' && r.suggestion);
+  }, [wordResults]);
+
+  // Fix all suggestions at once
+  const handleFixAll = useCallback(() => {
+    if (fixableResults.length === 0) return;
+    const wordArray = text.split(/(\s+)/);
+    let count = 0;
+    for (const r of fixableResults) {
+      if (r.suggestion && r.index < wordArray.length) {
+        wordArray[r.index] = r.suggestion;
+        count++;
+      }
+    }
+    onTextChange(wordArray.join(''));
+    toast({ title: "תוקן הכל", description: `${count} מילים תוקנו` });
+    setIsActive(false);
+    setWordResults([]);
+    setSelectedFixes(new Set());
+    setShowFixPanel(false);
+  }, [text, fixableResults, onTextChange]);
+
+  // Fix only selected
+  const handleFixSelected = useCallback(() => {
+    if (selectedFixes.size === 0) return;
+    const wordArray = text.split(/(\s+)/);
+    let count = 0;
+    for (const idx of selectedFixes) {
+      const r = wordResults.find(wr => wr.index === idx);
+      if (r?.suggestion && idx < wordArray.length) {
+        wordArray[idx] = r.suggestion;
+        count++;
+      }
+    }
+    onTextChange(wordArray.join(''));
+    toast({ title: "תוקנו נבחרים", description: `${count} מילים תוקנו` });
+    setIsActive(false);
+    setWordResults([]);
+    setSelectedFixes(new Set());
+    setShowFixPanel(false);
+  }, [text, selectedFixes, wordResults, onTextChange]);
+
+  // Toggle fix selection
+  const toggleFixSelection = useCallback((index: number) => {
+    setSelectedFixes(prev => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  }, []);
+
+  // Select/deselect all fixable
+  const toggleSelectAll = useCallback(() => {
+    if (selectedFixes.size === fixableResults.length) {
+      setSelectedFixes(new Set());
+    } else {
+      setSelectedFixes(new Set(fixableResults.map(r => r.index)));
+    }
+  }, [fixableResults, selectedFixes]);
 
   const getWordStyle = useCallback((wordIndex: number): string => {
     if (!isActive) return '';
@@ -291,7 +359,21 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
         <Button size="sm" className="h-8 gap-1.5 text-xs" onClick={runAnalysis} disabled={isAnalyzing || !text.trim()} variant={isActive ? "secondary" : "default"}>
           {isAnalyzing ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />{stage}</> : isActive ? <><RefreshCw className="w-3.5 h-3.5" />בדוק שוב</> : <><Eye className="w-3.5 h-3.5" />הפעל סימון</>}
         </Button>
-        {isActive && <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => { setIsActive(false); setWordResults([]); setDuplicates([]); }}><XCircle className="w-3.5 h-3.5 ml-1" />נקה</Button>}
+        {isActive && <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => { setIsActive(false); setWordResults([]); setDuplicates([]); setSelectedFixes(new Set()); setShowFixPanel(false); }}><XCircle className="w-3.5 h-3.5 ml-1" />נקה</Button>}
+
+        {/* Fix All + Select buttons */}
+        {isActive && fixableResults.length > 0 && (
+          <>
+            <Button size="sm" variant="default" className="h-8 gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-700" onClick={handleFixAll}>
+              <Wand2 className="w-3.5 h-3.5" />
+              תקן הכל ({fixableResults.length})
+            </Button>
+            <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={() => setShowFixPanel(!showFixPanel)}>
+              <ListChecks className="w-3.5 h-3.5" />
+              {showFixPanel ? 'סגור בחירה' : 'בחר לתיקון'}
+            </Button>
+          </>
+        )}
         {isActive && (
           <div className="flex gap-1 mr-auto">
             {issueStats.unknown > 0 && <Badge variant="outline" className="text-[10px] bg-red-500/10 text-red-400 border-red-500/20">{issueStats.unknown} לא ידוע</Badge>}
@@ -328,6 +410,64 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
             })}
           </div>
         </TooltipProvider>
+      )}
+
+      {/* Fix selection panel */}
+      {isActive && showFixPanel && fixableResults.length > 0 && (
+        <div className="mt-3 rounded-xl border border-border/40 bg-muted/10 p-3" dir="rtl">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <ListChecks className="w-4 h-4 text-emerald-400" />
+              <h4 className="font-medium text-sm">בחר מילים לתיקון</h4>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={toggleSelectAll}>
+                <CheckCheck className="w-3.5 h-3.5" />
+                {selectedFixes.size === fixableResults.length ? 'בטל הכל' : 'בחר הכל'}
+              </Button>
+              <Button
+                size="sm"
+                className="h-7 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700"
+                disabled={selectedFixes.size === 0}
+                onClick={handleFixSelected}
+              >
+                <Wand2 className="w-3.5 h-3.5" />
+                תקן נבחרים ({selectedFixes.size})
+              </Button>
+            </div>
+          </div>
+          <ScrollArea className="max-h-[200px]">
+            <div className="space-y-1">
+              {fixableResults.map((r) => {
+                const isSelected = selectedFixes.has(r.index);
+                const issueColor = r.issueType === 'spelling' || r.issueType === 'unknown_word'
+                  ? 'text-red-400' : r.issueType === 'grammar'
+                  ? 'text-orange-400' : 'text-yellow-400';
+                return (
+                  <div
+                    key={r.index}
+                    className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
+                      isSelected ? 'bg-emerald-500/10 border border-emerald-500/20' : 'bg-white/5 hover:bg-white/10'
+                    }`}
+                    onClick={() => toggleFixSelection(r.index)}
+                  >
+                    <Checkbox
+                      checked={isSelected}
+                      onCheckedChange={() => toggleFixSelection(r.index)}
+                      className="shrink-0"
+                    />
+                    <span className={`font-medium ${issueColor} line-through text-sm`}>{r.word}</span>
+                    <span className="text-white/30 text-xs">→</span>
+                    <span className="font-medium text-emerald-400 text-sm">{r.suggestion}</span>
+                    {r.reason && (
+                      <span className="text-white/30 text-[10px] mr-auto truncate max-w-[150px]">{r.reason}</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </ScrollArea>
+        </div>
       )}
       <Dialog open={!!selectedDuplicate} onOpenChange={(open) => !open && setSelectedDuplicate(null)}>
         <DialogContent className="max-w-md" dir="rtl">
