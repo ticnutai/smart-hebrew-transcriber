@@ -388,6 +388,10 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
   const [eqViewMode, setEqViewMode] = useState<'vertical' | 'horizontal' | 'circular'>('vertical');
   const [advVerticalView, setAdvVerticalView] = useState(false);
   const [eqVizStyle, setEqVizStyle] = useState<'bars' | 'mirror' | 'wave' | 'circle' | 'spectrum' | 'flame' | 'radar' | 'dots'>('bars');
+  const [eqStyleBarCollapsed, setEqStyleBarCollapsed] = useState(false);
+  const [eqCanvasCollapsed, setEqCanvasCollapsed] = useState(false);
+  const [eqStyleBarHover, setEqStyleBarHover] = useState(false);
+  const [eqCanvasHover, setEqCanvasHover] = useState(false);
   const eqBandsRef = useRef<BiquadFilterNode[]>([]);
   // Helper: get/set individual band gain
   const setEqBand = useCallback((index: number, value: number) => {
