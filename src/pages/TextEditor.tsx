@@ -907,6 +907,15 @@ const TextEditor = () => {
           </TabsContent>
 
           <TabsContent value="edit" className="space-y-5">
+            <LazyErrorBoundary label="סימון ויזואלי">
+              <TextMarkingOverlay
+                text={text}
+                onTextChange={handleEditorChange}
+                fontSize={fontSize}
+                fontFamily={fontFamily}
+                lineHeight={lineHeight}
+              />
+            </LazyErrorBoundary>
             <div
               style={{
                 fontSize: `${fontSize}px`,
