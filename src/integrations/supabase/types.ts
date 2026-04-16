@@ -294,6 +294,39 @@ export type Database = {
         }
         Relationships: []
       }
+      text_analysis_cache: {
+        Row: {
+          created_at: string
+          duplicates: Json
+          id: string
+          results: Json
+          text_hash: string
+          updated_at: string
+          user_id: string
+          word_count: number
+        }
+        Insert: {
+          created_at?: string
+          duplicates?: Json
+          id?: string
+          results?: Json
+          text_hash: string
+          updated_at?: string
+          user_id: string
+          word_count?: number
+        }
+        Update: {
+          created_at?: string
+          duplicates?: Json
+          id?: string
+          results?: Json
+          text_hash?: string
+          updated_at?: string
+          user_id?: string
+          word_count?: number
+        }
+        Relationships: []
+      }
       transcript_versions: {
         Row: {
           action_label: string | null

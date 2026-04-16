@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
@@ -8,7 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Eye, Settings2, Loader2, XCircle, Trash2, Check, RefreshCw, Wand2, ListChecks, CheckCheck, Pause, Play } from "lucide-react";
+import { Eye, Settings2, Loader2, XCircle, Trash2, Check, RefreshCw, Wand2, ListChecks, CheckCheck, Pause, Play, Database, Zap } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { analyzeMorphology } from "@/utils/dictaApi";
 import { supabase } from "@/integrations/supabase/client";
@@ -27,6 +27,12 @@ interface DuplicateGroup {
   indices: number[];
 }
 
+interface CachedAnalysis {
+  wordResults: WordValidation[];
+  duplicates: DuplicateGroup[];
+  timestamp: number;
+}
+
 interface Props {
   text: string;
   onTextChange: (text: string) => void;
@@ -36,7 +42,38 @@ interface Props {
 }
 
 const BATCH_SIZE = 40;
-const PARALLEL_LIMIT = 3;
+const PARALLEL_LIMIT = 4;
+const LOCAL_CACHE_KEY = 'text_analysis_cache';
+const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+// Fast text hash using simple djb2
+const hashText = (text: string): string => {
+  let hash = 5381;
+  for (let i = 0; i < text.length; i++) {
+    hash = ((hash << 5) + hash + text.charCodeAt(i)) >>> 0;
+  }
+  return hash.toString(36) + '_' + text.length;
+};
+
+// Local cache helpers
+const getLocalCache = (hash: string): CachedAnalysis | null => {
+  try {
+    const raw = localStorage.getItem(`${LOCAL_CACHE_KEY}_${hash}`);
+    if (!raw) return null;
+    const cached: CachedAnalysis = JSON.parse(raw);
+    if (Date.now() - cached.timestamp > CACHE_MAX_AGE_MS) {
+      localStorage.removeItem(`${LOCAL_CACHE_KEY}_${hash}`);
+      return null;
+    }
+    return cached;
+  } catch { return null; }
+};
+
+const setLocalCache = (hash: string, data: CachedAnalysis) => {
+  try {
+    localStorage.setItem(`${LOCAL_CACHE_KEY}_${hash}`, JSON.stringify(data));
+  } catch { /* quota exceeded — ignore */ }
+};
 
 export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFamily = 'Assistant', lineHeight = 1.8 }: Props) => {
   const [settings, setSettings] = useState<MarkingSettings>({
@@ -55,6 +92,7 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
   const [selectedDuplicate, setSelectedDuplicate] = useState<DuplicateGroup | null>(null);
   const [selectedFixes, setSelectedFixes] = useState<Set<number>>(new Set());
   const [showFixPanel, setShowFixPanel] = useState(false);
+  const [cacheSource, setCacheSource] = useState<'none' | 'local' | 'cloud'>('none');
 
   // Resume tracking
   const completedBatchesRef = useRef<Set<number>>(new Set());
@@ -121,22 +159,98 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
     return [];
   }, []);
 
-  const runAnalysis = useCallback(async (resume = false) => {
+  // Save results to cloud
+  const saveToCloud = useCallback(async (hash: string, results: WordValidation[], dupes: DuplicateGroup[]) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      await supabase.from('text_analysis_cache' as any).upsert({
+        user_id: user.id,
+        text_hash: hash,
+        word_count: results.length,
+        results: JSON.stringify(results),
+        duplicates: JSON.stringify(dupes),
+        updated_at: new Date().toISOString(),
+      } as any, { onConflict: 'user_id,text_hash' });
+    } catch (err) {
+      console.error('Cloud cache save error:', err);
+    }
+  }, []);
+
+  // Load from cloud cache
+  const loadFromCloud = useCallback(async (hash: string): Promise<CachedAnalysis | null> => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return null;
+      const { data, error } = await supabase.from('text_analysis_cache' as any)
+        .select('results, duplicates, updated_at')
+        .eq('user_id', user.id)
+        .eq('text_hash', hash)
+        .maybeSingle();
+      if (error || !data) return null;
+      const row = data as any;
+      const updatedAt = new Date(row.updated_at).getTime();
+      if (Date.now() - updatedAt > CACHE_MAX_AGE_MS) return null;
+      return {
+        wordResults: typeof row.results === 'string' ? JSON.parse(row.results) : row.results,
+        duplicates: typeof row.duplicates === 'string' ? JSON.parse(row.duplicates) : row.duplicates,
+        timestamp: updatedAt,
+      };
+    } catch { return null; }
+  }, []);
+
+  const runAnalysis = useCallback(async (resume = false, forceRefresh = false) => {
     if (!text.trim()) return;
     cancelRef.current = false;
     pauseRef.current = false;
     setIsPaused(false);
     setIsAnalyzing(true);
+    setCacheSource('none');
+
+    const textHash = hashText(text);
+
+    // Check caches unless forced refresh
+    if (!resume && !forceRefresh) {
+      // 1. Check local cache first (instant)
+      const localCached = getLocalCache(textHash);
+      if (localCached) {
+        setWordResults(localCached.wordResults);
+        setDuplicates(localCached.duplicates);
+        morphResultsRef.current = localCached.wordResults;
+        setIsActive(true);
+        setIsAnalyzing(false);
+        setProgress(100);
+        setCacheSource('local');
+        toast({ title: "⚡ נטען מקאש מקומי", description: `${localCached.wordResults.filter(r => r.issueType !== 'none').length} ממצאים` });
+        return;
+      }
+
+      // 2. Check cloud cache
+      setStage('בודק קאש בענן...');
+      setProgress(5);
+      const cloudCached = await loadFromCloud(textHash);
+      if (cloudCached) {
+        setWordResults(cloudCached.wordResults);
+        setDuplicates(cloudCached.duplicates);
+        morphResultsRef.current = cloudCached.wordResults;
+        setIsActive(true);
+        setIsAnalyzing(false);
+        setProgress(100);
+        setCacheSource('cloud');
+        // Save to local for next time
+        setLocalCache(textHash, cloudCached);
+        toast({ title: "☁️ נטען מהענן", description: `${cloudCached.wordResults.filter(r => r.issueType !== 'none').length} ממצאים` });
+        return;
+      }
+    }
 
     try {
       let results: WordValidation[];
 
       if (resume && morphResultsRef.current.length > 0) {
-        // Resume from previous morph results
         results = [...morphResultsRef.current];
         setStage('ממשיך מאיפה שעצרנו...');
       } else {
-        // Fresh start
         completedBatchesRef.current = new Set();
         completedCountRef.current = 0;
         setProgress(0);
@@ -183,7 +297,6 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
         });
 
         morphResultsRef.current = results;
-        // Show morph results immediately
         setWordResults([...results]);
         setIsActive(true);
       }
@@ -199,7 +312,6 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
         }
         totalBatchesRef.current = batches.length;
 
-        // Filter out already completed batches (for resume)
         const pendingBatchIndices = batches
           .map((_, i) => i)
           .filter(i => !completedBatchesRef.current.has(i));
@@ -208,14 +320,17 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
           setProgress(100);
           setStage('');
           setIsAnalyzing(false);
+          // Save to caches
+          const dupes = detectDuplicates();
+          const cacheData: CachedAnalysis = { wordResults: results, duplicates: dupes, timestamp: Date.now() };
+          setLocalCache(textHash, cacheData);
+          saveToCloud(textHash, results, dupes);
           return;
         }
 
-        // Process in parallel chunks of PARALLEL_LIMIT
         for (let chunk = 0; chunk < pendingBatchIndices.length; chunk += PARALLEL_LIMIT) {
           if (cancelRef.current) break;
 
-          // Wait while paused
           while (pauseRef.current && !cancelRef.current) {
             await new Promise(r => setTimeout(r, 200));
           }
@@ -225,13 +340,11 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
           const batchStage = `בדיקת דקדוק והקשר (${completedCountRef.current}/${totalBatchesRef.current})...`;
           setStage(batchStage);
 
-          // Run PARALLEL_LIMIT batches concurrently
           const promises = chunkIndices.map(async (bIdx) => {
             try {
               const batch = batches[bIdx];
               const aiResults = await processAIBatch(batch, actualWords);
 
-              // Merge results incrementally
               for (const aiResult of aiResults) {
                 const rIdx = results.findIndex(r => r.index === (aiResult as any).index);
                 if (rIdx !== -1) {
@@ -251,7 +364,6 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
               completedCountRef.current++;
             } catch (err) {
               console.error(`AI batch ${bIdx} error:`, err);
-              // Mark as completed to skip on resume
               completedBatchesRef.current.add(bIdx);
               completedCountRef.current++;
             }
@@ -259,7 +371,6 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
 
           await Promise.all(promises);
 
-          // Update results and progress incrementally after each parallel chunk
           morphResultsRef.current = [...results];
           setWordResults([...results]);
           const pct = 25 + Math.round((completedCountRef.current / totalBatchesRef.current) * 70);
@@ -273,6 +384,13 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
         setProgress(100);
         setStage('');
         setIsActive(true);
+
+        // Save to both caches
+        const dupes = detectDuplicates();
+        const cacheData: CachedAnalysis = { wordResults: results, duplicates: dupes, timestamp: Date.now() };
+        setLocalCache(textHash, cacheData);
+        saveToCloud(textHash, results, dupes);
+        toast({ title: "✅ הבדיקה הושלמה ונשמרה", description: "התוצאות נשמרו בענן ובמקומי" });
       }
     } catch (err) {
       console.error('Analysis error:', err);
@@ -281,7 +399,7 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
       setIsAnalyzing(false);
       setIsPaused(false);
     }
-  }, [text, actualWords, settings, detectDuplicates, processAIBatch]);
+  }, [text, actualWords, settings, detectDuplicates, processAIBatch, loadFromCloud, saveToCloud]);
 
   const handlePause = useCallback(() => {
     pauseRef.current = true;
@@ -482,6 +600,20 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
               : <><Eye className="w-3.5 h-3.5" />הפעל סימון</>
           }
         </Button>
+
+        {/* Force refresh (skip cache) */}
+        {isActive && !isAnalyzing && (
+          <Button size="sm" variant="ghost" className="h-8 gap-1 text-xs" onClick={() => runAnalysis(false, true)} title="בדיקה מחדש ללא קאש">
+            <Zap className="w-3.5 h-3.5" /> בדוק מחדש
+          </Button>
+        )}
+
+        {/* Cache source indicator */}
+        {isActive && cacheSource !== 'none' && (
+          <Badge variant="outline" className="text-[10px] h-6 gap-1">
+            {cacheSource === 'local' ? <><Zap className="w-3 h-3" />מקאש מקומי</> : <><Database className="w-3 h-3" />מהענן</>}
+          </Badge>
+        )}
 
         {/* Pause / Resume / Cancel during analysis */}
         {isAnalyzing && (
