@@ -317,6 +317,13 @@ export const useCloudPreferences = () => {
             source_language: updated.source_language,
             custom_themes: customThemesParsed,
             editor_columns: updated.editor_columns,
+            dashboard_view_mode: updated.dashboard_view_mode,
+            folder_view_mode: updated.folder_view_mode,
+            folder_sort_key: updated.folder_sort_key,
+            folder_sort_asc: updated.folder_sort_asc,
+            player_layout: updated.player_layout,
+            tab_settings_json: tabSettingsParsed,
+            default_ai_model: updated.default_ai_model || null,
             updated_at: new Date().toISOString(),
           } as any, { onConflict: 'user_id' });
 
