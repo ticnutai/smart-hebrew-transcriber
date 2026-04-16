@@ -201,8 +201,8 @@ const TextEditor = () => {
   const columns = preferences.editor_columns;
 
   // Player layout (cloud-synced)
-  const playerLayout = (preferences.player_layout || 'split') as 'split' | 'stacked' | 'full';
-  const setPlayerLayout = useCallback((v: 'split' | 'stacked' | 'full') => updatePreference('player_layout', v), [updatePreference]);
+  const playerLayout = (preferences.player_layout || 'split') as 'split' | 'stacked' | 'full' | 'wide';
+  const setPlayerLayout = useCallback((v: 'split' | 'stacked' | 'full' | 'wide') => updatePreference('player_layout', v), [updatePreference]);
   const setColumns = (v: number) => updatePreference('editor_columns', v);
 
   const columnStyle: React.CSSProperties = columns > 1 ? {
