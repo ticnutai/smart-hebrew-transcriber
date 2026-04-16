@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
@@ -8,7 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Eye, Settings2, Loader2, XCircle, Trash2, Check, RefreshCw, Wand2, ListChecks, CheckCheck } from "lucide-react";
+import { Eye, Settings2, Loader2, XCircle, Trash2, Check, RefreshCw, Wand2, ListChecks, CheckCheck, Pause, Play } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { analyzeMorphology } from "@/utils/dictaApi";
 import { supabase } from "@/integrations/supabase/client";
@@ -36,6 +36,7 @@ interface Props {
 }
 
 const BATCH_SIZE = 40;
+const PARALLEL_LIMIT = 3;
 
 export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFamily = 'Assistant', lineHeight = 1.8 }: Props) => {
   const [settings, setSettings] = useState<MarkingSettings>({
@@ -45,6 +46,7 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
     showDuplicates: true,
   });
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [progress, setProgress] = useState(0);
   const [stage, setStage] = useState('');
   const [wordResults, setWordResults] = useState<WordValidation[]>([]);
@@ -53,6 +55,14 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
   const [selectedDuplicate, setSelectedDuplicate] = useState<DuplicateGroup | null>(null);
   const [selectedFixes, setSelectedFixes] = useState<Set<number>>(new Set());
   const [showFixPanel, setShowFixPanel] = useState(false);
+
+  // Resume tracking
+  const completedBatchesRef = useRef<Set<number>>(new Set());
+  const morphResultsRef = useRef<WordValidation[]>([]);
+  const cancelRef = useRef(false);
+  const pauseRef = useRef(false);
+  const totalBatchesRef = useRef(0);
+  const completedCountRef = useRef(0);
 
   const words = useMemo(() => {
     if (!text.trim()) return [];
@@ -68,7 +78,6 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
   const detectDuplicates = useCallback(() => {
     const groups: DuplicateGroup[] = [];
     const cleanWords = actualWords.map(w => w.word.replace(/[.,;:!?'"()\-–—]/g, '').trim());
-    
     let i = 0;
     while (i < cleanWords.length) {
       if (cleanWords[i].length < 2) { i++; continue; }
@@ -87,50 +96,99 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
     return groups;
   }, [actualWords]);
 
-  const runAnalysis = useCallback(async () => {
+  // Process a single AI batch
+  const processAIBatch = useCallback(async (
+    batch: { word: string; index: number }[],
+    allActualWords: { word: string; index: number }[]
+  ): Promise<Partial<WordValidation>[]> => {
+    const wordsPayload = batch.map(r => {
+      const wordIdx = allActualWords.findIndex(aw => aw.index === r.index);
+      return {
+        word: r.word,
+        index: r.index,
+        prev: wordIdx > 0 ? allActualWords[wordIdx - 1].word : undefined,
+        next: wordIdx < allActualWords.length - 1 ? allActualWords[wordIdx + 1].word : undefined,
+      };
+    });
+
+    const { data, error } = await supabase.functions.invoke('check-dictionary', {
+      body: { words: wordsPayload },
+    });
+
+    if (!error && data?.results) {
+      return data.results;
+    }
+    return [];
+  }, []);
+
+  const runAnalysis = useCallback(async (resume = false) => {
     if (!text.trim()) return;
+    cancelRef.current = false;
+    pauseRef.current = false;
+    setIsPaused(false);
     setIsAnalyzing(true);
-    setProgress(0);
-    setWordResults([]);
-    setDuplicates([]);
 
     try {
-      setStage('זיהוי כפילויות...');
-      const dupes = detectDuplicates();
-      setDuplicates(dupes);
-      setProgress(10);
+      let results: WordValidation[];
 
-      setStage('ניתוח מורפולוגי...');
-      const onlyWords = actualWords.map(w => w.word);
-      const morphResult = await analyzeMorphology(onlyWords.join(' '));
-      setProgress(40);
+      if (resume && morphResultsRef.current.length > 0) {
+        // Resume from previous morph results
+        results = [...morphResultsRef.current];
+        setStage('ממשיך מאיפה שעצרנו...');
+      } else {
+        // Fresh start
+        completedBatchesRef.current = new Set();
+        completedCountRef.current = 0;
+        setProgress(0);
+        setWordResults([]);
+        setDuplicates([]);
 
-      const results: WordValidation[] = actualWords.map((w, idx) => {
-        const isHebrew = /[\u0590-\u05FF]/.test(w.word);
-        const isPunctuation = /^[.,;:!?'"()\-–—]+$/.test(w.word);
-        const isNumber = /^\d+$/.test(w.word);
+        setStage('זיהוי כפילויות...');
+        const dupes = detectDuplicates();
+        setDuplicates(dupes);
+        setProgress(5);
 
-        if (!isHebrew || isPunctuation || isNumber) {
+        setStage('ניתוח מורפולוגי...');
+        const onlyWords = actualWords.map(w => w.word);
+        const morphResult = await analyzeMorphology(onlyWords.join(' '));
+        setProgress(25);
+
+        if (cancelRef.current) return;
+
+        results = actualWords.map((w, idx) => {
+          const isHebrew = /[\u0590-\u05FF]/.test(w.word);
+          const isPunctuation = /^[.,;:!?'"()\-–—]+$/.test(w.word);
+          const isNumber = /^\d+$/.test(w.word);
+
+          if (!isHebrew || isPunctuation || isNumber) {
+            return {
+              word: w.word, index: w.index,
+              exists: true, grammarOk: true, contextOk: true,
+              issueType: 'none' as const,
+            };
+          }
+
+          const morph = morphResult.success && morphResult.words[idx];
+          const hasLemma = morph && morph.lemma && morph.lemma !== '';
+
           return {
             word: w.word, index: w.index,
-            exists: true, grammarOk: true, contextOk: true,
-            issueType: 'none' as const,
+            exists: !!hasLemma,
+            lemma: morph ? morph.lemma : undefined,
+            pos: morph ? morph.pos : undefined,
+            grammarOk: true,
+            contextOk: true,
+            issueType: (hasLemma ? 'none' : 'unknown_word') as WordValidation['issueType'],
           };
-        }
+        });
 
-        const morph = morphResult.success && morphResult.words[idx];
-        const hasLemma = morph && morph.lemma && morph.lemma !== '';
+        morphResultsRef.current = results;
+        // Show morph results immediately
+        setWordResults([...results]);
+        setIsActive(true);
+      }
 
-        return {
-          word: w.word, index: w.index,
-          exists: !!hasLemma,
-          lemma: morph ? morph.lemma : undefined,
-          pos: morph ? morph.pos : undefined,
-          grammarOk: true,
-          contextOk: true,
-          issueType: (hasLemma ? 'none' : 'unknown_word') as WordValidation['issueType'],
-        };
-      });
+      if (cancelRef.current) return;
 
       if (settings.showGrammar || settings.showContext) {
         setStage('בדיקת דקדוק והקשר...');
@@ -139,58 +197,118 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
         for (let i = 0; i < hebrewResults.length; i += BATCH_SIZE) {
           batches.push(hebrewResults.slice(i, i + BATCH_SIZE));
         }
+        totalBatchesRef.current = batches.length;
 
-        for (let bIdx = 0; bIdx < batches.length; bIdx++) {
-          const batch = batches[bIdx];
-          const wordsPayload = batch.map(r => {
-            const wordIdx = actualWords.findIndex(aw => aw.index === r.index);
-            return {
-              word: r.word,
-              index: r.index,
-              prev: wordIdx > 0 ? actualWords[wordIdx - 1].word : undefined,
-              next: wordIdx < actualWords.length - 1 ? actualWords[wordIdx + 1].word : undefined,
-            };
-          });
+        // Filter out already completed batches (for resume)
+        const pendingBatchIndices = batches
+          .map((_, i) => i)
+          .filter(i => !completedBatchesRef.current.has(i));
 
-          try {
-            const { data, error } = await supabase.functions.invoke('check-dictionary', {
-              body: { words: wordsPayload },
-            });
+        if (pendingBatchIndices.length === 0) {
+          setProgress(100);
+          setStage('');
+          setIsAnalyzing(false);
+          return;
+        }
 
-            if (!error && data?.results) {
-              for (const aiResult of data.results) {
-                const rIdx = results.findIndex(r => r.index === aiResult.index);
+        // Process in parallel chunks of PARALLEL_LIMIT
+        for (let chunk = 0; chunk < pendingBatchIndices.length; chunk += PARALLEL_LIMIT) {
+          if (cancelRef.current) break;
+
+          // Wait while paused
+          while (pauseRef.current && !cancelRef.current) {
+            await new Promise(r => setTimeout(r, 200));
+          }
+          if (cancelRef.current) break;
+
+          const chunkIndices = pendingBatchIndices.slice(chunk, chunk + PARALLEL_LIMIT);
+          const batchStage = `בדיקת דקדוק והקשר (${completedCountRef.current}/${totalBatchesRef.current})...`;
+          setStage(batchStage);
+
+          // Run PARALLEL_LIMIT batches concurrently
+          const promises = chunkIndices.map(async (bIdx) => {
+            try {
+              const batch = batches[bIdx];
+              const aiResults = await processAIBatch(batch, actualWords);
+
+              // Merge results incrementally
+              for (const aiResult of aiResults) {
+                const rIdx = results.findIndex(r => r.index === (aiResult as any).index);
                 if (rIdx !== -1) {
                   results[rIdx] = {
                     ...results[rIdx],
-                    exists: aiResult.exists,
-                    grammarOk: aiResult.grammarOk,
-                    contextOk: aiResult.contextOk,
-                    suggestion: aiResult.suggestion || undefined,
-                    reason: aiResult.reason || undefined,
-                    issueType: aiResult.issueType || results[rIdx].issueType,
+                    exists: (aiResult as any).exists,
+                    grammarOk: (aiResult as any).grammarOk,
+                    contextOk: (aiResult as any).contextOk,
+                    suggestion: (aiResult as any).suggestion || undefined,
+                    reason: (aiResult as any).reason || undefined,
+                    issueType: (aiResult as any).issueType || results[rIdx].issueType,
                   };
                 }
               }
+
+              completedBatchesRef.current.add(bIdx);
+              completedCountRef.current++;
+            } catch (err) {
+              console.error(`AI batch ${bIdx} error:`, err);
+              // Mark as completed to skip on resume
+              completedBatchesRef.current.add(bIdx);
+              completedCountRef.current++;
             }
-          } catch (err) {
-            console.error('AI batch error:', err);
-          }
-          setProgress(40 + Math.round(((bIdx + 1) / batches.length) * 55));
+          });
+
+          await Promise.all(promises);
+
+          // Update results and progress incrementally after each parallel chunk
+          morphResultsRef.current = [...results];
+          setWordResults([...results]);
+          const pct = 25 + Math.round((completedCountRef.current / totalBatchesRef.current) * 70);
+          setProgress(Math.min(pct, 95));
         }
       }
 
-      setWordResults(results);
-      setProgress(100);
-      setStage('');
-      setIsActive(true);
+      if (!cancelRef.current) {
+        setWordResults([...results]);
+        morphResultsRef.current = results;
+        setProgress(100);
+        setStage('');
+        setIsActive(true);
+      }
     } catch (err) {
       console.error('Analysis error:', err);
-      toast({ title: "שגיאה", description: "הניתוח נכשל", variant: "destructive" });
+      toast({ title: "שגיאה", description: "הניתוח נכשל — ניתן להמשיך מאיפה שעצר", variant: "destructive" });
     } finally {
       setIsAnalyzing(false);
+      setIsPaused(false);
     }
-  }, [text, actualWords, settings, detectDuplicates]);
+  }, [text, actualWords, settings, detectDuplicates, processAIBatch]);
+
+  const handlePause = useCallback(() => {
+    pauseRef.current = true;
+    setIsPaused(true);
+  }, []);
+
+  const handleResume = useCallback(() => {
+    if (isPaused) {
+      pauseRef.current = false;
+      setIsPaused(false);
+    } else {
+      // Resume from last checkpoint
+      runAnalysis(true);
+    }
+  }, [isPaused, runAnalysis]);
+
+  const handleCancel = useCallback(() => {
+    cancelRef.current = true;
+    setIsAnalyzing(false);
+    setIsPaused(false);
+    setStage('');
+    // Keep whatever results we have so far
+    if (wordResults.length > 0) {
+      setIsActive(true);
+      toast({ title: "הופסק", description: `נשמרו ${wordResults.filter(r => r.issueType !== 'none').length} ממצאים — ניתן להמשיך` });
+    }
+  }, [wordResults]);
 
   const resultMap = useMemo(() => {
     const map = new Map<number, WordValidation>();
@@ -246,7 +364,6 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
     return wordResults.filter(r => r.issueType !== 'none' && r.suggestion);
   }, [wordResults]);
 
-  // Fix all suggestions at once
   const handleFixAll = useCallback(() => {
     if (fixableResults.length === 0) return;
     const wordArray = text.split(/(\s+)/);
@@ -265,7 +382,6 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
     setShowFixPanel(false);
   }, [text, fixableResults, onTextChange]);
 
-  // Fix only selected
   const handleFixSelected = useCallback(() => {
     if (selectedFixes.size === 0) return;
     const wordArray = text.split(/(\s+)/);
@@ -285,7 +401,6 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
     setShowFixPanel(false);
   }, [text, selectedFixes, wordResults, onTextChange]);
 
-  // Toggle fix selection
   const toggleFixSelection = useCallback((index: number) => {
     setSelectedFixes(prev => {
       const next = new Set(prev);
@@ -295,7 +410,6 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
     });
   }, []);
 
-  // Select/deselect all fixable
   const toggleSelectAll = useCallback(() => {
     if (selectedFixes.size === fixableResults.length) {
       setSelectedFixes(new Set());
@@ -304,7 +418,7 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
     }
   }, [fixableResults, selectedFixes]);
 
-  const getWordStyle = useCallback((wordIndex: number): string => {
+  const getWordStyle = useCallback((wordIndex: number) => {
     if (!isActive) return '';
     const result = resultMap.get(wordIndex);
     const isDuplicate = settings.showDuplicates && duplicateIndices.has(wordIndex);
@@ -324,6 +438,8 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
     const context = wordResults.filter(r => r.issueType === 'context').length;
     return { unknown, grammar, context, duplicates: duplicates.length };
   }, [wordResults, duplicates]);
+
+  const canResume = !isAnalyzing && morphResultsRef.current.length > 0 && completedBatchesRef.current.size < totalBatchesRef.current && totalBatchesRef.current > 0;
 
   return (
     <div className="relative">
@@ -356,10 +472,55 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
             </div>
           </PopoverContent>
         </Popover>
-        <Button size="sm" className="h-8 gap-1.5 text-xs" onClick={runAnalysis} disabled={isAnalyzing || !text.trim()} variant={isActive ? "secondary" : "default"}>
-          {isAnalyzing ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />{stage}</> : isActive ? <><RefreshCw className="w-3.5 h-3.5" />בדוק שוב</> : <><Eye className="w-3.5 h-3.5" />הפעל סימון</>}
+
+        {/* Main action button */}
+        <Button size="sm" className="h-8 gap-1.5 text-xs" onClick={() => runAnalysis(false)} disabled={isAnalyzing || !text.trim()} variant={isActive ? "secondary" : "default"}>
+          {isAnalyzing
+            ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />{stage}</>
+            : isActive
+              ? <><RefreshCw className="w-3.5 h-3.5" />בדוק שוב</>
+              : <><Eye className="w-3.5 h-3.5" />הפעל סימון</>
+          }
         </Button>
-        {isActive && <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => { setIsActive(false); setWordResults([]); setDuplicates([]); setSelectedFixes(new Set()); setShowFixPanel(false); }}><XCircle className="w-3.5 h-3.5 ml-1" />נקה</Button>}
+
+        {/* Pause / Resume / Cancel during analysis */}
+        {isAnalyzing && (
+          <>
+            {isPaused ? (
+              <Button size="sm" variant="outline" className="h-8 gap-1 text-xs" onClick={handleResume}>
+                <Play className="w-3.5 h-3.5" /> המשך
+              </Button>
+            ) : (
+              <Button size="sm" variant="outline" className="h-8 gap-1 text-xs" onClick={handlePause}>
+                <Pause className="w-3.5 h-3.5" /> השהה
+              </Button>
+            )}
+            <Button size="sm" variant="ghost" className="h-8 gap-1 text-xs text-destructive" onClick={handleCancel}>
+              <XCircle className="w-3.5 h-3.5" /> עצור
+            </Button>
+          </>
+        )}
+
+        {/* Resume button when stopped mid-way */}
+        {canResume && (
+          <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs border-emerald-500/30 text-emerald-600" onClick={() => runAnalysis(true)}>
+            <Play className="w-3.5 h-3.5" /> המשך מאיפה שעצר ({completedBatchesRef.current.size}/{totalBatchesRef.current})
+          </Button>
+        )}
+
+        {/* Clear button */}
+        {isActive && !isAnalyzing && (
+          <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => {
+            setIsActive(false); setWordResults([]); setDuplicates([]);
+            setSelectedFixes(new Set()); setShowFixPanel(false);
+            morphResultsRef.current = [];
+            completedBatchesRef.current = new Set();
+            completedCountRef.current = 0;
+            totalBatchesRef.current = 0;
+          }}>
+            <XCircle className="w-3.5 h-3.5 ml-1" />נקה
+          </Button>
+        )}
 
         {/* Fix All + Select buttons */}
         {isActive && fixableResults.length > 0 && (
@@ -374,6 +535,8 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
             </Button>
           </>
         )}
+
+        {/* Stats badges */}
         {isActive && (
           <div className="flex gap-1 mr-auto">
             {issueStats.unknown > 0 && <Badge variant="outline" className="text-[10px] bg-red-500/10 text-red-400 border-red-500/20">{issueStats.unknown} לא ידוע</Badge>}
@@ -383,8 +546,21 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
           </div>
         )}
       </div>
-      {isAnalyzing && <div className="mb-3"><Progress value={progress} className="h-1.5" /></div>}
-      {isActive && (
+
+      {/* Progress bar with percentage */}
+      {(isAnalyzing || (progress > 0 && progress < 100)) && (
+        <div className="mb-3 space-y-1">
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>{stage}</span>
+            <span className="font-mono font-medium">{Math.round(progress)}%</span>
+          </div>
+          <Progress value={progress} className="h-2" />
+          {isPaused && <span className="text-xs text-yellow-500 font-medium">⏸ מושהה — לחץ המשך כדי להמשיך</span>}
+        </div>
+      )}
+
+      {/* Marked text display — shown even during analysis for incremental results */}
+      {(isActive || (isAnalyzing && wordResults.length > 0)) && (
         <TooltipProvider>
           <div className="p-4 rounded-xl border border-border/40 bg-muted/10 overflow-y-auto max-h-[50vh]" style={{ fontSize: `${fontSize}px`, fontFamily, lineHeight, direction: 'rtl' }} dir="rtl">
             {words.map((word, i) => {
@@ -469,6 +645,7 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
           </ScrollArea>
         </div>
       )}
+
       <Dialog open={!!selectedDuplicate} onOpenChange={(open) => !open && setSelectedDuplicate(null)}>
         <DialogContent className="max-w-md" dir="rtl">
           <DialogHeader><DialogTitle>ניהול כפילות: "{selectedDuplicate?.word}"</DialogTitle></DialogHeader>
