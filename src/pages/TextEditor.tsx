@@ -30,7 +30,7 @@ const TranscriptSummary = lazy(() => import("@/components/TranscriptSummary").th
 const EngineCompare = lazy(() => import("@/components/EngineCompare").then(m => ({ default: m.EngineCompare })));
 const AnalyticsDashboard = lazy(() => import("@/components/AnalyticsDashboard").then(m => ({ default: m.AnalyticsDashboard })));
 const SpeakerDiarization = lazy(() => import("@/components/SpeakerDiarization").then(m => ({ default: m.SpeakerDiarization })));
-import { ArrowRight, Home, Wand2, SplitSquareVertical, SpellCheck, Loader2, Columns2, Columns3, AlignJustify, LayoutGrid, Rows3, Save, Copy, LayoutPanelTop, LayoutPanelLeft, Square } from "lucide-react";
+import { ArrowRight, Home, Wand2, SplitSquareVertical, SpellCheck, Loader2, Columns2, Columns3, AlignJustify, LayoutGrid, Rows3, Save, Copy, LayoutPanelTop, LayoutPanelLeft, Square, StretchHorizontal } from "lucide-react";
 import { TabSettingsManager, TabConfig, loadTabSettings, saveTabSettings, getDefaultTabConfig } from "@/components/TabSettingsManager";
 import { supabase } from "@/integrations/supabase/client";
 import { editTranscriptCloud } from "@/utils/editTranscriptApi";
@@ -201,8 +201,8 @@ const TextEditor = () => {
   const columns = preferences.editor_columns;
 
   // Player layout (cloud-synced)
-  const playerLayout = (preferences.player_layout || 'split') as 'split' | 'stacked' | 'full';
-  const setPlayerLayout = useCallback((v: 'split' | 'stacked' | 'full') => updatePreference('player_layout', v), [updatePreference]);
+  const playerLayout = (preferences.player_layout || 'split') as 'split' | 'stacked' | 'full' | 'wide';
+  const setPlayerLayout = useCallback((v: 'split' | 'stacked' | 'full' | 'wide') => updatePreference('player_layout', v), [updatePreference]);
   const setColumns = (v: number) => updatePreference('editor_columns', v);
 
   const columnStyle: React.CSSProperties = columns > 1 ? {
@@ -871,6 +871,15 @@ const TextEditor = () => {
                   <LayoutPanelTop className="w-3.5 h-3.5" />
                 </Button>
                 <Button
+                  variant={playerLayout === 'wide' ? 'default' : 'ghost'}
+                  size="sm"
+                  className="h-7 w-7 p-0 rounded-lg"
+                  onClick={() => setPlayerLayout('wide')}
+                  title="פריסה רחבה — נגן+אקווילייזר רוחב מלא, תמלולים צד-בצד"
+                >
+                  <StretchHorizontal className="w-3.5 h-3.5" />
+                </Button>
+                <Button
                   variant={playerLayout === 'full' ? 'default' : 'ghost'}
                   size="sm"
                   className="h-7 w-7 p-0 rounded-lg"
@@ -896,7 +905,7 @@ const TextEditor = () => {
 
             {/* Bottom section: Two synced transcript views */}
             {playerLayout !== 'full' && (
-              <div className={`grid gap-5 flex-1 ${playerLayout === 'stacked' ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-2'}`} style={{ minHeight: '60vh' }}>
+              <div className={`grid gap-5 flex-1 ${playerLayout === 'stacked' ? 'grid-cols-1' : playerLayout === 'wide' ? 'grid-cols-2' : 'grid-cols-1 lg:grid-cols-2'}`} style={{ minHeight: '60vh' }}>
                 <div className="rounded-2xl border border-border/40 bg-card/50 shadow-sm overflow-hidden flex flex-col" style={{ minHeight: '60vh' }}>
                   <SyncTranscriptView
                     wordTimings={wordTimings}
