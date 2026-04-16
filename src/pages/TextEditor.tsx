@@ -31,7 +31,7 @@ const EngineCompare = lazy(() => import("@/components/EngineCompare").then(m => 
 const AnalyticsDashboard = lazy(() => import("@/components/AnalyticsDashboard").then(m => ({ default: m.AnalyticsDashboard })));
 const SpeakerDiarization = lazy(() => import("@/components/SpeakerDiarization").then(m => ({ default: m.SpeakerDiarization })));
 const FloatingPlayerPortal = lazy(() => import("@/components/FloatingPlayerPortal").then(m => ({ default: m.FloatingPlayerPortal })));
-import { ArrowRight, Home, Wand2, SplitSquareVertical, SpellCheck, Loader2, Columns2, Columns3, AlignJustify, LayoutGrid, Rows3, Save, Copy, LayoutPanelTop, LayoutPanelLeft, Square, StretchHorizontal, PictureInPicture2 } from "lucide-react";
+import { ArrowRight, Home, Wand2, SplitSquareVertical, SpellCheck, Loader2, Columns2, Columns3, AlignJustify, LayoutGrid, Rows3, Save, Copy, LayoutPanelTop, LayoutPanelLeft, Square, StretchHorizontal, PictureInPicture2, SlidersHorizontal } from "lucide-react";
 import { TabSettingsManager, TabConfig, loadTabSettings, saveTabSettings, getDefaultTabConfig } from "@/components/TabSettingsManager";
 import { supabase } from "@/integrations/supabase/client";
 import { editTranscriptCloud } from "@/utils/editTranscriptApi";
@@ -202,8 +202,8 @@ const TextEditor = () => {
   const columns = preferences.editor_columns;
 
   // Player layout (cloud-synced)
-  const playerLayout = (preferences.player_layout || 'split') as 'split' | 'stacked' | 'full' | 'wide';
-  const setPlayerLayout = useCallback((v: 'split' | 'stacked' | 'full' | 'wide') => updatePreference('player_layout', v), [updatePreference]);
+  const playerLayout = (preferences.player_layout || 'split') as 'split' | 'stacked' | 'full' | 'wide' | 'eq-wide';
+  const setPlayerLayout = useCallback((v: 'split' | 'stacked' | 'full' | 'wide' | 'eq-wide') => updatePreference('player_layout', v), [updatePreference]);
   const [isPlayerFloating, setIsPlayerFloating] = useState(false);
   const togglePlayerFloating = useCallback(() => setIsPlayerFloating(p => !p), []);
   const setColumns = (v: number) => updatePreference('editor_columns', v);
@@ -912,6 +912,15 @@ const TextEditor = () => {
                 >
                   <Square className="w-3.5 h-3.5" />
                 </Button>
+                <Button
+                  variant={playerLayout === 'eq-wide' ? 'default' : 'ghost'}
+                  size="sm"
+                  className="h-7 w-7 p-0 rounded-lg"
+                  onClick={() => setPlayerLayout('eq-wide')}
+                  title="אקולייזר פרוס — מיקסר רוחב מלא מתחת לנגן"
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5" />
+                </Button>
               </div>
             </div>
 
@@ -939,13 +948,14 @@ const TextEditor = () => {
                   onTimeUpdate={setPlayerTime}
                   syncEnabled={syncEnabled}
                   onSyncToggle={setSyncEnabled}
+                  eqWide={playerLayout === 'eq-wide'}
                 />
               </div>
             )}
 
             {/* Bottom section: Two synced transcript views */}
             {playerLayout !== 'full' && (
-              <div className={`grid gap-5 flex-1 ${playerLayout === 'stacked' ? 'grid-cols-1' : playerLayout === 'wide' ? 'grid-cols-2' : 'grid-cols-1 lg:grid-cols-2'}`} style={{ minHeight: '60vh' }}>
+              <div className={`grid gap-5 flex-1 ${playerLayout === 'stacked' || playerLayout === 'eq-wide' ? 'grid-cols-1' : playerLayout === 'wide' ? 'grid-cols-2' : 'grid-cols-1 lg:grid-cols-2'}`} style={{ minHeight: '60vh' }}>
                 <div className="rounded-2xl border border-border/40 bg-card/50 shadow-sm overflow-hidden flex flex-col" style={{ minHeight: '60vh' }}>
                   <SyncTranscriptView
                     wordTimings={wordTimings}

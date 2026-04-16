@@ -229,6 +229,7 @@ interface SyncAudioPlayerProps {
   syncEnabled?: boolean;
   onSyncToggle?: (enabled: boolean) => void;
   compact?: boolean;
+  eqWide?: boolean;
   onPlayStateChange?: (playing: boolean) => void;
   speakerSegments?: SpeakerSegmentForWaveform[];
 }
@@ -312,6 +313,7 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
   syncEnabled: externalSync,
   onSyncToggle,
   compact,
+  eqWide,
   onPlayStateChange,
   speakerSegments,
 }, ref) => {
@@ -2022,7 +2024,7 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
         />
 
         {/* ─── Two-Column Split Layout ───────────────────── */}
-        <div className={`grid gap-4 ${compact ? '' : 'lg:grid-cols-2'}`}>
+        <div className={`grid gap-4 ${compact ? '' : eqWide ? '' : 'lg:grid-cols-2'}`}>
           {/* ═══ RIGHT COLUMN: Player ═══ */}
           <div className="space-y-3 order-1">
             {/* Header */}
@@ -2478,7 +2480,7 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
 
           {/* ═══ LEFT COLUMN: Mixer & Processing ═══ */}
           {!compact && (
-            <div className="space-y-3 order-2">
+            <div className={`space-y-3 order-2 ${eqWide ? 'col-span-full' : ''}`}>
               {mixerPanel}
 
               {/* ─── EQ + Processing Mixing Console ── */}
@@ -2596,11 +2598,11 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                   {/* EQ Section */}
                   {eqViewMode === 'vertical' && (
                     <div className="overflow-x-auto pb-2">
-                      <div className={`grid gap-0.5`} style={{ gridTemplateColumns: `repeat(${(eqBandCount === 31 ? 31 : 10) + 1 + 5}, minmax(0, 1fr))` }}>
+                      <div className={`grid ${eqWide ? 'gap-1' : 'gap-0.5'}`} style={{ gridTemplateColumns: `repeat(${(eqBandCount === 31 ? 31 : 10) + 1 + 5}, minmax(0, 1fr))` }}>
                       {(eqBandCount === 31 ? EQ_BANDS_31.map((b, i) => ({ ...b, index: i })) : EQ_BANDS_10_INDICES.map(i => ({ ...EQ_BANDS_31[i], index: i }))).map((band) => (
                         <div key={band.freq} className="flex flex-col items-center gap-0.5">
                           <span className={`text-[8px] font-mono ${band.color}`}>{eqGains[band.index] > 0 ? '+' : ''}{eqGains[band.index]}</span>
-                          <div className="h-24 flex items-center">
+                          <div className={`${eqWide ? 'h-40' : 'h-24'} flex items-center`}>
                             <Slider
                               orientation="vertical"
                               value={[eqGains[band.index]]}
@@ -2608,10 +2610,10 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                               max={12}
                               step={0.5}
                               onValueChange={([v]) => setEqBand(band.index, v)}
-                              className="h-full w-2"
+                              className={`h-full ${eqWide ? 'w-3' : 'w-2'}`}
                             />
                           </div>
-                          <span className="text-[7px] font-medium leading-tight text-center">{band.label}</span>
+                          <span className={`${eqWide ? 'text-[9px]' : 'text-[7px]'} font-medium leading-tight text-center`}>{band.label}</span>
                         </div>
                       ))}
                       <div className="w-px bg-border/40 min-h-[4rem] self-center mx-1"></div>
@@ -2634,7 +2636,7 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                       ].map((ctrl) => (
                         <div key={ctrl.label} className="flex flex-col items-center gap-0.5 min-w-[24px]">
                           <span className={`text-[7px] font-mono ${ctrl.color}`}>{ctrl.display}</span>
-                          <div className="h-24 flex items-center">
+                          <div className={`${eqWide ? 'h-40' : 'h-24'} flex items-center`}>
                             <Slider
                               orientation="vertical"
                               value={[ctrl.value]}
@@ -2642,10 +2644,10 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                               max={ctrl.max}
                               step={ctrl.step}
                               onValueChange={([v]) => ctrl.set(v)}
-                              className="h-full w-2"
+                              className={`h-full ${eqWide ? 'w-3' : 'w-2'}`}
                             />
                           </div>
-                          <span className="text-[7px] font-medium leading-tight text-center">{ctrl.label}</span>
+                          <span className={`${eqWide ? 'text-[9px]' : 'text-[7px]'} font-medium leading-tight text-center`}>{ctrl.label}</span>
                         </div>
                       ))}
                     </div>
@@ -2698,13 +2700,13 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
 
                   {eqViewMode === 'circular' && (
                     <div className="flex flex-col gap-4 overflow-x-auto pb-2 items-center">
-                      <div className="flex flex-wrap items-center justify-center gap-3" style={{ maxWidth: eqBandCount === 31 ? 520 : 280 }}>
+                      <div className="flex flex-wrap items-center justify-center gap-3" style={{ maxWidth: eqWide ? undefined : (eqBandCount === 31 ? 520 : 280) }}>
                         {(eqBandCount === 31 ? EQ_BANDS_31.map((b, i) => ({ ...b, index: i })) : EQ_BANDS_10_INDICES.map(i => ({ ...EQ_BANDS_31[i], index: i }))).map((band) => (
                           <Knob key={band.freq} label={band.label} value={eqGains[band.index]} min={-12} max={12} onChange={(v) => setEqBand(band.index, v)} />
                         ))}
                       </div>
                       <Separator className="w-full" />
-                      <div className="flex flex-wrap items-center justify-center gap-4 max-w-[280px]">
+                      <div className={`flex flex-wrap items-center justify-center gap-4 ${eqWide ? '' : 'max-w-[280px]'}`}>
                         {[
                           { label: 'HP', value: manualHighpass, min: 20, max: 400, set: (v) => { setManualHighpass(v); if (isManualMode && highpassRef.current) highpassRef.current.frequency.value = v; } },
                           { label: 'LP', value: manualLowpass / 100, min: 60, max: 200, set: (v) => { setManualLowpass(v * 100); if (isManualMode && lowpassRef.current) lowpassRef.current.frequency.value = v * 100; } },
