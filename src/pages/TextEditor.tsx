@@ -23,6 +23,8 @@ const SyncAudioPlayer = lazy(() => import("@/components/SyncAudioPlayer").then(m
 const SyncEditableView = lazy(() => import("@/components/SyncEditableView").then(m => ({ default: m.SyncEditableView })));
 const SyncTranscriptView = lazy(() => import("@/components/SyncTranscriptView").then(m => ({ default: m.SyncTranscriptView })));
 const VocabularyPanel = lazy(() => import("@/components/VocabularyPanel").then(m => ({ default: m.VocabularyPanel })));
+const DictionaryValidator = lazy(() => import("@/components/DictionaryValidator").then(m => ({ default: m.DictionaryValidator })));
+const TextMarkingOverlay = lazy(() => import("@/components/TextMarkingOverlay").then(m => ({ default: m.TextMarkingOverlay })));
 const AutoSummaryCard = lazy(() => import("@/components/AutoSummaryCard").then(m => ({ default: m.AutoSummaryCard })));
 const TranscriptSummary = lazy(() => import("@/components/TranscriptSummary").then(m => ({ default: m.TranscriptSummary })));
 const EngineCompare = lazy(() => import("@/components/EngineCompare").then(m => ({ default: m.EngineCompare })));
@@ -895,7 +897,7 @@ const TextEditor = () => {
             {/* Bottom section: Two synced transcript views */}
             {playerLayout !== 'full' && (
               <div className={`grid gap-5 flex-1 ${playerLayout === 'stacked' ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-2'}`} style={{ minHeight: '60vh' }}>
-                <div className="rounded-2xl border border-border/40 bg-card/50 shadow-sm overflow-hidden">
+                <div className="rounded-2xl border border-border/40 bg-card/50 shadow-sm overflow-hidden flex flex-col" style={{ minHeight: '60vh' }}>
                   <SyncTranscriptView
                     wordTimings={wordTimings}
                     currentTime={playerTime}
@@ -906,7 +908,7 @@ const TextEditor = () => {
                     syncEnabled={syncEnabled}
                   />
                 </div>
-                <div className="rounded-2xl border border-border/40 bg-card/50 shadow-sm overflow-hidden">
+                <div className="rounded-2xl border border-border/40 bg-card/50 shadow-sm overflow-hidden flex flex-col" style={{ minHeight: '60vh' }}>
                   <SyncEditableView
                     wordTimings={wordTimings}
                     currentTime={playerTime}
@@ -925,6 +927,15 @@ const TextEditor = () => {
           </TabsContent>
 
           <TabsContent value="edit" className="space-y-5">
+            <LazyErrorBoundary label="סימון ויזואלי">
+              <TextMarkingOverlay
+                text={text}
+                onTextChange={handleEditorChange}
+                fontSize={fontSize}
+                fontFamily={fontFamily}
+                lineHeight={lineHeight}
+              />
+            </LazyErrorBoundary>
             <div
               style={{
                 fontSize: `${fontSize}px`,
@@ -1069,6 +1080,15 @@ const TextEditor = () => {
             <LazyErrorBoundary label="למידת תיקונים"><CorrectionLearningPanel /></LazyErrorBoundary>
           </TabsContent>
           <TabsContent value="vocab" className="space-y-5">
+            <LazyErrorBoundary label="בדיקת מילון">
+              <DictionaryValidator text={text} onApplyFix={(original, fixed) => {
+                const newText = text.replace(new RegExp(`\\b${original.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`), fixed);
+                if (newText !== text) {
+                  setText(newText);
+                  toast({ title: "תוקן", description: `"${original}" → "${fixed}"` });
+                }
+              }} />
+            </LazyErrorBoundary>
             <LazyErrorBoundary label="אוצר מילים"><VocabularyPanel /></LazyErrorBoundary>
           </TabsContent>
 

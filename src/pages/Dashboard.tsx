@@ -214,8 +214,8 @@ const Dashboard = () => {
             </CardHeader>
             <CardContent>
               {recentViewMode === 'table' ? (
-                <div className="rounded-lg border overflow-hidden">
-                  <table className="w-full text-sm">
+                <div className="rounded-lg border overflow-hidden" dir="rtl">
+                  <table className="w-full text-sm" dir="rtl">
                     <thead className="bg-muted/40">
                       <tr>
                         <th className="text-right px-3 py-2 font-medium">כותרת</th>
