@@ -2176,16 +2176,60 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
             )}
 
             {/* ─── Static Waveform ── */}
-            <canvas
-              ref={staticCanvasRef}
-              className="w-full rounded-lg cursor-pointer bg-muted/30"
-              style={{ height: isExpanded ? 120 : 80 }}
-              onClick={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                const x = rect.right - e.clientX;
-                seekTo((x / rect.width) * effectiveDuration);
-              }}
-            />
+            {!staticWaveCollapsed ? (
+              <div
+                className="relative"
+                onMouseEnter={() => setStaticWaveHover(true)}
+                onMouseLeave={() => setStaticWaveHover(false)}
+              >
+                {staticWaveHover && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="absolute top-1 left-1 h-6 w-6 z-10 bg-background/80 backdrop-blur border shadow-sm"
+                        onClick={() => setStaticWaveCollapsed(true)}
+                      >
+                        <Minimize2 className="w-3.5 h-3.5 no-theme-icon" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">מזער גל סטטי</TooltipContent>
+                  </Tooltip>
+                )}
+                <canvas
+                  ref={staticCanvasRef}
+                  className="w-full rounded-lg cursor-pointer bg-muted/30"
+                  style={{ height: isExpanded ? 120 : 80 }}
+                  onClick={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const x = rect.right - e.clientX;
+                    seekTo((x / rect.width) * effectiveDuration);
+                  }}
+                />
+              </div>
+            ) : (
+              <div
+                className="relative flex items-center justify-between rounded-lg bg-muted/30 px-3 py-1.5 border border-dashed"
+                onMouseEnter={() => setStaticWaveHover(true)}
+                onMouseLeave={() => setStaticWaveHover(false)}
+              >
+                <span className="text-[10px] text-muted-foreground">גל סטטי מוזער</span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6"
+                      onClick={() => setStaticWaveCollapsed(false)}
+                    >
+                      <Maximize2 className="w-3.5 h-3.5 no-theme-icon" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">הרחב גל סטטי</TooltipContent>
+                </Tooltip>
+              </div>
+            )}
 
             {/* ─── Live Waveform Canvas ── */}
             {isPlaying && (
