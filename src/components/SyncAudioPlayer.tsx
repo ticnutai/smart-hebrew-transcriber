@@ -388,6 +388,10 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
   const [eqViewMode, setEqViewMode] = useState<'vertical' | 'horizontal' | 'circular'>('vertical');
   const [advVerticalView, setAdvVerticalView] = useState(false);
   const [eqVizStyle, setEqVizStyle] = useState<'bars' | 'mirror' | 'wave' | 'circle' | 'spectrum' | 'flame' | 'radar' | 'dots'>('bars');
+  const [eqStyleBarCollapsed, setEqStyleBarCollapsed] = useState(false);
+  const [eqCanvasCollapsed, setEqCanvasCollapsed] = useState(false);
+  const [eqStyleBarHover, setEqStyleBarHover] = useState(false);
+  const [eqCanvasHover, setEqCanvasHover] = useState(false);
   const eqBandsRef = useRef<BiquadFilterNode[]>([]);
   // Helper: get/set individual band gain
   const setEqBand = useCallback((index: number, value: number) => {
@@ -2071,8 +2075,31 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
             {/* ─── Frequency Spectrum Equalizer Visualization ─────── */}
             {showEqualizer && (
               <div className="space-y-1">
-                <div className="flex items-center justify-end gap-1">
-                  {([
+                <div
+                  className="relative flex items-center justify-end gap-1"
+                  onMouseEnter={() => setEqStyleBarHover(true)}
+                  onMouseLeave={() => setEqStyleBarHover(false)}
+                >
+                  {eqStyleBarHover && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="absolute -top-1 left-0 h-5 w-5 z-10 bg-background/80 backdrop-blur border shadow-sm"
+                          onClick={() => setEqStyleBarCollapsed((v) => !v)}
+                        >
+                          {eqStyleBarCollapsed
+                            ? <Maximize2 className="w-3 h-3 no-theme-icon" />
+                            : <Minimize2 className="w-3 h-3 no-theme-icon" />}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom">
+                        {eqStyleBarCollapsed ? 'הרחב סרגל סגנונות' : 'מזער סרגל סגנונות'}
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                  {!eqStyleBarCollapsed && ([
                     { id: 'bars' as const, label: '▥ עמודות' },
                     { id: 'mirror' as const, label: '⬍ מראה' },
                     { id: 'wave' as const, label: '〰 גל' },
@@ -2088,12 +2115,59 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                       onClick={() => setEqVizStyle(s.id)}
                     >{s.label}</button>
                   ))}
+                  {eqStyleBarCollapsed && (
+                    <span className="text-[10px] text-muted-foreground px-2">סרגל סגנונות מוזער</span>
+                  )}
                 </div>
-                <canvas
-                  ref={eqCanvasRef}
-                  className="w-full rounded-lg"
-                  style={{ height: ['circle', 'radar', 'dots'].includes(eqVizStyle) ? 140 : (isExpanded ? 80 : 48), background: 'rgba(15, 23, 42, 0.4)' }}
-                />
+                {!eqCanvasCollapsed ? (
+                  <div
+                    className="relative"
+                    onMouseEnter={() => setEqCanvasHover(true)}
+                    onMouseLeave={() => setEqCanvasHover(false)}
+                  >
+                    {eqCanvasHover && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="absolute top-1 left-1 h-6 w-6 z-10 bg-background/80 backdrop-blur border shadow-sm"
+                            onClick={() => setEqCanvasCollapsed(true)}
+                          >
+                            <Minimize2 className="w-3.5 h-3.5 no-theme-icon" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">מזער ויזואליזציה</TooltipContent>
+                      </Tooltip>
+                    )}
+                    <canvas
+                      ref={eqCanvasRef}
+                      className="w-full rounded-lg"
+                      style={{ height: ['circle', 'radar', 'dots'].includes(eqVizStyle) ? 140 : (isExpanded ? 80 : 48), background: 'rgba(15, 23, 42, 0.4)' }}
+                    />
+                  </div>
+                ) : (
+                  <div
+                    className="relative flex items-center justify-between rounded-lg bg-muted/30 px-3 py-1.5 border border-dashed"
+                    onMouseEnter={() => setEqCanvasHover(true)}
+                    onMouseLeave={() => setEqCanvasHover(false)}
+                  >
+                    <span className="text-[10px] text-muted-foreground">ויזואליזציה מוזערת</span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={() => setEqCanvasCollapsed(false)}
+                        >
+                          <Maximize2 className="w-3.5 h-3.5 no-theme-icon" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom">הרחב ויזואליזציה</TooltipContent>
+                    </Tooltip>
+                  </div>
+                )}
               </div>
             )}
 
