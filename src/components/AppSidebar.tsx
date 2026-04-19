@@ -29,6 +29,7 @@ import {
   Waves,
   SlidersHorizontal,
   Wand2,
+  AudioLines,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
@@ -59,6 +60,7 @@ const navItems: NavItem[] = [
   { label: "זיהוי דוברים", icon: Users, path: "/diarization" },
   { label: "השוואת מנועים", icon: GitCompareArrows, path: "/diarization/compare" },
   { label: "ממיר ל-MP3", icon: Music, path: "/video-to-mp3" },
+  { label: "הרמוניקיה", icon: AudioLines, path: "/harmonika" },
   { label: "התקנת שרת", icon: Server, path: "/setup" },
   { label: "הגדרות", icon: Settings, path: "/settings" },
 ];

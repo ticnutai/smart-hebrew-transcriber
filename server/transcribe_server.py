@@ -1096,6 +1096,8 @@ def transcribe():
                 os.unlink(ai_denoise_path)
             except OSError:
                 pass
+
+@app.route("/transcribe-stream", methods=["POST"])
 def transcribe_stream():
     """Transcribe audio with Server-Sent Events — sends each segment as it's ready.
     Supports `start_from` (seconds) to resume from a specific time offset.
@@ -2841,6 +2843,134 @@ def _evict_stale_models():
                 print(f"  [stage] Cleaned up expired staged file: {info['filename']}")
 
 
+# ════════════════════════════════════════════════════════════════════
+#  HARMONY ENGINE — pitch shifting & harmony generation
+# ════════════════════════════════════════════════════════════════════
+
+@app.route("/harmonize", methods=["POST"])
+def harmonize_endpoint():
+    """
+    Generate harmonies from an audio file.
+
+    Form fields:
+      - audio: audio file (WAV/MP3/OGG/etc.)
+      - voices: JSON array, e.g. [{"semitones":4,"gain":0.7},{"semitones":7,"gain":0.5}]
+      - scale: "major"|"minor"|"chromatic"|"dorian"|"mixolydian"|"harmonic-minor"
+      - root: "C"|"C#"|"D"|...|"B"
+      - dryGain: float 0-1 (default 0.85)
+      - wetGain: float 0-1 (default 0.7)
+      - quality: "basic"|"pro"|"studio" (default "basic")
+      - maxDuration: float seconds (optional, for preview)
+
+    Returns: audio/wav
+    """
+    if "audio" not in request.files:
+        return jsonify({"error": "No audio file provided"}), 400
+
+    audio_file = request.files["audio"]
+    audio_bytes = audio_file.read()
+
+    if len(audio_bytes) == 0:
+        return jsonify({"error": "Empty audio file"}), 400
+
+    if len(audio_bytes) > MAX_UPLOAD_SIZE_MB * 1024 * 1024:
+        return jsonify({"error": f"File too large (max {MAX_UPLOAD_SIZE_MB} MB)"}), 413
+
+    try:
+        voices_json = request.form.get("voices", "[]")
+        voices = json.loads(voices_json)
+        if not isinstance(voices, list) or not voices:
+            return jsonify({"error": "voices must be a non-empty JSON array"}), 400
+        # Validate voice entries
+        for v in voices:
+            if "semitones" not in v:
+                return jsonify({"error": "Each voice must have 'semitones'"}), 400
+            v["semitones"] = float(v["semitones"])
+            v["gain"] = float(v.get("gain", 0.7))
+    except (json.JSONDecodeError, ValueError) as e:
+        return jsonify({"error": f"Invalid voices parameter: {e}"}), 400
+
+    scale = request.form.get("scale", "major")
+    root = request.form.get("root", "C")
+    dry_gain = float(request.form.get("dryGain", "0.85"))
+    wet_gain = float(request.form.get("wetGain", "0.7"))
+    quality = request.form.get("quality", "basic")
+    max_duration_str = request.form.get("maxDuration", "")
+    max_duration = float(max_duration_str) if max_duration_str else None
+
+    # Validate quality
+    if quality not in ("basic", "pro", "studio"):
+        quality = "basic"
+
+    _log.info(f"[harmonize] quality={quality} voices={len(voices)} scale={scale} root={root} "
+              f"dry={dry_gain:.2f} wet={wet_gain:.2f} maxDur={max_duration} size={len(audio_bytes)}")
+
+    start_time = time.time()
+    try:
+        from server.harmony_engine import render_harmony
+    except ImportError:
+        # When running from project root, try direct import
+        try:
+            from harmony_engine import render_harmony
+        except ImportError:
+            sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+            from harmony_engine import render_harmony
+
+    try:
+        wav_bytes = render_harmony(
+            audio_bytes=audio_bytes,
+            voices=voices,
+            scale=scale,
+            root=root,
+            dry_gain=dry_gain,
+            wet_gain=wet_gain,
+            quality=quality,
+            max_duration=max_duration,
+        )
+    except Exception as e:
+        _log.error(f"[harmonize] Error: {e}\n{_tb_module.format_exc()}")
+        return jsonify({"error": f"Harmony processing failed: {str(e)}"}), 500
+
+    elapsed = time.time() - start_time
+    _log.info(f"[harmonize] Done in {elapsed:.1f}s — {len(wav_bytes)} bytes output")
+
+    return Response(wav_bytes, mimetype="audio/wav", headers={
+        "Content-Disposition": "attachment; filename=harmonized.wav",
+        "X-Processing-Time": f"{elapsed:.2f}",
+        "X-Quality-Tier": quality,
+    })
+
+
+@app.route("/harmonize/capabilities", methods=["GET"])
+def harmonize_capabilities():
+    """Return available harmony processing tiers."""
+    # Check which tiers are available
+    tiers = {
+        "basic": {"available": True, "label": "מהיר (STFT)", "label_en": "Fast (STFT)"},
+        "pro": {"available": False, "label": "מקצועי (WORLD)", "label_en": "Pro (WORLD)"},
+        "studio": {"available": False, "label": "סטודיו (Demucs+WORLD)", "label_en": "Studio (Demucs+WORLD)"},
+    }
+    try:
+        import pyworld
+        tiers["pro"]["available"] = True
+    except ImportError:
+        pass
+    try:
+        from server.harmony_engine import _check_demucs
+        tiers["studio"]["available"] = _check_demucs()
+    except ImportError:
+        try:
+            from harmony_engine import _check_demucs
+            tiers["studio"]["available"] = _check_demucs()
+        except ImportError:
+            pass
+    # If pro is not available but basic is, studio falls back to basic too
+    if not tiers["pro"]["available"]:
+        tiers["studio"]["available"] = False
+
+    return jsonify({"tiers": tiers})
+
+
 def main():
     global _api_key
     parser = argparse.ArgumentParser(description="Local Whisper Transcription Server")
@@ -2953,6 +3083,8 @@ def main():
     print("    POST /stage-audio       — Pre-upload audio (parallel with preload)")
     print("    POST /convert-mp3       — Convert audio/video to MP3/OPUS/AAC (server FFmpeg)")
     print("    POST /enhance-audio     — Enhance audio (AI/non-AI presets) to MP3/OPUS/AAC")
+    print("    POST /harmonize         — Generate harmonies (basic/pro/studio)")
+    print("    GET  /harmonize/capabilities — Available harmony tiers")
     print("    POST /load-model        — Load model into GPU memory")
     print("    POST /preload-stream    — Preload model via SSE (background)")
     print("    POST /download-model    — Download model to disk only")

@@ -52,6 +52,8 @@
     "@radix-ui/react-tooltip": "^1.2.7",
     "@shiguredo/rnnoise-wasm": "^2025.1.5",
     "@supabase/supabase-js": "^2.58.0",
+    "@swc/core": "^1.15.30",
+    "@swc/helpers": "^0.5.21",
     "@tanstack/react-query": "^5.83.0",
     "@types/file-saver": "^2.0.7",
     "class-variance-authority": "^0.7.1",
@@ -78,7 +80,9 @@
     "sonner": "^1.7.4",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
+    "tone": "^15.1.22",
     "vaul": "^1.1.2",
+    "wavesurfer.js": "^7.12.6",
     "zod": "^3.25.76"
   },
   "devDependencies": {

@@ -1,7 +1,8 @@
-import { useState, useMemo, memo } from "react";
+import { useState, useMemo, memo, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -13,11 +14,17 @@ import {
   Wand2, Loader2, Sparkles, MessageSquare, BookOpen, FileText,
   Languages, Users, List, Heading, Maximize2, Minimize2,
   CheckCheck, Volume2, AlignJustify, Quote, Cpu, Save, Gauge, Trophy,
-  Eye, EyeOff, GitCompareArrows, Download
+  Eye, EyeOff, GitCompareArrows, Download, PlayCircle, StopCircle, RotateCcw, Trash2,
+  Pencil, Plus, LayoutGrid, LayoutList, Rows3, RotateCw,
+  type LucideIcon
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { editTranscriptCloud } from "@/utils/editTranscriptApi";
+import { ACTION_PROMPTS } from "@/lib/prompts";
 import { useOllama, isOllamaModel, getOllamaModelName } from "@/hooks/useOllama";
+import { useAIEditQueue } from "@/hooks/useAIEditQueue";
+import { useCustomActions, type CustomAction } from "@/hooks/useCustomActions";
+import type { AIEditJob } from "@/lib/aiEditQueue";
 import DiffMatchPatch from "diff-match-patch";
 
 interface AIEditorDualProps {
@@ -244,6 +251,19 @@ function scoreText(source: string, output: string, latencyMs: number): CompareMe
   return { latencyMs, hebrewRatio, punctuationDensity, preserveScore, lengthDrift, qualityScore };
 }
 
+// ── Icon name → component mapping ──────────────────────────
+const ICON_MAP: Record<string, LucideIcon> = {
+  Wand2, CheckCheck, Quote, BookOpen, AlignJustify, Heading, List,
+  Maximize2, Minimize2, FileText, Users, Languages, Volume2,
+  MessageSquare, Sparkles, Pencil, Plus, Eye, Cpu, Save, Gauge,
+};
+
+function getIconComponent(name: string): LucideIcon {
+  return ICON_MAP[name] || Wand2;
+}
+
+export const ICON_OPTIONS = Object.keys(ICON_MAP);
+
 type EditAction = 'improve' | 'grammar' | 'readable' | 'punctuation' | 'paragraphs' |
   'bullets' | 'headings' | 'expand' | 'shorten' | 'summarize' |
   'sources' | 'translate' | 'speakers' | 'tone' | 'custom';
@@ -276,7 +296,6 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplace
   const [mergedResult, setMergedResult] = useState("");
   const [latency1Ms, setLatency1Ms] = useState<number>(0);
   const [latency2Ms, setLatency2Ms] = useState<number>(0);
-  const [isBenchmarking, setIsBenchmarking] = useState(false);
   const [benchmarkRounds, setBenchmarkRounds] = useState<'3' | '5' | '7'>('3');
   const [benchmarkAction, setBenchmarkAction] = useState<EditAction>('improve');
   const [benchmarkSummary, setBenchmarkSummary] = useState<BenchmarkSummary | null>(null);
@@ -302,6 +321,16 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplace
   const [showDiffHighlight, setShowDiffHighlight] = useState(false);
   const [autoCompare, setAutoCompare] = useState(true);
   const ollama = useOllama();
+  const bgQueue = useAIEditQueue();
+  const customActions = useCustomActions();
+
+  // State for action editing
+  const [editingAction, setEditingAction] = useState<CustomAction | null>(null);
+  const [showAddAction, setShowAddAction] = useState(false);
+  const [newActionLabel, setNewActionLabel] = useState('');
+  const [newActionPrompt, setNewActionPrompt] = useState('');
+  const [newActionIcon, setNewActionIcon] = useState('Wand2');
+  const [newActionCategory, setNewActionCategory] = useState<'language' | 'structure' | 'length' | 'special' | 'custom'>('custom');
 
   const dmp = useMemo(() => new DiffMatchPatch(), []);
 
@@ -409,11 +438,27 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplace
     }
   };
 
-  const runBoth = (action: EditAction, extra?: { customPrompt?: string; toneStyle?: string; targetLanguage?: string }) => {
-    setLastAction(action);
+  const runBoth = (action: EditAction | string, extra?: { customPrompt?: string; toneStyle?: string; targetLanguage?: string }) => {
+    // For user-created custom actions, resolve to 'custom' action with the stored prompt
+    let resolvedAction = action as EditAction;
+    let resolvedExtra = extra;
+    if (action.startsWith('custom_')) {
+      const actionPrompt = customActions.getActionPrompt(action);
+      resolvedAction = 'custom' as EditAction;
+      resolvedExtra = { ...extra, customPrompt: actionPrompt };
+    } else {
+      // Check if the built-in action has an overridden prompt
+      const storedPrompt = customActions.getActionPrompt(action);
+      const builtinAction = customActions.actions.find(a => a.id === action && a.builtin);
+      if (builtinAction && storedPrompt && storedPrompt !== (ACTION_PROMPTS as Record<string, string>)[action]) {
+        resolvedAction = 'custom' as EditAction;
+        resolvedExtra = { ...extra, customPrompt: storedPrompt };
+      }
+    }
+    setLastAction(action as EditAction);
     setMergedResult('');
-    handleEdit(action, model1, setIsEditing1, setResult1, setLatency1Ms, extra);
-    handleEdit(action, model2, setIsEditing2, setResult2, setLatency2Ms, extra);
+    handleEdit(resolvedAction, model1, setIsEditing1, setResult1, setLatency1Ms, resolvedExtra);
+    handleEdit(resolvedAction, model2, setIsEditing2, setResult2, setLatency2Ms, resolvedExtra);
   };
 
   const handleSmartMerge = async () => {
@@ -474,6 +519,61 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplace
     }
   };
 
+  // ── Auto-apply completed background jobs ──────────────────
+  const lastAppliedJobRef = useMemo(() => ({ current: '' }), []);
+
+  useEffect(() => {
+    const completed = bgQueue.jobs.find(
+      j => j.status === 'completed' && j.summary && j.id !== lastAppliedJobRef.current
+    );
+    if (!completed || !completed.summary) return;
+    lastAppliedJobRef.current = completed.id;
+
+    const summary: BenchmarkSummary = {
+      action: completed.summary.action,
+      rounds: completed.summary.rounds,
+      createdAt: completed.summary.createdAt,
+      model1Value: completed.summary.model1Value,
+      model2Value: completed.summary.model2Value,
+      model1Label: completed.summary.model1Label,
+      model2Label: completed.summary.model2Label,
+      model1: completed.summary.model1,
+      model2: completed.summary.model2,
+      winner: completed.summary.winner,
+    };
+
+    setBenchmarkSummary(summary);
+    setResult1(summary.model1.bestText);
+    setResult2(summary.model2.bestText);
+    setLatency1Ms(Math.round(summary.model1.avgLatency));
+    setLatency2Ms(Math.round(summary.model2.avgLatency));
+
+    const nextHistory = [summary, ...benchmarkHistory].slice(0, 30);
+    setBenchmarkHistory(nextHistory);
+    try { localStorage.setItem(BENCHMARK_HISTORY_KEY, JSON.stringify(nextHistory)); } catch {}
+
+    if (benchmarkSaveCloud && onSaveVersion) {
+      const cloudText = [
+        `Benchmark ${ACTION_LABELS[summary.action]} (${summary.rounds} סבבים)`,
+        `מנוע 1: ${summary.model1Label}`,
+        `מהירות: ${summary.model1.avgLatency.toFixed(0)}ms | איכות: ${summary.model1.avgQuality.toFixed(1)}`,
+        `מנוע 2: ${summary.model2Label}`,
+        `מהירות: ${summary.model2.avgLatency.toFixed(0)}ms | איכות: ${summary.model2.avgQuality.toFixed(1)}`,
+        `מנצח: מנוע ${summary.winner} (${summary.winner === 1 ? summary.model1Label : summary.model2Label})`,
+      ].join('\n');
+      onSaveVersion(cloudText, `ai-${summary.action}`, 'Benchmark', `benchmark-${summary.action}-${summary.rounds}`);
+    }
+
+    if (benchmarkAutoApplyWinner) {
+      const winnerText = summary.winner === 1 ? summary.model1.bestText : summary.model2.bestText;
+      if (winnerText.trim()) {
+        onTextChange(winnerText, `ai-${summary.action}`, `Benchmark winner: ${summary.winner === 1 ? summary.model1Label : summary.model2Label}`);
+      }
+    }
+
+    toast({ title: 'Benchmark הושלם ✅', description: `${summary.rounds} סבבים — ${ACTION_LABELS[summary.action]}` });
+  }, [bgQueue.jobs]);
+
   const runBenchmark = async () => {
     if (!text.trim()) {
       toast({ title: "שגיאה", description: "אין טקסט לבנצ'מרק", variant: "destructive" });
@@ -484,119 +584,32 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplace
       return;
     }
 
+    // Check if models are Ollama (local) — those can't run in background queue
+    if (isOllamaModel(model1) || isOllamaModel(model2)) {
+      toast({ title: "Ollama לא נתמך ברקע", description: "מודלים מקומיים רצים רק בפורגראונד. בחר מנוע ענן לריצת רקע.", variant: "destructive" });
+      return;
+    }
+
     const rounds = Number(benchmarkRounds);
-    setIsBenchmarking(true);
     setBenchmarkSummary(null);
 
     try {
-      const m1Latencies: number[] = [];
-      const m2Latencies: number[] = [];
-      const m1Scores: number[] = [];
-      const m2Scores: number[] = [];
-      let best1Text = '';
-      let best2Text = '';
-      let best1Score = -1;
-      let best2Score = -1;
-
-      for (let i = 0; i < rounds; i++) {
-        const [r1, r2] = await Promise.all([
-          runEditOnce(benchmarkAction, model1),
-          runEditOnce(benchmarkAction, model2),
-        ]);
-
-        const s1 = scoreText(text, r1.text, r1.latencyMs);
-        const s2 = scoreText(text, r2.text, r2.latencyMs);
-
-        m1Latencies.push(r1.latencyMs);
-        m2Latencies.push(r2.latencyMs);
-        m1Scores.push(s1.qualityScore);
-        m2Scores.push(s2.qualityScore);
-
-        if (s1.qualityScore > best1Score) {
-          best1Score = s1.qualityScore;
-          best1Text = r1.text;
-        }
-        if (s2.qualityScore > best2Score) {
-          best2Score = s2.qualityScore;
-          best2Text = r2.text;
-        }
-      }
-
-      const m1AvgQ = avg(m1Scores);
-      const m2AvgQ = avg(m2Scores);
-      const m1AvgL = avg(m1Latencies);
-      const m2AvgL = avg(m2Latencies);
-
-      const winner: 1 | 2 = m1AvgQ === m2AvgQ
-        ? (m1AvgL <= m2AvgL ? 1 : 2)
-        : (m1AvgQ > m2AvgQ ? 1 : 2);
-
-      const summary: BenchmarkSummary = {
+      await bgQueue.enqueue({
+        sourceText: text,
         action: benchmarkAction,
-        rounds,
-        createdAt: new Date().toISOString(),
-        model1Value: model1,
-        model2Value: model2,
+        model1,
+        model2,
         model1Label: getModelLabel(model1),
         model2Label: getModelLabel(model2),
-        model1: {
-          avgLatency: m1AvgL,
-          stdLatency: stddev(m1Latencies),
-          avgQuality: m1AvgQ,
-          stdQuality: stddev(m1Scores),
-          bestQuality: Math.max(...m1Scores),
-          bestText: best1Text,
-        },
-        model2: {
-          avgLatency: m2AvgL,
-          stdLatency: stddev(m2Latencies),
-          avgQuality: m2AvgQ,
-          stdQuality: stddev(m2Scores),
-          bestQuality: Math.max(...m2Scores),
-          bestText: best2Text,
-        },
-        winner,
-      };
-
-      setBenchmarkSummary(summary);
-
-      const nextHistory = [summary, ...benchmarkHistory].slice(0, 30);
-      setBenchmarkHistory(nextHistory);
-      try {
-        localStorage.setItem(BENCHMARK_HISTORY_KEY, JSON.stringify(nextHistory));
-      } catch {
-        // ignore storage quota issues
-      }
-
-      if (benchmarkSaveCloud && onSaveVersion) {
-        const cloudText = [
-          `Benchmark ${ACTION_LABELS[summary.action]} (${summary.rounds} סבבים)`,
-          `מנוע 1: ${summary.model1Label}`,
-          `מהירות ממוצעת: ${summary.model1.avgLatency.toFixed(0)}ms | איכות: ${summary.model1.avgQuality.toFixed(1)} | יציבות איכות: ${summary.model1.stdQuality.toFixed(2)}`,
-          `מנוע 2: ${summary.model2Label}`,
-          `מהירות ממוצעת: ${summary.model2.avgLatency.toFixed(0)}ms | איכות: ${summary.model2.avgQuality.toFixed(1)} | יציבות איכות: ${summary.model2.stdQuality.toFixed(2)}`,
-          `מנצח: מנוע ${summary.winner} (${summary.winner === 1 ? summary.model1Label : summary.model2Label})`,
-        ].join('\n');
-
-        onSaveVersion(cloudText, `ai-${summary.action}`, 'Benchmark', `benchmark-${summary.action}-${summary.rounds}`);
-      }
-
-      if (benchmarkAutoApplyWinner) {
-        const winnerText = summary.winner === 1 ? summary.model1.bestText : summary.model2.bestText;
-        if (winnerText.trim()) {
-          onTextChange(winnerText, `ai-${summary.action}`, `Benchmark winner: ${summary.winner === 1 ? summary.model1Label : summary.model2Label}`);
-        }
-      }
-
-      toast({ title: "Benchmark הושלם", description: `${rounds} סבבים על ${ACTION_LABELS[benchmarkAction]}` });
+        totalRounds: rounds,
+      });
+      toast({ title: "Benchmark נוסף לתור ברקע 🚀", description: `${rounds} סבבים — ממשיך גם אם עוברים עמוד` });
     } catch (error) {
       toast({
-        title: "שגיאה ב-Benchmark",
+        title: "שגיאה בהוספה לתור",
         description: error instanceof Error ? error.message : "שגיאה לא ידועה",
         variant: "destructive",
       });
-    } finally {
-      setIsBenchmarking(false);
     }
   };
 
@@ -802,19 +815,6 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplace
   const winner = metrics1 && metrics2
     ? (metrics1.qualityScore >= metrics2.qualityScore ? 1 : 2)
     : null;
-
-  const ActionBtn = ({ action, label, icon: Icon }: { action: EditAction; label: string; icon: React.ElementType }) => (
-    <Button
-      variant={lastAction === action ? "default" : "secondary"}
-      size="sm"
-      onClick={() => runBoth(action)}
-      disabled={isLoading || noText}
-      className="text-xs"
-    >
-      <Icon className="w-3 h-3 ml-1" />
-      {label}
-    </Button>
-  );
 
   const EnginePanel = ({
     num, modelValue, setModelValue, isEditingState, result, onApply, onSave, onSaveReplace, onDuplicateSave
@@ -1120,42 +1120,130 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplace
         </div>
       )}
 
-      {/* Action Buttons - Categorized */}
+      {/* Action Buttons - Customizable */}
       <div className="space-y-3 mb-6 p-4 bg-muted/30 rounded-lg">
-        <div>
-          <Label className="text-xs text-muted-foreground mb-1.5 block">ניסוח ושפה</Label>
-          <div className="flex flex-wrap gap-1.5">
-            <ActionBtn action="improve" label="שפר ניסוח" icon={Wand2} />
-            <ActionBtn action="grammar" label="דקדוק ואיות" icon={CheckCheck} />
-            <ActionBtn action="punctuation" label="פיסוק" icon={Quote} />
-            <ActionBtn action="readable" label="זורם לקריאה" icon={BookOpen} />
+        {/* Toolbar: view mode + add + reset */}
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <div className="flex items-center gap-1">
+            <Button
+              variant={customActions.viewMode === 'grid' ? 'default' : 'ghost'}
+              size="sm" className="h-7 w-7 p-0"
+              onClick={() => customActions.setViewMode('grid')}
+              title="תצוגת רשת"
+            ><LayoutGrid className="w-3.5 h-3.5" /></Button>
+            <Button
+              variant={customActions.viewMode === 'list' ? 'default' : 'ghost'}
+              size="sm" className="h-7 w-7 p-0"
+              onClick={() => customActions.setViewMode('list')}
+              title="תצוגת רשימה"
+            ><LayoutList className="w-3.5 h-3.5" /></Button>
+            <Button
+              variant={customActions.viewMode === 'compact' ? 'default' : 'ghost'}
+              size="sm" className="h-7 w-7 p-0"
+              onClick={() => customActions.setViewMode('compact')}
+              title="תצוגה מצומצמת"
+            ><Rows3 className="w-3.5 h-3.5" /></Button>
+          </div>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost" size="sm" className="h-7 text-xs gap-1"
+              onClick={() => {
+                setNewActionLabel(''); setNewActionPrompt(''); setNewActionIcon('Wand2'); setNewActionCategory('custom');
+                setShowAddAction(true);
+              }}
+            ><Plus className="w-3 h-3" /> הוסף פעולה</Button>
+            <Button
+              variant="ghost" size="sm" className="h-7 text-xs gap-1"
+              onClick={() => customActions.resetToDefaults()}
+              title="אפס לברירת מחדל"
+            ><RotateCw className="w-3 h-3" /></Button>
           </div>
         </div>
 
-        <div>
-          <Label className="text-xs text-muted-foreground mb-1.5 block">מבנה</Label>
-          <div className="flex flex-wrap gap-1.5">
-            <ActionBtn action="paragraphs" label="חלק לפסקאות" icon={AlignJustify} />
-            <ActionBtn action="headings" label="כותרות" icon={Heading} />
-            <ActionBtn action="bullets" label="נקודות מפתח" icon={List} />
+        {/* Dynamic action categories */}
+        {customActions.groupedActions.map(group => (
+          <div key={group.category}>
+            <Label className="text-xs text-muted-foreground mb-1.5 block">{group.label}</Label>
+            <div className={
+              customActions.viewMode === 'grid' ? 'flex flex-wrap gap-1.5' :
+              customActions.viewMode === 'list' ? 'flex flex-col gap-1' :
+              'flex flex-wrap gap-0.5'
+            }>
+              {group.actions.map(action => {
+                // Special built-in actions (translate, tone) are rendered separately below
+                if (action.id === 'translate' || action.id === 'tone') return null;
+                const IconComp = getIconComponent(action.icon);
+                return (
+                  <div key={action.id} className="group relative inline-flex">
+                    {customActions.viewMode === 'list' ? (
+                      <div className="flex items-center gap-2 w-full">
+                        <Button
+                          variant={lastAction === action.id ? "default" : "secondary"}
+                          size="sm"
+                          disabled={isLoading || noText}
+                          className="text-xs flex-1 justify-start"
+                          onClick={() => runBoth(action.id as EditAction)}
+                        >
+                          <IconComp className="w-3 h-3 ml-1 flex-shrink-0" />
+                          {action.label}
+                        </Button>
+                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => setEditingAction(action)} title="ערוך">
+                          <Pencil className="w-3 h-3" />
+                        </Button>
+                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity text-destructive" onClick={() => customActions.deleteAction(action.id)} title="מחק">
+                          <Trash2 className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    ) : customActions.viewMode === 'compact' ? (
+                      <>
+                        <Button
+                          variant={lastAction === action.id ? "default" : "secondary"}
+                          size="sm"
+                          disabled={isLoading || noText}
+                          className="text-xs h-7 px-1.5"
+                          onClick={() => runBoth(action.id as EditAction)}
+                          title={action.label}
+                        >
+                          <IconComp className="w-3.5 h-3.5" />
+                        </Button>
+                        <div className="absolute -top-1 -left-1 hidden group-hover:flex gap-0.5 z-10 bg-background rounded shadow-sm border p-0.5">
+                          <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => setEditingAction(action)}><Pencil className="w-2.5 h-2.5" /></Button>
+                          <Button variant="ghost" size="sm" className="h-5 w-5 p-0 text-destructive" onClick={() => customActions.deleteAction(action.id)}><Trash2 className="w-2.5 h-2.5" /></Button>
+                        </div>
+                      </>
+                    ) : (
+                      /* grid (default) */
+                      <>
+                        <Button
+                          variant={lastAction === action.id ? "default" : "secondary"}
+                          size="sm"
+                          disabled={isLoading || noText}
+                          className="text-xs"
+                          onClick={() => runBoth(action.id as EditAction)}
+                        >
+                          <IconComp className="w-3 h-3 ml-1" />
+                          {action.label}
+                        </Button>
+                        <div className="absolute -top-1 -right-1 hidden group-hover:flex gap-0.5 z-10 bg-background rounded shadow-sm border p-0.5">
+                          <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => setEditingAction(action)} title="ערוך"><Pencil className="w-2.5 h-2.5" /></Button>
+                          <Button variant="ghost" size="sm" className="h-5 w-5 p-0 text-destructive" onClick={() => customActions.deleteAction(action.id)} title="מחק"><Trash2 className="w-2.5 h-2.5" /></Button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        ))}
 
+        {/* Special: translate + tone (always shown in special category) */}
         <div>
-          <Label className="text-xs text-muted-foreground mb-1.5 block">אורך</Label>
-          <div className="flex flex-wrap gap-1.5">
-            <ActionBtn action="expand" label="הרחב" icon={Maximize2} />
-            <ActionBtn action="shorten" label="קצר" icon={Minimize2} />
-            <ActionBtn action="summarize" label="סכם" icon={FileText} />
-          </div>
-        </div>
-
-        <div>
-          <Label className="text-xs text-muted-foreground mb-1.5 block">מיוחד</Label>
-          <div className="flex flex-wrap gap-1.5">
-            <ActionBtn action="sources" label="הוסף מקורות" icon={FileText} />
-            <ActionBtn action="speakers" label="זהה דוברים" icon={Users} />
-
+          <div className={
+            customActions.viewMode === 'grid' ? 'flex flex-wrap gap-1.5' :
+            customActions.viewMode === 'list' ? 'flex flex-col gap-1' :
+            'flex flex-wrap gap-0.5'
+          }>
             {/* Translate with language picker */}
             <Popover>
               <PopoverTrigger asChild>
@@ -1166,7 +1254,7 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplace
                   className="text-xs"
                 >
                   <Languages className="w-3 h-3 ml-1" />
-                  תרגם
+                  {customActions.viewMode !== 'compact' && 'תרגם'}
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-52 p-2" dir="rtl">
@@ -1197,7 +1285,7 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplace
                   className="text-xs"
                 >
                   <Volume2 className="w-3 h-3 ml-1" />
-                  שנה טון
+                  {customActions.viewMode !== 'compact' && 'שנה טון'}
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-36 p-2" dir="rtl">
@@ -1251,6 +1339,160 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplace
                 {isLoading ? <Loader2 className="w-4 h-4 animate-spin ml-2" /> : null}
                 בצע עריכה
               </Button>
+            </DialogContent>
+          </Dialog>
+
+          {/* Edit Action Dialog */}
+          <Dialog open={!!editingAction} onOpenChange={(open) => { if (!open) setEditingAction(null); }}>
+            <DialogContent dir="rtl" className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>עריכת פעולה: {editingAction?.label}</DialogTitle>
+              </DialogHeader>
+              {editingAction && (
+                <div className="space-y-3">
+                  <div>
+                    <Label className="text-xs mb-1 block">שם הפעולה</Label>
+                    <Input
+                      value={editingAction.label}
+                      onChange={(e) => setEditingAction({ ...editingAction, label: e.target.value })}
+                      dir="rtl"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs mb-1 block">הוראות (prompt)</Label>
+                    <Textarea
+                      value={editingAction.prompt}
+                      onChange={(e) => setEditingAction({ ...editingAction, prompt: e.target.value })}
+                      className="min-h-[120px] text-right text-xs"
+                      dir="rtl"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs mb-1 block">אייקון</Label>
+                    <div className="flex flex-wrap gap-1">
+                      {ICON_OPTIONS.map(iconName => {
+                        const IC = getIconComponent(iconName);
+                        return (
+                          <Button
+                            key={iconName}
+                            variant={editingAction.icon === iconName ? 'default' : 'outline'}
+                            size="sm" className="h-8 w-8 p-0"
+                            onClick={() => setEditingAction({ ...editingAction, icon: iconName })}
+                            title={iconName}
+                          >
+                            <IC className="w-4 h-4" />
+                          </Button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div>
+                    <Label className="text-xs mb-1 block">קטגוריה</Label>
+                    <select
+                      className="w-full rounded border p-1.5 text-sm bg-background"
+                      value={editingAction.category}
+                      onChange={(e) => setEditingAction({ ...editingAction, category: e.target.value as any })}
+                    >
+                      <option value="language">ניסוח ושפה</option>
+                      <option value="structure">מבנה</option>
+                      <option value="length">אורך</option>
+                      <option value="special">מיוחד</option>
+                      <option value="custom">מותאם אישית</option>
+                    </select>
+                  </div>
+                  <Button
+                    className="w-full"
+                    onClick={() => {
+                      if (editingAction) {
+                        customActions.updateAction(editingAction.id, {
+                          label: editingAction.label,
+                          prompt: editingAction.prompt,
+                          icon: editingAction.icon,
+                          category: editingAction.category,
+                        });
+                        setEditingAction(null);
+                      }
+                    }}
+                  >שמור שינויים</Button>
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
+
+          {/* Add Action Dialog */}
+          <Dialog open={showAddAction} onOpenChange={setShowAddAction}>
+            <DialogContent dir="rtl" className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>הוסף פעולה חדשה</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-xs mb-1 block">שם הפעולה</Label>
+                  <Input
+                    value={newActionLabel}
+                    onChange={(e) => setNewActionLabel(e.target.value)}
+                    placeholder="למשל: סדר טבלה"
+                    dir="rtl"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs mb-1 block">הוראות (prompt)</Label>
+                  <Textarea
+                    value={newActionPrompt}
+                    onChange={(e) => setNewActionPrompt(e.target.value)}
+                    placeholder="הזן את ההוראות למנוע ה-AI..."
+                    className="min-h-[120px] text-right text-xs"
+                    dir="rtl"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs mb-1 block">אייקון</Label>
+                  <div className="flex flex-wrap gap-1">
+                    {ICON_OPTIONS.map(iconName => {
+                      const IC = getIconComponent(iconName);
+                      return (
+                        <Button
+                          key={iconName}
+                          variant={newActionIcon === iconName ? 'default' : 'outline'}
+                          size="sm" className="h-8 w-8 p-0"
+                          onClick={() => setNewActionIcon(iconName)}
+                          title={iconName}
+                        >
+                          <IC className="w-4 h-4" />
+                        </Button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-xs mb-1 block">קטגוריה</Label>
+                  <select
+                    className="w-full rounded border p-1.5 text-sm bg-background"
+                    value={newActionCategory}
+                    onChange={(e) => setNewActionCategory(e.target.value as any)}
+                  >
+                    <option value="language">ניסוח ושפה</option>
+                    <option value="structure">מבנה</option>
+                    <option value="length">אורך</option>
+                    <option value="special">מיוחד</option>
+                    <option value="custom">מותאם אישית</option>
+                  </select>
+                </div>
+                <Button
+                  className="w-full"
+                  disabled={!newActionLabel.trim() || !newActionPrompt.trim()}
+                  onClick={() => {
+                    customActions.addAction({
+                      label: newActionLabel.trim(),
+                      prompt: newActionPrompt.trim(),
+                      icon: newActionIcon,
+                      category: newActionCategory,
+                    });
+                    setShowAddAction(false);
+                    setNewActionLabel(''); setNewActionPrompt('');
+                  }}
+                >הוסף פעולה</Button>
+              </div>
             </DialogContent>
           </Dialog>
 
@@ -1369,9 +1611,9 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplace
                 </div>
 
                 <div className="space-y-1 flex items-end">
-                  <Button className="w-full" onClick={runBenchmark} disabled={isBenchmarking || isLoading}>
-                    {isBenchmarking ? <Loader2 className="w-4 h-4 animate-spin ml-1" /> : <Gauge className="w-4 h-4 ml-1" />}
-                    הרץ Benchmark
+                  <Button className="w-full" onClick={runBenchmark} disabled={isLoading}>
+                    {bgQueue.runningCount > 0 ? <Loader2 className="w-4 h-4 animate-spin ml-1" /> : <Gauge className="w-4 h-4 ml-1" />}
+                    {bgQueue.activeCount > 0 ? `הוסף Benchmark (${bgQueue.activeCount} בתור)` : 'הרץ Benchmark ברקע'}
                   </Button>
                 </div>
               </div>
@@ -1392,6 +1634,75 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplace
                   {benchmarkSaveCloud ? 'מופעל: שמירת היסטוריה בענן' : 'כבוי: שמירת היסטוריה בענן'}
                 </Button>
               </div>
+
+              {/* ── Background Jobs Panel ── */}
+              {bgQueue.jobs.length > 0 && (
+                <div className="rounded-md border p-3 space-y-2 bg-muted/10">
+                  <div className="flex items-center justify-between">
+                    <div className="font-semibold text-sm flex items-center gap-1.5">
+                      <Cpu className="w-4 h-4" />
+                      משימות ברקע ({bgQueue.activeCount} פעילות)
+                    </div>
+                    {bgQueue.jobs.some(j => j.status === 'completed' || j.status === 'failed' || j.status === 'cancelled') && (
+                      <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => bgQueue.clearFinished()}>
+                        <Trash2 className="w-3 h-3 ml-1" />
+                        נקה הושלמו
+                      </Button>
+                    )}
+                  </div>
+                  {bgQueue.jobs.map(job => (
+                    <div key={job.id} className="rounded border p-2 text-xs space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">
+                          {ACTION_LABELS[job.action]} — {job.model1Label} vs {job.model2Label}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          {job.status === 'running' && (
+                            <Button variant="ghost" size="sm" className="h-5 px-1.5" onClick={() => bgQueue.cancel(job.id)} title="עצור">
+                              <StopCircle className="w-3 h-3 text-destructive" />
+                            </Button>
+                          )}
+                          {job.status === 'pending' && (
+                            <Button variant="ghost" size="sm" className="h-5 px-1.5" onClick={() => bgQueue.cancel(job.id)} title="בטל">
+                              <StopCircle className="w-3 h-3 text-muted-foreground" />
+                            </Button>
+                          )}
+                          {(job.status === 'failed' || job.status === 'cancelled') && (
+                            <Button variant="ghost" size="sm" className="h-5 px-1.5" onClick={() => bgQueue.resume(job.id)} title="המשך מאותה נקודה">
+                              <RotateCcw className="w-3 h-3 text-primary" />
+                            </Button>
+                          )}
+                          {(job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') && (
+                            <Button variant="ghost" size="sm" className="h-5 px-1.5" onClick={() => bgQueue.remove(job.id)} title="מחק">
+                              <Trash2 className="w-3 h-3" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Progress value={(job.completedRounds / job.totalRounds) * 100} className="h-1.5 flex-1" />
+                        <span className="text-muted-foreground whitespace-nowrap">
+                          {job.completedRounds}/{job.totalRounds} סבבים
+                        </span>
+                        <Badge variant={
+                          job.status === 'completed' ? 'default' :
+                          job.status === 'running' ? 'secondary' :
+                          job.status === 'failed' ? 'destructive' :
+                          job.status === 'cancelled' ? 'outline' : 'outline'
+                        } className="text-[10px] h-4">
+                          {job.status === 'pending' ? 'ממתין' :
+                           job.status === 'running' ? 'רץ...' :
+                           job.status === 'completed' ? 'הושלם ✅' :
+                           job.status === 'failed' ? 'נכשל ❌' : 'נעצר ⏸️'}
+                        </Badge>
+                      </div>
+                      {job.error && (
+                        <div className="text-destructive text-[10px]">{job.error}</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {benchmarkSummary && (
                 <div className="space-y-3 mt-2">

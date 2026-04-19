@@ -18,7 +18,8 @@ import {
   ShieldCheck, Mic, SlidersHorizontal, Sparkles, Brain,
   Wind, Radio, Filter, Settings2, ChevronDown, ChevronUp,
   Save, Trash2, AlertTriangle, Scissors,
-  Gauge, Activity, Power, Search, BarChart3,
+  Gauge, Activity, Power, Search, BarChart3, X,
+  Upload, Square, Circle, MicOff, Layers,
 } from "lucide-react";
 
 export interface WordTiming {
@@ -139,6 +140,57 @@ const EQ_BANDS_31 = [
 
 type EqBandCount = 10 | 31;
 const EQ_BANDS_10_INDICES = [2, 5, 8, 11, 14, 17, 20, 23, 26, 29]; // indices into EQ_BANDS_31 for the classic 10-band
+
+// ─── Frequency Range Tooltips (Hebrew) ────────────────────────
+const EQ_FREQ_TOOLTIPS: Record<number, string> = {
+  20: 'סאב-בס עמוק — רעידות, רעש רקע נמוך',
+  25: 'סאב-בס — תהודת חדר, רטט',
+  31: 'סאב-בס — רעש רוח, דפיקות',
+  40: 'בס נמוך — עומק קולי, רעש מזגן',
+  50: 'בס — זמזום חשמל (50Hz), רעש רשת',
+  63: 'בס — גוף הקול הגברי, באס גיטרה',
+  80: 'בס עליון — חום בקול, בום בחדר',
+  100: 'בס עליון — מלאות הקול, תהודת מיקרופון',
+  125: 'מעבר לאמצעים — עובי הדיבור',
+  160: 'אמצעים נמוכים — גוף הקול',
+  200: 'אמצעים נמוכים — צליל "קרטוני", מאדי',
+  250: 'אמצעים — צליל "קופסה", טשטוש',
+  315: 'אמצעים — בהירות ראשונית',
+  400: 'אמצעים — נזליות, אף',
+  500: 'אמצעים — ליבת הדיבור, בהירות',
+  630: 'אמצעים עליונים — נוכחות קולית',
+  800: 'אמצעים עליונים — חדות דיבור',
+  1000: 'תדר התייחסות (1kHz) — ליבת השמיעה',
+  1250: 'נוכחות — בהירות הגה',
+  1600: 'נוכחות — חדות עיצורים',
+  2000: 'נוכחות גבוהה — "ש", "ס", אינטליגנציה',
+  2500: 'חדות — הבנת דיבור, תחושת קרבה',
+  3150: 'חדות עליונה — חיתוך דרך המיקס',
+  4000: 'ברק — אטאק, "ת", "ק", "פ"',
+  5000: 'ברק עליון — סיבילנס, שריקה',
+  6300: 'אוויר נמוך — נשימתיות, דה-אסינג',
+  8000: 'אוויר — פתיחות, צלילי "ס"',
+  10000: 'אוויר גבוה — נוצץ, ברק',
+  12500: 'סופר-אוויר — הרמוניות עליונות',
+  16000: 'אולטרה — אוויריות דקה',
+  20000: 'אולטרה גבוה — נוכחות סטריאופונית',
+};
+
+// ─── EQ Slider Visual Themes ──────────────────────────────────
+type EqSliderTheme = 'default' | 'neon' | 'led' | 'glass' | 'gradient' | 'minimal' | 'console' | 'vu' | 'studio' | 'retro' | 'cyber';
+const EQ_SLIDER_THEMES: { id: EqSliderTheme; label: string; icon: string }[] = [
+  { id: 'default', label: 'רגיל', icon: '▦' },
+  { id: 'console', label: 'מיקסר', icon: '🎛️' },
+  { id: 'vu', label: 'VU מד', icon: '🟩' },
+  { id: 'studio', label: 'סטודיו', icon: '🎚️' },
+  { id: 'retro', label: 'רטרו', icon: '📻' },
+  { id: 'cyber', label: 'סייבר', icon: '⚡' },
+  { id: 'neon', label: 'ניאון', icon: '💡' },
+  { id: 'led', label: 'LED', icon: '💚' },
+  { id: 'glass', label: 'זכוכית', icon: '🔮' },
+  { id: 'gradient', label: 'גרדיאנט', icon: '🌈' },
+  { id: 'minimal', label: 'מינימלי', icon: '◻️' },
+];
 
 // ─── AI Noise Reduction Presets ───────────────────────────────
 interface NoisePreset {
@@ -269,6 +321,15 @@ interface UserNoisePreset {
 }
 
 const USER_PRESETS_KEY = 'sync_audio_user_presets_v1';
+const USER_EQ_PRESETS_KEY = 'sync_audio_user_eq_presets_v1';
+
+interface UserEqPreset {
+  id: string;
+  name: string;
+  gains: number[];
+  qValues: number[];
+  createdAt: number;
+}
 
 function encodeWavFromFloat32(samples: Float32Array, sampleRate: number): Blob {
   const bytesPerSample = 2;
@@ -369,6 +430,23 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
   const deRumbleRef = useRef<BiquadFilterNode | null>(null);
   const presenceRef = useRef<BiquadFilterNode | null>(null);
   const warmthRef = useRef<BiquadFilterNode | null>(null);
+  // Vocal Doubler nodes
+  const doublerDryRef = useRef<GainNode | null>(null);
+  const doublerWet1Ref = useRef<GainNode | null>(null);
+  const doublerWet2Ref = useRef<GainNode | null>(null);
+  const doublerDelay1Ref = useRef<DelayNode | null>(null);
+  const doublerDelay2Ref = useRef<DelayNode | null>(null);
+  const doublerLfo1Ref = useRef<OscillatorNode | null>(null);
+  const doublerLfo2Ref = useRef<OscillatorNode | null>(null);
+  const doublerLfoGain1Ref = useRef<GainNode | null>(null);
+  const doublerLfoGain2Ref = useRef<GainNode | null>(null);
+  const doublerMergeRef = useRef<GainNode | null>(null);
+  // Vocal Overlay (personal sync) nodes
+  const overlayGainRef = useRef<GainNode | null>(null);
+  const overlaySourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+  const micStreamRef = useRef<MediaStream | null>(null);
   // Equalizer
   const eqCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const eqAnimFrameRef = useRef<number>(0);
@@ -387,16 +465,49 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
   const [isNoisePanelCollapsed, setIsNoisePanelCollapsed] = useState(false);
   const [isFocusPanelCollapsed, setIsFocusPanelCollapsed] = useState(false);
   const [isMixerConsoleCollapsed, setIsMixerConsoleCollapsed] = useState(false);
+  const [isMixerFullscreen, setIsMixerFullscreen] = useState(false);
   const [outputGain, setOutputGain] = useState(1.0); // 0.0 to 3.0 (multiply)
   const [showEqualizer, setShowEqualizer] = useState(true);
   // 31-band parametric EQ user controls (dB, -12 to +12)
   const [eqGains, setEqGains] = useState<number[]>(() => new Array(31).fill(0));
+  const [eqQValues, setEqQValues] = useState<number[]>(() => EQ_BANDS_31.map(b => b.q));
   const [eqBandCount, setEqBandCount] = useState<EqBandCount>(31);
-  const [eqViewMode, setEqViewMode] = useState<'vertical' | 'horizontal' | 'circular'>('vertical');
+  const [eqViewMode, setEqViewMode] = useState<'vertical' | 'horizontal' | 'circular' | 'parametric'>('vertical');
+  const [selectedParamBand, setSelectedParamBand] = useState<number | null>(null);
   const [advVerticalView, setAdvVerticalView] = useState(false);
   const [eqVizStyle, setEqVizStyle] = useState<'bars' | 'mirror' | 'wave' | 'circle' | 'spectrum' | 'flame' | 'radar' | 'dots'>('bars');
+  const [eqSliderTheme, setEqSliderTheme] = useState<EqSliderTheme>('default');
+  const [userEqPresets, setUserEqPresets] = useState<UserEqPreset[]>(() => {
+    try { const raw = localStorage.getItem(USER_EQ_PRESETS_KEY); return raw ? JSON.parse(raw) : []; } catch { return []; }
+  });
+  const [userEqPresetName, setUserEqPresetName] = useState('');
+  const [showSaveEqPreset, setShowSaveEqPreset] = useState(false);
   const [eqStyleBarCollapsed, setEqStyleBarCollapsed] = useState(false);
   const [eqCanvasCollapsed, setEqCanvasCollapsed] = useState(false);
+  // Vocal Doubler state
+  const [doublerEnabled, setDoublerEnabled] = useState(false);
+  const [doublerMix, setDoublerMix] = useState(0.4); // 0=dry only, 1=wet only
+  const [doublerDetune1, setDoublerDetune1] = useState(7); // cents for voice 1
+  const [doublerDetune2, setDoublerDetune2] = useState(-5); // cents for voice 2
+  const [doublerDelay1Ms, setDoublerDelay1Ms] = useState(18); // ms
+  const [doublerDelay2Ms, setDoublerDelay2Ms] = useState(25); // ms
+  const [doublerDepth, setDoublerDepth] = useState(0.002); // LFO depth (seconds)
+  const [doublerRate, setDoublerRate] = useState(0.8); // LFO rate Hz
+  const [doublerMode, setDoublerMode] = useState<'chorus' | 'harmony' | 'octave'>('chorus');
+  // Vocal Overlay (personal sync) state
+  const [overlayBuffer, setOverlayBuffer] = useState<AudioBuffer | null>(null);
+  const [overlayFileName, setOverlayFileName] = useState<string>('');
+  const [overlayVolume, setOverlayVolume] = useState(0.8);
+  const [overlayOffset, setOverlayOffset] = useState(0); // seconds — where in the main track to start overlay
+  const [overlayTrimStart, setOverlayTrimStart] = useState(0); // seconds — trim from beginning of overlay
+  const [overlayTrimEnd, setOverlayTrimEnd] = useState(0); // seconds — will be set to overlay duration
+  const [overlayEnabled, setOverlayEnabled] = useState(false);
+  const [overlayIsPlaying, setOverlayIsPlaying] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const recordingTimerRef = useRef<number>(0);
+  const [showOverlayPanel, setShowOverlayPanel] = useState(false);
+  const overlayFileInputRef = useRef<HTMLInputElement | null>(null);
   const [eqStyleBarHover, setEqStyleBarHover] = useState(false);
   const [eqCanvasHover, setEqCanvasHover] = useState(false);
   const [staticWaveCollapsed, setStaticWaveCollapsed] = useState(false);
@@ -407,6 +518,34 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
   // Helper: get/set individual band gain
   const setEqBand = useCallback((index: number, value: number) => {
     setEqGains(prev => { const next = [...prev]; next[index] = value; return next; });
+  }, []);
+  // Helper: get/set individual band Q (bandwidth)
+  const setEqQ = useCallback((index: number, value: number) => {
+    setEqQValues(prev => { const next = [...prev]; next[index] = value; return next; });
+  }, []);
+  // Save/delete custom EQ presets (localStorage)
+  const saveUserEqPreset = useCallback((name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const newPreset: UserEqPreset = { id: `eq_${Date.now()}`, name: trimmed, gains: [...eqGains], qValues: [...eqQValues], createdAt: Date.now() };
+    setUserEqPresets(prev => {
+      const next = [...prev, newPreset];
+      try { localStorage.setItem(USER_EQ_PRESETS_KEY, JSON.stringify(next)); } catch { /* quota */ }
+      return next;
+    });
+    setUserEqPresetName('');
+    setShowSaveEqPreset(false);
+  }, [eqGains, eqQValues]);
+  const deleteUserEqPreset = useCallback((id: string) => {
+    setUserEqPresets(prev => {
+      const next = prev.filter(p => p.id !== id);
+      try { localStorage.setItem(USER_EQ_PRESETS_KEY, JSON.stringify(next)); } catch { /* quota */ }
+      return next;
+    });
+  }, []);
+  const loadUserEqPreset = useCallback((preset: UserEqPreset) => {
+    setEqGains([...preset.gains]);
+    if (preset.qValues?.length === 31) setEqQValues([...preset.qValues]);
   }, []);
   // Legacy aliases for backward compat with presets (map to 31-band indices)
   const eq31 = eqGains[2]; const eq63 = eqGains[5]; const eq125 = eqGains[8];
@@ -440,6 +579,16 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
   useEffect(() => {
     localStorage.setItem(BOOKMARK_STORAGE, JSON.stringify(bookmarks));
   }, [bookmarks]);
+
+  // Escape key closes mixer fullscreen
+  useEffect(() => {
+    if (!isMixerFullscreen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsMixerFullscreen(false);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [isMixerFullscreen]);
 
   const addBookmark = useCallback((time: number) => {
     const COLORS = ['#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899'];
@@ -804,7 +953,68 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
     warmth.connect(compressor);
     compressor.connect(eqNodes[0]);
     eqNodes[eqNodes.length - 1].connect(outGain);
-    outGain.connect(gain);
+
+    // ─── Vocal Doubler (chorus/doubling effect) ───
+    // Dry path
+    const doublerDry = ctx.createGain();
+    doublerDry.gain.value = 1.0; // controlled by doublerMix
+    doublerDryRef.current = doublerDry;
+    // Merge node (collects dry + wet)
+    const doublerMerge = ctx.createGain();
+    doublerMerge.gain.value = 1.0;
+    doublerMergeRef.current = doublerMerge;
+    // Wet voice 1: slight delay + LFO modulation
+    const delay1 = ctx.createDelay(0.2);
+    delay1.delayTime.value = 0.018; // 18ms
+    doublerDelay1Ref.current = delay1;
+    const wet1 = ctx.createGain();
+    wet1.gain.value = 0; // off by default
+    doublerWet1Ref.current = wet1;
+    const lfo1 = ctx.createOscillator();
+    lfo1.type = 'sine';
+    lfo1.frequency.value = 0.8;
+    const lfoGain1 = ctx.createGain();
+    lfoGain1.gain.value = 0.002; // depth in seconds
+    lfo1.connect(lfoGain1);
+    lfoGain1.connect(delay1.delayTime);
+    lfo1.start();
+    doublerLfo1Ref.current = lfo1;
+    doublerLfoGain1Ref.current = lfoGain1;
+    // Wet voice 2: different delay + LFO
+    const delay2 = ctx.createDelay(0.2);
+    delay2.delayTime.value = 0.025; // 25ms
+    doublerDelay2Ref.current = delay2;
+    const wet2 = ctx.createGain();
+    wet2.gain.value = 0; // off by default
+    doublerWet2Ref.current = wet2;
+    const lfo2 = ctx.createOscillator();
+    lfo2.type = 'sine';
+    lfo2.frequency.value = 1.1; // slightly different rate
+    const lfoGain2 = ctx.createGain();
+    lfoGain2.gain.value = 0.003;
+    lfo2.connect(lfoGain2);
+    lfoGain2.connect(delay2.delayTime);
+    lfo2.start();
+    doublerLfo2Ref.current = lfo2;
+    doublerLfoGain2Ref.current = lfoGain2;
+    // Connect doubler paths: outGain → dry → merge; outGain → delay → wet → merge
+    outGain.connect(doublerDry);
+    doublerDry.connect(doublerMerge);
+    outGain.connect(delay1);
+    delay1.connect(wet1);
+    wet1.connect(doublerMerge);
+    outGain.connect(delay2);
+    delay2.connect(wet2);
+    wet2.connect(doublerMerge);
+
+    doublerMerge.connect(gain);
+
+    // Overlay (personal sync) gain — secondary audio source mixes in here
+    const overlayGain = ctx.createGain();
+    overlayGain.gain.value = 0.8;
+    overlayGainRef.current = overlayGain;
+    overlayGain.connect(gain);
+
     gain.connect(analyser);
     analyser.connect(ctx.destination);
   }, []);
@@ -889,12 +1099,190 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
     }
   }, [outputGain]);
 
-  // ─── 31-band EQ real-time update ─────────────────────────────
+  // ─── 31-band EQ real-time update (gain + Q) ──────────────────
   useEffect(() => {
     eqBandsRef.current.forEach((node, i) => {
       if (node) node.gain.value = eqGains[i] || 0;
     });
   }, [eqGains]);
+  useEffect(() => {
+    eqBandsRef.current.forEach((node, i) => {
+      if (node && eqQValues[i] != null) node.Q.value = eqQValues[i];
+    });
+  }, [eqQValues]);
+
+  // ─── Vocal Doubler real-time param sync ──────────────────────
+  useEffect(() => {
+    if (!doublerDryRef.current || !doublerWet1Ref.current || !doublerWet2Ref.current) return;
+    if (doublerEnabled) {
+      // dry = 1 - mix, each wet voice = mix * 0.5
+      doublerDryRef.current.gain.value = 1 - doublerMix * 0.5;
+      doublerWet1Ref.current.gain.value = doublerMix * 0.6;
+      doublerWet2Ref.current.gain.value = doublerMix * 0.5;
+    } else {
+      doublerDryRef.current.gain.value = 1;
+      doublerWet1Ref.current.gain.value = 0;
+      doublerWet2Ref.current.gain.value = 0;
+    }
+  }, [doublerEnabled, doublerMix]);
+
+  useEffect(() => {
+    if (doublerDelay1Ref.current) doublerDelay1Ref.current.delayTime.value = doublerDelay1Ms / 1000;
+    if (doublerDelay2Ref.current) doublerDelay2Ref.current.delayTime.value = doublerDelay2Ms / 1000;
+  }, [doublerDelay1Ms, doublerDelay2Ms]);
+
+  useEffect(() => {
+    if (doublerLfo1Ref.current) doublerLfo1Ref.current.frequency.value = doublerRate;
+    if (doublerLfo2Ref.current) doublerLfo2Ref.current.frequency.value = doublerRate * 1.37; // offset for natural feel
+  }, [doublerRate]);
+
+  useEffect(() => {
+    // Update LFO depth (modulation amount) and detune offsets
+    if (doublerLfoGain1Ref.current) doublerLfoGain1Ref.current.gain.value = doublerDepth;
+    if (doublerLfoGain2Ref.current) doublerLfoGain2Ref.current.gain.value = doublerDepth * 1.3;
+    if (doublerDelay1Ref.current) {
+      doublerDelay1Ref.current.delayTime.value = doublerDelay1Ms / 1000 + (doublerDetune1 * 0.00002);
+    }
+    if (doublerDelay2Ref.current) {
+      doublerDelay2Ref.current.delayTime.value = doublerDelay2Ms / 1000 + (Math.abs(doublerDetune2) * 0.00002);
+    }
+  }, [doublerDetune1, doublerDetune2, doublerDelay1Ms, doublerDelay2Ms, doublerDepth]);
+
+  useEffect(() => {
+    // Mode presets
+    if (!doublerEnabled) return;
+    if (doublerMode === 'chorus') {
+      setDoublerDetune1(7); setDoublerDetune2(-5);
+      setDoublerDelay1Ms(18); setDoublerDelay2Ms(25);
+      setDoublerDepth(0.002); setDoublerRate(0.8);
+    } else if (doublerMode === 'harmony') {
+      setDoublerDetune1(15); setDoublerDetune2(-12);
+      setDoublerDelay1Ms(22); setDoublerDelay2Ms(30);
+      setDoublerDepth(0.004); setDoublerRate(0.6);
+    } else if (doublerMode === 'octave') {
+      setDoublerDetune1(25); setDoublerDetune2(-20);
+      setDoublerDelay1Ms(12); setDoublerDelay2Ms(35);
+      setDoublerDepth(0.006); setDoublerRate(0.4);
+    }
+  }, [doublerMode, doublerEnabled]);
+
+  // ─── Vocal Overlay callbacks ─────────────────────────────────
+  // Import overlay from file
+  const handleOverlayFileImport = useCallback(async (file: File) => {
+    const ctx = audioContextRef.current;
+    if (!ctx) return;
+    try {
+      const arrayBuf = await file.arrayBuffer();
+      const decoded = await ctx.decodeAudioData(arrayBuf);
+      setOverlayBuffer(decoded);
+      setOverlayFileName(file.name);
+      setOverlayTrimStart(0);
+      setOverlayTrimEnd(decoded.duration);
+      setOverlayEnabled(true);
+    } catch (err) {
+      console.error('Failed to decode overlay audio:', err);
+    }
+  }, []);
+
+  // Start microphone recording
+  const startOverlayRecording = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+      micStreamRef.current = stream;
+      recordedChunksRef.current = [];
+      const recorder = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm' });
+      mediaRecorderRef.current = recorder;
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunksRef.current.push(e.data); };
+      recorder.onstop = async () => {
+        const blob = new Blob(recordedChunksRef.current, { type: recorder.mimeType });
+        const ctx = audioContextRef.current;
+        if (!ctx) return;
+        try {
+          const arrayBuf = await blob.arrayBuffer();
+          const decoded = await ctx.decodeAudioData(arrayBuf);
+          setOverlayBuffer(decoded);
+          setOverlayFileName('הקלטה חיה');
+          setOverlayTrimStart(0);
+          setOverlayTrimEnd(decoded.duration);
+          setOverlayEnabled(true);
+        } catch (err) { console.error('Failed to decode recording:', err); }
+        // Stop mic
+        stream.getTracks().forEach(t => t.stop());
+        micStreamRef.current = null;
+      };
+      recorder.start(200); // collect data every 200ms
+      setIsRecording(true);
+      setRecordingDuration(0);
+      // Use the overlay offset as the sync point — record starts at current playback position
+      setOverlayOffset(audioRef.current?.currentTime ?? 0);
+      const startTime = Date.now();
+      const timer = window.setInterval(() => setRecordingDuration((Date.now() - startTime) / 1000), 200);
+      recordingTimerRef.current = timer;
+    } catch (err) {
+      console.error('Microphone access denied:', err);
+    }
+  }, []);
+
+  const stopOverlayRecording = useCallback(() => {
+    if (mediaRecorderRef.current?.state === 'recording') {
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecording(false);
+    if (recordingTimerRef.current) { clearInterval(recordingTimerRef.current); recordingTimerRef.current = 0; }
+  }, []);
+
+  // Play overlay in sync with main track
+  const playOverlaySync = useCallback(() => {
+    const ctx = audioContextRef.current;
+    const buf = overlayBuffer;
+    if (!ctx || !buf || !overlayEnabled) return;
+    // Stop previous if playing
+    try { overlaySourceRef.current?.stop(); } catch { /* already stopped */ }
+    const source = ctx.createBufferSource();
+    source.buffer = buf;
+    source.connect(overlayGainRef.current || ctx.destination);
+    overlaySourceRef.current = source;
+    const mainTime = audioRef.current?.currentTime ?? 0;
+    const relativePos = mainTime - overlayOffset;
+    if (relativePos >= 0 && relativePos < (overlayTrimEnd - overlayTrimStart)) {
+      // Main track is within overlay range — start overlay from correct position
+      source.start(0, overlayTrimStart + relativePos, overlayTrimEnd - overlayTrimStart - relativePos);
+    } else if (relativePos < 0) {
+      // Main track hasn't reached overlay yet — schedule overlay to start later
+      source.start(ctx.currentTime + Math.abs(relativePos), overlayTrimStart, overlayTrimEnd - overlayTrimStart);
+    }
+    setOverlayIsPlaying(true);
+    source.onended = () => setOverlayIsPlaying(false);
+  }, [overlayBuffer, overlayEnabled, overlayOffset, overlayTrimStart, overlayTrimEnd]);
+
+  const stopOverlaySync = useCallback(() => {
+    try { overlaySourceRef.current?.stop(); } catch { /* ok */ }
+    setOverlayIsPlaying(false);
+  }, []);
+
+  // Sync overlay volume
+  useEffect(() => {
+    if (overlayGainRef.current) overlayGainRef.current.gain.value = overlayEnabled ? overlayVolume : 0;
+  }, [overlayVolume, overlayEnabled]);
+
+  // Auto-play/stop overlay with main track
+  useEffect(() => {
+    if (!overlayBuffer || !overlayEnabled) return;
+    if (isPlaying) {
+      playOverlaySync();
+    } else {
+      stopOverlaySync();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPlaying]);
+
+  // Cleanup recording on unmount
+  useEffect(() => {
+    return () => {
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+      micStreamRef.current?.getTracks().forEach(t => t.stop());
+    };
+  }, []);
 
   // ─── Frequency Spectrum (Equalizer) Visualization ────────────
   const drawEqualizer = useCallback(() => {
@@ -2585,13 +2973,27 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
               {mixerPanel}
 
               {/* ─── EQ + Processing Mixing Console ── */}
-              <div className="space-y-2 rounded-lg border bg-muted/20 p-3 group/panel-mixer">
+              <div className={`space-y-2 rounded-lg border bg-muted/20 p-3 group/panel-mixer transition-all ${isMixerFullscreen ? 'fixed inset-0 z-50 flex flex-col bg-background p-6' : ''}`}>
+                {isMixerFullscreen && <div className="fixed inset-0 -z-10 bg-background" />}
+                {/* When fullscreen, wrap everything above the player bar in a scrollable area */}
+                <div className={isMixerFullscreen ? 'flex-1 overflow-auto space-y-2 min-h-0' : 'contents'}>
                 <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold flex items-center gap-1.5">
+                  <p className={`font-semibold flex items-center gap-1.5 ${isMixerFullscreen ? 'text-sm' : 'text-xs'}`}>
                     <AudioLines className="w-3.5 h-3.5 text-primary no-theme-icon" />
                     מיקסר מקצועי (אקולייזר + עיבוד)
                   </p>
                   <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6"
+                      onClick={() => setIsMixerFullscreen((v) => !v)}
+                      title={isMixerFullscreen ? "מזער מיקסר" : "מיקסר מסך מלא"}
+                    >
+                      {isMixerFullscreen
+                        ? <Minimize2 className="w-3.5 h-3.5 no-theme-icon" />
+                        : <Maximize2 className="w-3.5 h-3.5 no-theme-icon" />}
+                    </Button>
                     <Button
                       variant="ghost"
                       size="icon"
@@ -2632,8 +3034,30 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                       onClick={() => setEqViewMode('circular')}
                       title="תצוגת כפתורים מעגליים"
                     >◒</button>
+                    <button
+                      className={`p-1 rounded text-[10px] transition-all ${eqViewMode === 'parametric' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'}`}
+                      onClick={() => setEqViewMode('parametric')}
+                      title="EQ פרמטרי גרפי עם Q"
+                    >∿</button>
                   </div>
                 </div>
+
+                {/* EQ Slider Theme Selector */}
+                {!isMixerConsoleCollapsed && (
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[10px] text-muted-foreground font-medium">עיצוב:</span>
+                    {EQ_SLIDER_THEMES.map((t) => (
+                      <button
+                        key={t.id}
+                        className={`px-1.5 py-0.5 rounded text-[9px] transition-all ${
+                          eqSliderTheme === t.id ? 'bg-primary text-primary-foreground shadow-sm' : 'bg-muted hover:bg-muted/80 text-muted-foreground'
+                        }`}
+                        onClick={() => setEqSliderTheme(t.id)}
+                        title={t.label}
+                      >{t.icon} {t.label}</button>
+                    ))}
+                  </div>
+                )}
 
                 {isMixerConsoleCollapsed && (
                   <p className="text-[11px] text-muted-foreground">המיקסר ממוזער. רחף על הכרטיס ולחץ על האייקון כדי לפתוח מחדש.</p>
@@ -2692,18 +3116,112 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                       </button>
                     );
                   })}
+                  {/* Save current as preset */}
+                  <button
+                    className="flex items-center gap-1 px-2 py-1 rounded-md border border-dashed border-primary/40 text-[11px] text-primary hover:bg-primary/10 transition-all"
+                    onClick={() => setShowSaveEqPreset(v => !v)}
+                    title="שמור פריסט מותאם אישית"
+                  >
+                    <Save className="w-3 h-3 no-theme-icon" />
+                    <span className="font-medium">שמור</span>
+                  </button>
                 </div>
 
-                {/* Unified Mixing Console (EQ + Processing) */}
+                {/* Save Custom EQ Preset Form */}
+                {showSaveEqPreset && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <input
+                      type="text"
+                      className="flex-1 min-w-[120px] max-w-[200px] h-7 rounded-md border bg-background px-2 text-xs"
+                      placeholder="שם הפריסט..."
+                      value={userEqPresetName}
+                      onChange={(e) => setUserEqPresetName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') saveUserEqPreset(userEqPresetName); }}
+                      autoFocus
+                    />
+                    <Button variant="default" size="sm" className="h-7 px-3 text-xs" onClick={() => saveUserEqPreset(userEqPresetName)} disabled={!userEqPresetName.trim()}>
+                      💾 שמור
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setShowSaveEqPreset(false)}>
+                      ביטול
+                    </Button>
+                  </div>
+                )}
+
+                {/* User Custom EQ Presets */}
+                {userEqPresets.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 items-center">
+                    <span className="text-[10px] text-muted-foreground">פריסטים שלי:</span>
+                    {userEqPresets.map((up) => {
+                      const isActive = up.gains.every((g, i) => eqGains[i] === g);
+                      return (
+                        <div key={up.id} className="flex items-center gap-0.5 group/upreset">
+                          <button
+                            className={`flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] transition-all
+                              ${isActive ? 'bg-primary text-primary-foreground border-primary shadow-sm' : 'border-border hover:bg-muted'}
+                            `}
+                            onClick={() => loadUserEqPreset(up)}
+                          >
+                            <span>⭐</span>
+                            <span className="font-medium">{up.name}</span>
+                          </button>
+                          <button
+                            className="opacity-0 group-hover/upreset:opacity-100 transition-opacity text-destructive hover:text-destructive/80 p-0.5"
+                            onClick={() => deleteUserEqPreset(up.id)}
+                            title="מחק פריסט"
+                          >
+                            <X className="w-3 h-3 no-theme-icon" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
                 <div className="space-y-3">
                   {/* EQ Section */}
-                  {eqViewMode === 'vertical' && (
+                  {(() => { const wideEq = eqWide || isMixerFullscreen;
+                    // Theme-based classes — CSS themes use class-based styling from index.css
+                    const cssThemes = ['console', 'vu', 'studio', 'retro', 'cyber'] as const;
+                    const isCssTheme = (cssThemes as readonly string[]).includes(eqSliderTheme);
+                    const themeWrapper = isCssTheme ? 'eq-band-wrapper'
+                      : eqSliderTheme === 'neon' ? 'bg-black/30 rounded-md px-0.5 py-1 ring-1 ring-primary/30 shadow-[0_0_8px_rgba(59,130,246,0.25)]'
+                      : eqSliderTheme === 'led' ? 'bg-black/40 rounded px-0.5 py-1 border border-green-500/30'
+                      : eqSliderTheme === 'glass' ? 'bg-white/5 backdrop-blur-sm rounded-lg px-0.5 py-1 border border-white/10 shadow-inner'
+                      : eqSliderTheme === 'gradient' ? 'bg-gradient-to-b from-primary/10 via-transparent to-primary/10 rounded-md px-0.5 py-1'
+                      : eqSliderTheme === 'minimal' ? 'px-0.5 py-1'
+                      : 'px-0.5 py-1';
+                    const themeGain = isCssTheme ? 'eq-gain-label'
+                      : eqSliderTheme === 'neon' ? 'drop-shadow-[0_0_4px_currentColor]'
+                      : eqSliderTheme === 'led' ? 'font-bold'
+                      : '';
+                    const themeFreq = isCssTheme ? 'eq-freq-label' : '';
+                    const themeGrid = isCssTheme ? `eq-theme-${eqSliderTheme}`
+                      : eqSliderTheme === 'neon' ? 'bg-black/20 rounded-lg p-2'
+                      : eqSliderTheme === 'led' ? 'bg-[#0a0a0a] rounded-lg p-2 border border-green-900/40'
+                      : eqSliderTheme === 'glass' ? 'bg-white/[0.03] backdrop-blur rounded-xl p-2 border border-white/10'
+                      : eqSliderTheme === 'gradient' ? 'bg-gradient-to-br from-primary/5 to-secondary/5 rounded-lg p-2'
+                      : eqSliderTheme === 'minimal' ? 'p-1'
+                      : '';
+                    return eqViewMode === 'vertical' && (
                     <div className="overflow-x-auto pb-2">
-                      <div className={`grid ${eqWide ? 'gap-1' : 'gap-0.5'}`} style={{ gridTemplateColumns: `repeat(${(eqBandCount === 31 ? 31 : 10) + 1 + 5}, minmax(0, 1fr))` }}>
+                      <div className={`grid ${wideEq ? 'gap-1' : 'gap-0.5'} ${themeGrid}`} style={{ gridTemplateColumns: `repeat(${(eqBandCount === 31 ? 31 : 10) + 1 + 5}, minmax(0, 1fr))` }}>
                       {(eqBandCount === 31 ? EQ_BANDS_31.map((b, i) => ({ ...b, index: i })) : EQ_BANDS_10_INDICES.map(i => ({ ...EQ_BANDS_31[i], index: i }))).map((band) => (
-                        <div key={band.freq} className="flex flex-col items-center gap-0.5">
-                          <span className={`text-[8px] font-mono ${band.color}`}>{eqGains[band.index] > 0 ? '+' : ''}{eqGains[band.index]}</span>
-                          <div className={`${eqWide ? 'h-40' : 'h-24'} flex items-center`}>
+                        <Tooltip key={band.freq}>
+                          <TooltipTrigger asChild>
+                        <div className={`flex flex-col items-center gap-0.5 ${themeWrapper} transition-all`}>
+                          <span className={`text-[8px] font-mono ${band.color} ${themeGain}`}>{eqGains[band.index] > 0 ? '+' : ''}{eqGains[band.index]}</span>
+                          <div className={`${isMixerFullscreen ? 'h-64' : wideEq ? 'h-40' : 'h-24'} flex items-center relative eq-track-groove`}>
+                            {eqSliderTheme === 'vu' && (
+                              <div className="eq-led-meter">
+                                {Array.from({ length: 12 }, (_, i) => {
+                                  const val = eqGains[band.index];
+                                  const threshold = -12 + i * 2;
+                                  const active = val >= threshold;
+                                  const color = i >= 10 ? 'red' : i >= 8 ? 'orange' : i >= 5 ? 'yellow' : 'green';
+                                  return <div key={i} className={`led ${color} ${active ? 'active' : ''}`} />;
+                                })}
+                              </div>
+                            )}
                             <Slider
                               orientation="vertical"
                               value={[eqGains[band.index]]}
@@ -2711,33 +3229,46 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                               max={12}
                               step={0.5}
                               onValueChange={([v]) => setEqBand(band.index, v)}
-                              className={`h-full ${eqWide ? 'w-3' : 'w-2'}`}
+                              className={`h-full ${wideEq ? 'w-3' : 'w-2'}`}
                             />
                           </div>
-                          <span className={`${eqWide ? 'text-[9px]' : 'text-[7px]'} font-medium leading-tight text-center`}>{band.label}</span>
+                          <span className={`${wideEq ? 'text-[9px]' : 'text-[7px]'} font-medium leading-tight text-center ${themeFreq}`}>{band.label}</span>
                         </div>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom" className="text-xs max-w-[200px] text-center">
+                            <p className="font-semibold">{band.label}Hz</p>
+                            <p className="text-muted-foreground">{EQ_FREQ_TOOLTIPS[band.freq] ?? ''}</p>
+                          </TooltipContent>
+                        </Tooltip>
                       ))}
                       <div className="w-px bg-border/40 min-h-[4rem] self-center mx-1"></div>
                       {[
                         { label: 'HP', freq: 'חתך', value: manualHighpass, min: 20, max: 400, step: 10, color: 'text-purple-400',
                           display: `${manualHighpass}`,
+                          tip: 'High-Pass — חותך תדרים נמוכים (רעש, זמזום, רוח). העלה כדי לנקות רעשי רקע כבדים.',
                           set: (v: number) => { setManualHighpass(v); if (isManualMode && highpassRef.current) highpassRef.current.frequency.value = v; } },
                         { label: 'LP', freq: 'חתך', value: manualLowpass, min: 6000, max: 20000, step: 250, color: 'text-pink-400',
                           display: `${(manualLowpass/1000).toFixed(1)}k`,
+                          tip: 'Low-Pass — חותך תדרים גבוהים (שריקות, סיבילנס). הורד כדי לרכך צלילים חדים.',
                           set: (v: number) => { setManualLowpass(v); if (isManualMode && lowpassRef.current) lowpassRef.current.frequency.value = v; } },
                         { label: 'Voc', freq: 'חיזוק', value: manualVoiceBoost, min: 0, max: 12, step: 0.5, color: 'text-cyan-400',
                           display: `+${manualVoiceBoost}`,
+                          tip: 'Voice Boost — מחזק את טווח תדרי הדיבור (300Hz-3kHz). מועיל כשהקול מעומעם.',
                           set: (v: number) => { setManualVoiceBoost(v); if (isManualMode && voiceBoostRef.current) voiceBoostRef.current.gain.value = v; } },
                         { label: 'Comp', freq: 'יחס', value: manualCompRatio, min: 1, max: 12, step: 0.5, color: 'text-amber-400',
                           display: `${manualCompRatio}:1`,
+                          tip: 'Compressor — מצמצם פערי עוצמה בין חזק לחלש. יחס גבוה = יותר אחידות.',
                           set: (v: number) => { setManualCompRatio(v); if (isManualMode && compressorRef.current) { compressorRef.current.ratio.value = v; compressorRef.current.threshold.value = -50 + (v > 1 ? -(v * 3) : 0); } } },
                         { label: 'Gate', freq: 'סף', value: manualGate, min: -80, max: 0, step: 5, color: 'text-emerald-400',
                           display: manualGate === 0 ? 'כבוי' : `${manualGate}`,
+                          tip: 'Noise Gate — משתיק צלילים מתחת לסף. מועיל לרעש רקע קבוע בהשקטות.',
                           set: (v: number) => setManualGate(v) },
                       ].map((ctrl) => (
-                        <div key={ctrl.label} className="flex flex-col items-center gap-0.5 min-w-[24px]">
-                          <span className={`text-[7px] font-mono ${ctrl.color}`}>{ctrl.display}</span>
-                          <div className={`${eqWide ? 'h-40' : 'h-24'} flex items-center`}>
+                        <Tooltip key={ctrl.label}>
+                          <TooltipTrigger asChild>
+                        <div className={`flex flex-col items-center gap-0.5 min-w-[24px] ${themeWrapper} transition-all`}>
+                          <span className={`text-[7px] font-mono ${ctrl.color} ${themeGain}`}>{ctrl.display}</span>
+                          <div className={`${isMixerFullscreen ? 'h-64' : wideEq ? 'h-40' : 'h-24'} flex items-center eq-track-groove`}>
                             <Slider
                               orientation="vertical"
                               value={[ctrl.value]}
@@ -2745,21 +3276,29 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                               max={ctrl.max}
                               step={ctrl.step}
                               onValueChange={([v]) => ctrl.set(v)}
-                              className={`h-full ${eqWide ? 'w-3' : 'w-2'}`}
+                              className={`h-full ${wideEq ? 'w-3' : 'w-2'}`}
                             />
                           </div>
-                          <span className={`${eqWide ? 'text-[9px]' : 'text-[7px]'} font-medium leading-tight text-center`}>{ctrl.label}</span>
+                          <span className={`${wideEq ? 'text-[9px]' : 'text-[7px]'} font-medium leading-tight text-center ${themeFreq}`}>{ctrl.label}</span>
                         </div>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom" className="text-xs max-w-[220px] text-center">
+                            <p className="font-semibold">{ctrl.label} — {ctrl.freq}</p>
+                            <p className="text-muted-foreground">{ctrl.tip}</p>
+                          </TooltipContent>
+                        </Tooltip>
                       ))}
                     </div>
                     </div>
-                  )}
+                  ); })()}
 
                   {eqViewMode === 'horizontal' && (
                     <div className="space-y-3">
                       <p className="text-[10px] font-medium text-muted-foreground">אקולייזר רוחבי — {eqBandCount} רצועות</p>
                       {(eqBandCount === 31 ? EQ_BANDS_31.map((b, i) => ({ ...b, index: i })) : EQ_BANDS_10_INDICES.map(i => ({ ...EQ_BANDS_31[i], index: i }))).map((band) => (
-                        <div key={band.freq} className="space-y-0.5">
+                        <Tooltip key={band.freq}>
+                          <TooltipTrigger asChild>
+                        <div className="space-y-0.5">
                           <div className="flex items-center justify-between">
                             <span className="text-[10px] font-mono text-muted-foreground">{eqGains[band.index] > 0 ? '+' : ''}{eqGains[band.index]}dB</span>
                             <span className="text-[10px] font-medium">{band.label}Hz</span>
@@ -2772,6 +3311,12 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                             onValueChange={([v]) => setEqBand(band.index, v)}
                           />
                         </div>
+                          </TooltipTrigger>
+                          <TooltipContent side="right" className="text-xs max-w-[200px]">
+                            <p className="font-semibold">{band.label}Hz</p>
+                            <p className="text-muted-foreground">{EQ_FREQ_TOOLTIPS[band.freq] ?? ''}</p>
+                          </TooltipContent>
+                        </Tooltip>
                       ))}
                       <Separator />
                       <p className="text-[10px] font-medium text-muted-foreground">עיבוד חכם חיתוך ודחיסה</p>
@@ -2801,13 +3346,23 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
 
                   {eqViewMode === 'circular' && (
                     <div className="flex flex-col gap-4 overflow-x-auto pb-2 items-center">
-                      <div className="flex flex-wrap items-center justify-center gap-3" style={{ maxWidth: eqWide ? undefined : (eqBandCount === 31 ? 520 : 280) }}>
+                      <div className="flex flex-wrap items-center justify-center gap-3" style={{ maxWidth: (eqWide || isMixerFullscreen) ? undefined : (eqBandCount === 31 ? 520 : 280) }}>
                         {(eqBandCount === 31 ? EQ_BANDS_31.map((b, i) => ({ ...b, index: i })) : EQ_BANDS_10_INDICES.map(i => ({ ...EQ_BANDS_31[i], index: i }))).map((band) => (
-                          <Knob key={band.freq} label={band.label} value={eqGains[band.index]} min={-12} max={12} onChange={(v) => setEqBand(band.index, v)} />
+                          <Tooltip key={band.freq}>
+                            <TooltipTrigger asChild>
+                              <div>
+                                <Knob label={band.label} value={eqGains[band.index]} min={-12} max={12} onChange={(v) => setEqBand(band.index, v)} />
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom" className="text-xs max-w-[200px] text-center">
+                              <p className="font-semibold">{band.label}Hz</p>
+                              <p className="text-muted-foreground">{EQ_FREQ_TOOLTIPS[band.freq] ?? ''}</p>
+                            </TooltipContent>
+                          </Tooltip>
                         ))}
                       </div>
                       <Separator className="w-full" />
-                      <div className={`flex flex-wrap items-center justify-center gap-4 ${eqWide ? '' : 'max-w-[280px]'}`}>
+                      <div className={`flex flex-wrap items-center justify-center gap-4 ${(eqWide || isMixerFullscreen) ? '' : 'max-w-[280px]'}`}>
                         {[
                           { label: 'HP', value: manualHighpass, min: 20, max: 400, set: (v) => { setManualHighpass(v); if (isManualMode && highpassRef.current) highpassRef.current.frequency.value = v; } },
                           { label: 'LP', value: manualLowpass / 100, min: 60, max: 200, set: (v) => { setManualLowpass(v * 100); if (isManualMode && lowpassRef.current) lowpassRef.current.frequency.value = v * 100; } },
@@ -2821,9 +3376,242 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                     </div>
                   )}
 
+                  {/* ─── Parametric EQ View ─── */}
+                  {eqViewMode === 'parametric' && (() => {
+                    const W = 800;
+                    const H = isMixerFullscreen ? 420 : 280;
+                    const PAD_T = 30;
+                    const PAD_B = 28;
+                    const PAD_L = 36;
+                    const PAD_R = 12;
+                    const plotW = W - PAD_L - PAD_R;
+                    const plotH = H - PAD_T - PAD_B;
+                    const minF = 20;
+                    const maxF = 20000;
+                    const minDb = -15;
+                    const maxDb = 15;
+                    const fToX = (f: number) => PAD_L + (Math.log10(f / minF) / Math.log10(maxF / minF)) * plotW;
+                    const dbToY = (db: number) => PAD_T + ((maxDb - db) / (maxDb - minDb)) * plotH;
+
+                    // Compute composite frequency response curve
+                    const curvePoints: string[] = [];
+                    const numSteps = 200;
+                    for (let s = 0; s <= numSteps; s++) {
+                      const freq = minF * Math.pow(maxF / minF, s / numSteps);
+                      let totalDb = 0;
+                      const activeBands = eqBandCount === 31
+                        ? EQ_BANDS_31.map((b, i) => ({ ...b, index: i }))
+                        : EQ_BANDS_10_INDICES.map(i => ({ ...EQ_BANDS_31[i], index: i }));
+                      for (const band of activeBands) {
+                        const g = eqGains[band.index];
+                        if (Math.abs(g) < 0.01) continue;
+                        const Q = eqQValues[band.index] || 4.3;
+                        const f0 = band.freq;
+                        // Peaking EQ approximate magnitude response
+                        const w = freq / f0;
+                        const w2 = w * w;
+                        const bw = w / Q;
+                        const denom = (1 - w2) * (1 - w2) + bw * bw;
+                        const mag = Math.sqrt((1 + (g / 20) * bw) * (1 + (g / 20) * bw) * (1 - w2) * (1 - w2) + bw * bw * Math.pow(1 + (g / 20), 2)) / Math.sqrt(denom || 0.0001);
+                        // Simplified: use a bell-shaped approximation
+                        const logRatio = Math.log2(freq / f0);
+                        const bandwidth = 1 / Q;
+                        const bellShape = Math.exp(-0.5 * Math.pow(logRatio / (bandwidth * 0.6), 2));
+                        totalDb += g * bellShape;
+                      }
+                      totalDb = Math.max(minDb, Math.min(maxDb, totalDb));
+                      const x = fToX(freq);
+                      const y = dbToY(totalDb);
+                      curvePoints.push(`${s === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`);
+                    }
+                    const curvePath = curvePoints.join(' ');
+                    // Fill path (curve to bottom)
+                    const fillPath = curvePath + ` L${fToX(maxF).toFixed(1)},${dbToY(0).toFixed(1)} L${fToX(minF).toFixed(1)},${dbToY(0).toFixed(1)} Z`;
+
+                    // Grid lines
+                    const freqGridLines = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000];
+                    const dbGridLines = [-12, -9, -6, -3, 0, 3, 6, 9, 12];
+                    const sel = selectedParamBand;
+
+                    return (
+                      <div className="space-y-3">
+                        {/* SVG Curve Display */}
+                        <div className="bg-[#0d1117] rounded-lg border border-border/50 overflow-hidden">
+                          <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ minHeight: isMixerFullscreen ? 350 : 220 }}>
+                            {/* Background grid */}
+                            {freqGridLines.map(f => (
+                              <g key={f}>
+                                <line x1={fToX(f)} y1={PAD_T} x2={fToX(f)} y2={H - PAD_B} stroke="rgba(255,255,255,0.06)" strokeWidth="0.5" />
+                                <text x={fToX(f)} y={H - PAD_B + 14} fill="rgba(255,255,255,0.35)" fontSize="9" textAnchor="middle" fontFamily="monospace">
+                                  {f >= 1000 ? `${f / 1000}k` : f}
+                                </text>
+                              </g>
+                            ))}
+                            {dbGridLines.map(db => (
+                              <g key={db}>
+                                <line x1={PAD_L} y1={dbToY(db)} x2={W - PAD_R} y2={dbToY(db)}
+                                  stroke={db === 0 ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.04)'}
+                                  strokeWidth={db === 0 ? 1 : 0.5} />
+                                <text x={PAD_L - 4} y={dbToY(db) + 3} fill="rgba(255,255,255,0.3)" fontSize="8" textAnchor="end" fontFamily="monospace">
+                                  {db > 0 ? '+' : ''}{db}
+                                </text>
+                              </g>
+                            ))}
+                            {/* Axis labels */}
+                            <text x={W / 2} y={H - 2} fill="rgba(255,255,255,0.25)" fontSize="9" textAnchor="middle">Hz</text>
+                            <text x={6} y={H / 2} fill="rgba(255,255,255,0.25)" fontSize="9" textAnchor="middle" transform={`rotate(-90,6,${H / 2})`}>dB</text>
+
+                            {/* Fill under curve */}
+                            <path d={fillPath} fill="url(#eqGradFill)" opacity="0.35" />
+                            {/* Main curve */}
+                            <path d={curvePath} fill="none" stroke="#60a5fa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+
+                            {/* Per-band individual curves (dim) */}
+                            {(eqBandCount === 31 ? EQ_BANDS_31.map((b, i) => ({ ...b, index: i })) : EQ_BANDS_10_INDICES.map(i => ({ ...EQ_BANDS_31[i], index: i }))).map((band) => {
+                              const g = eqGains[band.index];
+                              if (Math.abs(g) < 0.01 && sel !== band.index) return null;
+                              const Q = eqQValues[band.index] || 4.3;
+                              const isSelected = sel === band.index;
+                              const pts: string[] = [];
+                              for (let s = 0; s <= 100; s++) {
+                                const freq = minF * Math.pow(maxF / minF, s / 100);
+                                const logRatio = Math.log2(freq / band.freq);
+                                const bw = 1 / Q;
+                                const bell = g * Math.exp(-0.5 * Math.pow(logRatio / (bw * 0.6), 2));
+                                const db = Math.max(minDb, Math.min(maxDb, bell));
+                                pts.push(`${s === 0 ? 'M' : 'L'}${fToX(freq).toFixed(1)},${dbToY(db).toFixed(1)}`);
+                              }
+                              return (
+                                <path key={band.index} d={pts.join(' ')} fill="none"
+                                  stroke={isSelected ? '#fbbf24' : 'rgba(255,255,255,0.12)'}
+                                  strokeWidth={isSelected ? 1.5 : 0.7}
+                                  strokeDasharray={isSelected ? undefined : '3 3'} />
+                              );
+                            })}
+
+                            {/* Band dots (draggable handles) */}
+                            {(eqBandCount === 31 ? EQ_BANDS_31.map((b, i) => ({ ...b, index: i })) : EQ_BANDS_10_INDICES.map(i => ({ ...EQ_BANDS_31[i], index: i }))).map((band) => {
+                              const g = eqGains[band.index];
+                              const cx = fToX(band.freq);
+                              const cy = dbToY(g);
+                              const isSelected = sel === band.index;
+                              return (
+                                <g key={band.index} style={{ cursor: 'pointer' }} onClick={() => setSelectedParamBand(isSelected ? null : band.index)}>
+                                  {isSelected && <circle cx={cx} cy={cy} r="10" fill="rgba(251,191,36,0.15)" />}
+                                  <circle cx={cx} cy={cy} r={isSelected ? 5 : 3.5}
+                                    fill={Math.abs(g) > 0.01 ? (isSelected ? '#fbbf24' : '#60a5fa') : 'rgba(255,255,255,0.2)'}
+                                    stroke={isSelected ? '#fbbf24' : 'none'} strokeWidth="1.5"
+                                  />
+                                  {isSelected && (
+                                    <text x={cx} y={cy - 12} fill="#fbbf24" fontSize="9" textAnchor="middle" fontFamily="monospace" fontWeight="bold">
+                                      {band.label}Hz {g > 0 ? '+' : ''}{g}dB Q{(eqQValues[band.index] || 4.3).toFixed(1)}
+                                    </text>
+                                  )}
+                                </g>
+                              );
+                            })}
+
+                            {/* Gradient definition */}
+                            <defs>
+                              <linearGradient id="eqGradFill" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor="#60a5fa" stopOpacity="0.5" />
+                                <stop offset="50%" stopColor="#60a5fa" stopOpacity="0" />
+                                <stop offset="50%" stopColor="#60a5fa" stopOpacity="0" />
+                                <stop offset="100%" stopColor="#60a5fa" stopOpacity="0.3" />
+                              </linearGradient>
+                            </defs>
+                          </svg>
+                        </div>
+
+                        {/* Selected band controls */}
+                        {sel !== null && (() => {
+                          const band = EQ_BANDS_31[sel];
+                          const g = eqGains[sel];
+                          const q = eqQValues[sel] || 4.3;
+                          return (
+                            <div className="bg-muted/30 rounded-lg border p-3 space-y-3">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <div className={`w-3 h-3 rounded-full bg-yellow-400`} />
+                                  <span className="font-semibold text-sm">{band.label}Hz</span>
+                                  <span className="text-xs text-muted-foreground">— {EQ_FREQ_TOOLTIPS[band.freq] ?? ''}</span>
+                                </div>
+                                <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px]" onClick={() => setSelectedParamBand(null)}>✕</Button>
+                              </div>
+                              <div className="grid grid-cols-2 gap-4">
+                                {/* Gain control */}
+                                <div className="space-y-1.5">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-xs font-medium">Gain (הגבר)</span>
+                                    <span className="text-xs font-mono text-muted-foreground">{g > 0 ? '+' : ''}{g} dB</span>
+                                  </div>
+                                  <Slider value={[g]} min={-12} max={12} step={0.5} onValueChange={([v]) => setEqBand(sel, v)} />
+                                  <div className="flex justify-between text-[8px] text-muted-foreground">
+                                    <span>-12dB</span><span>0</span><span>+12dB</span>
+                                  </div>
+                                </div>
+                                {/* Q (bandwidth) control */}
+                                <div className="space-y-1.5">
+                                  <div className="flex items-center justify-between">
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <span className="text-xs font-medium cursor-help border-b border-dotted border-muted-foreground/50">Q (רוחב בנד)</span>
+                                      </TooltipTrigger>
+                                      <TooltipContent side="top" className="text-xs max-w-[240px]">
+                                        <p className="font-semibold">Q — רוחב הפס (Bandwidth)</p>
+                                        <p className="text-muted-foreground">Q נמוך = פס רחב, משפיע על טווח תדרים גדול. Q גבוה = פס צר, ממוקד בתדר ספציפי. מתאים לחיתוך רעש נקודתי.</p>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                    <span className="text-xs font-mono text-muted-foreground">{q.toFixed(1)}</span>
+                                  </div>
+                                  <Slider value={[q]} min={0.1} max={18} step={0.1} onValueChange={([v]) => setEqQ(sel, v)} />
+                                  <div className="flex justify-between text-[8px] text-muted-foreground">
+                                    <span>רחב (0.1)</span><span>4.3</span><span>צר (18)</span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {/* Band quick-select strip */}
+                        <div className="flex flex-wrap gap-1 justify-center">
+                          {(eqBandCount === 31 ? EQ_BANDS_31.map((b, i) => ({ ...b, index: i })) : EQ_BANDS_10_INDICES.map(i => ({ ...EQ_BANDS_31[i], index: i }))).map((band) => {
+                            const g = eqGains[band.index];
+                            const isSelected = sel === band.index;
+                            const hasGain = Math.abs(g) > 0.01;
+                            return (
+                              <Tooltip key={band.index}>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    className={`px-1.5 py-0.5 rounded text-[9px] font-mono transition-all border ${
+                                      isSelected ? 'bg-yellow-400/20 text-yellow-400 border-yellow-400/50 shadow-sm'
+                                      : hasGain ? 'bg-primary/10 text-primary border-primary/30'
+                                      : 'border-border/50 text-muted-foreground hover:bg-muted'
+                                    }`}
+                                    onClick={() => setSelectedParamBand(isSelected ? null : band.index)}
+                                  >
+                                    {band.label}
+                                    {hasGain && <span className="mr-0.5 text-[7px]">{g > 0 ? '+' : ''}{g}</span>}
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="bottom" className="text-xs max-w-[200px] text-center">
+                                  <p className="font-semibold">{band.label}Hz — Q: {(eqQValues[band.index] || 4.3).toFixed(1)}</p>
+                                  <p className="text-muted-foreground">{EQ_FREQ_TOOLTIPS[band.freq] ?? ''}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
                 <div className="flex justify-center gap-2">
                   <Button variant="ghost" size="sm" className="h-6 px-3 text-[10px]" onClick={() => {
                     setEqGains(new Array(31).fill(0));
+                    setEqQValues(EQ_BANDS_31.map(b => b.q));
+                    setSelectedParamBand(null);
                   }}>
                     אפס אקולייזר
                   </Button>
@@ -2834,6 +3622,244 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                   </Button>
                 </div>
 
+                {/* ─── Vocal Doubler Panel ───────────── */}
+                <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <Mic className="w-3.5 h-3.5 text-violet-500 no-theme-icon" />
+                      <span className="text-xs font-semibold">הכפלת קול (Vocal Doubler)</span>
+                      {doublerEnabled && <Badge variant="secondary" className="text-[9px] h-4 px-1">פעיל</Badge>}
+                    </div>
+                    <Switch checked={doublerEnabled} onCheckedChange={setDoublerEnabled} />
+                  </div>
+                  {doublerEnabled && (
+                    <div className="space-y-2.5">
+                      {/* Mode selector */}
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[10px] text-muted-foreground">מצב:</span>
+                        {([
+                          { id: 'chorus' as const, label: '🎤 כורוס', tip: 'הכפלה עדינה — מרחיב את הקול' },
+                          { id: 'harmony' as const, label: '🎵 הרמוניה', tip: 'מרחק גדול יותר — צליל שני ברור' },
+                          { id: 'octave' as const, label: '🔊 אוקטבה', tip: 'הכפלה עמוקה — אפקט דרמטי' },
+                        ]).map((m) => (
+                          <Tooltip key={m.id}>
+                            <TooltipTrigger asChild>
+                              <button
+                                className={`px-2 py-0.5 rounded text-[10px] transition-all border ${
+                                  doublerMode === m.id ? 'bg-primary text-primary-foreground border-primary shadow-sm' : 'border-border hover:bg-muted'
+                                }`}
+                                onClick={() => setDoublerMode(m.id)}
+                              >{m.label}</button>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom" className="text-xs">{m.tip}</TooltipContent>
+                          </Tooltip>
+                        ))}
+                      </div>
+                      {/* Mix */}
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] text-muted-foreground">מיקס (יבש ↔ רטוב)</span>
+                          <span className="text-[10px] font-mono text-muted-foreground">{Math.round(doublerMix * 100)}%</span>
+                        </div>
+                        <Slider value={[doublerMix]} min={0} max={1} step={0.01} onValueChange={([v]) => setDoublerMix(v)} />
+                      </div>
+                      {/* Voice 1 & 2 detune */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] text-muted-foreground">קול 1 — דיטון</span>
+                            <span className="text-[10px] font-mono text-muted-foreground">{doublerDetune1 > 0 ? '+' : ''}{doublerDetune1}</span>
+                          </div>
+                          <Slider value={[doublerDetune1]} min={-30} max={30} step={1} onValueChange={([v]) => setDoublerDetune1(v)} />
+                        </div>
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] text-muted-foreground">קול 2 — דיטון</span>
+                            <span className="text-[10px] font-mono text-muted-foreground">{doublerDetune2 > 0 ? '+' : ''}{doublerDetune2}</span>
+                          </div>
+                          <Slider value={[doublerDetune2]} min={-30} max={30} step={1} onValueChange={([v]) => setDoublerDetune2(v)} />
+                        </div>
+                      </div>
+                      {/* Delay & modulation */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] text-muted-foreground">השהיה 1</span>
+                            <span className="text-[10px] font-mono text-muted-foreground">{doublerDelay1Ms}ms</span>
+                          </div>
+                          <Slider value={[doublerDelay1Ms]} min={5} max={60} step={1} onValueChange={([v]) => setDoublerDelay1Ms(v)} />
+                        </div>
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] text-muted-foreground">השהיה 2</span>
+                            <span className="text-[10px] font-mono text-muted-foreground">{doublerDelay2Ms}ms</span>
+                          </div>
+                          <Slider value={[doublerDelay2Ms]} min={5} max={60} step={1} onValueChange={([v]) => setDoublerDelay2Ms(v)} />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] text-muted-foreground">עומק מודולציה</span>
+                            <span className="text-[10px] font-mono text-muted-foreground">{(doublerDepth * 1000).toFixed(1)}ms</span>
+                          </div>
+                          <Slider value={[doublerDepth]} min={0} max={0.015} step={0.0005} onValueChange={([v]) => setDoublerDepth(v)} />
+                        </div>
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] text-muted-foreground">קצב LFO</span>
+                            <span className="text-[10px] font-mono text-muted-foreground">{doublerRate.toFixed(1)}Hz</span>
+                          </div>
+                          <Slider value={[doublerRate]} min={0.1} max={3} step={0.1} onValueChange={([v]) => setDoublerRate(v)} />
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground opacity-70">
+                        💡 "כורוס" — הכפלה עדינה שמרחיבה את הקול. "הרמוניה" — קול שני ברור יותר, מתאים לשיר. "אוקטבה" — אפקט עמוק/גבוה דרמטי.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* ─── Vocal Overlay (Personal Sync) Panel ───────────── */}
+                <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <Layers className="w-3.5 h-3.5 text-rose-500 no-theme-icon" />
+                      <span className="text-xs font-semibold">סינק אישי (הוספת קול)</span>
+                      {overlayBuffer && overlayEnabled && <Badge variant="secondary" className="text-[9px] h-4 px-1">פעיל</Badge>}
+                      {isRecording && <Badge variant="destructive" className="text-[9px] h-4 px-1 animate-pulse">מקליט</Badge>}
+                    </div>
+                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setShowOverlayPanel(v => !v)}>
+                      {showOverlayPanel ? <ChevronUp className="w-3.5 h-3.5 no-theme-icon" /> : <ChevronDown className="w-3.5 h-3.5 no-theme-icon" />}
+                    </Button>
+                  </div>
+                  {showOverlayPanel && (
+                    <div className="space-y-3">
+                      {/* Import / Record buttons */}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <input
+                          ref={overlayFileInputRef}
+                          type="file"
+                          accept="audio/*"
+                          className="hidden"
+                          onChange={(e) => { const f = e.target.files?.[0]; if (f) handleOverlayFileImport(f); e.target.value = ''; }}
+                        />
+                        <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => overlayFileInputRef.current?.click()}>
+                          <Upload className="w-3 h-3 no-theme-icon" />
+                          ייבוא קובץ
+                        </Button>
+                        {!isRecording ? (
+                          <Button variant="outline" size="sm" className="h-7 text-xs gap-1 text-rose-600 border-rose-300 hover:bg-rose-50" onClick={startOverlayRecording}>
+                            <Circle className="w-3 h-3 fill-rose-500 text-rose-500 no-theme-icon" />
+                            הקלט
+                          </Button>
+                        ) : (
+                          <Button variant="destructive" size="sm" className="h-7 text-xs gap-1 animate-pulse" onClick={stopOverlayRecording}>
+                            <Square className="w-3 h-3 no-theme-icon" />
+                            עצור ({recordingDuration.toFixed(1)}s)
+                          </Button>
+                        )}
+                        {overlayBuffer && (
+                          <Button variant="ghost" size="sm" className="h-7 text-xs gap-1 text-destructive" onClick={() => {
+                            stopOverlaySync();
+                            setOverlayBuffer(null); setOverlayFileName(''); setOverlayEnabled(false);
+                          }}>
+                            <Trash2 className="w-3 h-3 no-theme-icon" />
+                            מחק
+                          </Button>
+                        )}
+                      </div>
+
+                      {/* Overlay info & controls */}
+                      {overlayBuffer && (
+                        <div className="space-y-2.5 rounded-md border bg-background/50 p-2.5">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-1.5">
+                              <AudioLines className="w-3 h-3 text-rose-400 no-theme-icon" />
+                              <span className="text-[10px] font-medium truncate max-w-[180px]">{overlayFileName}</span>
+                              <span className="text-[10px] text-muted-foreground">({overlayBuffer.duration.toFixed(1)}s)</span>
+                            </div>
+                            <Switch checked={overlayEnabled} onCheckedChange={setOverlayEnabled} />
+                          </div>
+
+                          {overlayEnabled && (
+                            <>
+                              {/* Volume */}
+                              <div className="space-y-1">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[10px] text-muted-foreground">עוצמת קול</span>
+                                  <span className="text-[10px] font-mono text-muted-foreground">{Math.round(overlayVolume * 100)}%</span>
+                                </div>
+                                <Slider value={[overlayVolume]} min={0} max={1.5} step={0.01} onValueChange={([v]) => setOverlayVolume(v)} />
+                              </div>
+
+                              {/* Offset — where in the main track does overlay start */}
+                              <div className="space-y-1">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[10px] text-muted-foreground">נקודת התחלה בשיר</span>
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-[10px] font-mono text-muted-foreground">{overlayOffset.toFixed(1)}s</span>
+                                    <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[9px]" onClick={() => setOverlayOffset(audioRef.current?.currentTime ?? 0)}>
+                                      📍 מהמיקום הנוכחי
+                                    </Button>
+                                  </div>
+                                </div>
+                                <Slider value={[overlayOffset]} min={0} max={Math.max(1, (audioRef.current?.duration || 60))} step={0.1} onValueChange={([v]) => setOverlayOffset(v)} />
+                              </div>
+
+                              {/* Trim start/end */}
+                              <div className="grid grid-cols-2 gap-3">
+                                <div className="space-y-1">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[10px] text-muted-foreground">חיתוך התחלה</span>
+                                    <span className="text-[10px] font-mono text-muted-foreground">{overlayTrimStart.toFixed(1)}s</span>
+                                  </div>
+                                  <Slider value={[overlayTrimStart]} min={0} max={overlayBuffer.duration} step={0.1} onValueChange={([v]) => setOverlayTrimStart(v)} />
+                                </div>
+                                <div className="space-y-1">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[10px] text-muted-foreground">חיתוך סוף</span>
+                                    <span className="text-[10px] font-mono text-muted-foreground">{overlayTrimEnd.toFixed(1)}s</span>
+                                  </div>
+                                  <Slider value={[overlayTrimEnd]} min={0} max={overlayBuffer.duration} step={0.1} onValueChange={([v]) => setOverlayTrimEnd(v)} />
+                                </div>
+                              </div>
+
+                              {/* Playback controls */}
+                              <div className="flex items-center gap-2">
+                                {!overlayIsPlaying ? (
+                                  <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={playOverlaySync}>
+                                    <Play className="w-3 h-3 no-theme-icon" />
+                                    נגן סינק
+                                  </Button>
+                                ) : (
+                                  <Button variant="default" size="sm" className="h-7 text-xs gap-1" onClick={stopOverlaySync}>
+                                    <Pause className="w-3 h-3 no-theme-icon" />
+                                    עצור
+                                  </Button>
+                                )}
+                                <span className="text-[10px] text-muted-foreground">
+                                  משמיע מ-{overlayTrimStart.toFixed(1)}s עד {overlayTrimEnd.toFixed(1)}s, בנקודה {overlayOffset.toFixed(1)}s בשיר
+                                </span>
+                              </div>
+
+                              <p className="text-[10px] text-muted-foreground opacity-70">
+                                💡 הקול שלך ינוגן אוטומטית בסינק עם השיר כשתלחץ Play. אפשר לחתוך, להזיז את נקודת ההתחלה ולשלוט בעוצמה.
+                              </p>
+                            </>
+                          )}
+                        </div>
+                      )}
+
+                      {!overlayBuffer && (
+                        <p className="text-[10px] text-muted-foreground">
+                          ייבא קובץ אודיו או הקלט את הקול שלך. ההקלטה תסתנכרן אוטומטית עם השיר.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+
                 <div className="text-[10px] text-muted-foreground bg-muted/30 rounded-md p-2 flex items-start gap-1.5">
                   <Brain className="w-3 h-3 mt-0.5 shrink-0 text-primary no-theme-icon" />
                   <span>
@@ -2842,6 +3868,36 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                 </div>
                 </div>
                   </>
+                )}
+                </div>{/* close scrollable wrapper */}
+
+                {/* ─── Fullscreen Player Bar ── */}
+                {isMixerFullscreen && (
+                  <div className="shrink-0 border-t bg-background pt-3 mt-2 space-y-2">
+                    {/* Seek Bar */}
+                    <div className="flex items-center gap-3" dir="ltr">
+                      <span className="text-xs text-muted-foreground font-mono min-w-[40px] text-center">{formatTime(effectiveDuration)}</span>
+                      <Slider value={[currentTime]} max={effectiveDuration || 1} step={0.1} onValueChange={handleSliderSeek} className="flex-1" dir="rtl" />
+                      <span className="text-xs text-muted-foreground font-mono min-w-[40px] text-center">{formatTime(currentTime)}</span>
+                    </div>
+                    {/* Controls Row */}
+                    <div className="flex items-center justify-center gap-2">
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={restart}><RotateCcw className="w-4 h-4 no-theme-icon" /></Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => seek(-5)}><FastForward className="w-4 h-4 no-theme-icon" /></Button>
+                      <Button size="icon" className="h-10 w-10 rounded-full" onClick={togglePlay}>
+                        {isPlaying ? <Pause className="w-5 h-5 no-theme-icon" /> : <Play className="w-5 h-5 mr-0.5 no-theme-icon" />}
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => seek(5)}><Rewind className="w-4 h-4 no-theme-icon" /></Button>
+                      <div className="flex items-center gap-2 mr-4">
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={toggleMute}>
+                          {isMuted || volume === 0 ? <VolumeX className="w-3.5 h-3.5 no-theme-icon" /> : volume < 0.5 ? <Volume1 className="w-3.5 h-3.5 no-theme-icon" /> : <Volume2 className="w-3.5 h-3.5 no-theme-icon" />}
+                        </Button>
+                        <Slider value={[isMuted ? 0 : volume]} max={1} step={0.01} onValueChange={handleVolumeChange} className="w-24" />
+                        <span className="text-[10px] text-muted-foreground tabular-nums w-8">{Math.round((isMuted ? 0 : volume) * 100)}%</span>
+                      </div>
+                      <Badge variant="outline" className="text-[10px] font-mono">{speed.toFixed(2)}x</Badge>
+                    </div>
+                  </div>
                 )}
               </div>
 
@@ -3115,6 +4171,8 @@ export const SyncAudioPlayer = memo(forwardRef<SyncAudioPlayerRef, SyncAudioPlay
                   {deHumEnabled && <Badge variant="secondary" className="text-[10px] gap-1"><Zap className="w-3 h-3 no-theme-icon" />De-Hum</Badge>}
                   {vadEnabled && <Badge variant={vadIsSpeech ? 'default' : 'secondary'} className="text-[10px] gap-1"><Activity className="w-3 h-3 no-theme-icon" />{vadIsSpeech ? 'דיבור' : 'שקט'}</Badge>}
                   {lufsEnabled && <Badge variant="secondary" className="text-[10px] gap-1"><BarChart3 className="w-3 h-3 no-theme-icon" />LUFS</Badge>}
+                  {doublerEnabled && <Badge variant="secondary" className="text-[10px] gap-1"><Mic className="w-3 h-3 no-theme-icon" />Doubler</Badge>}
+                  {overlayEnabled && overlayBuffer && <Badge variant="secondary" className="text-[10px] gap-1"><Layers className="w-3 h-3 no-theme-icon" />Overlay</Badge>}
                 </div>
               )}
             </div>

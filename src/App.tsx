@@ -63,6 +63,7 @@ const NotFound = lazyWithLog('NotFound', () => import("./pages/NotFound"));
 const ResetPassword = lazyWithLog('ResetPassword', () => import("./pages/ResetPassword"));
 const VideoToMp3 = lazyWithLog('VideoToMp3', () => import("./pages/VideoToMp3"));
 const AudioCleanLab = lazyWithLog('AudioCleanLab', () => import("./pages/AudioCleanLab"));
+const Harmonika = lazyWithLog('Harmonika', () => import("./pages/Harmonika"));
 
 /** Logs route changes */
 const RouteLogger = () => {
@@ -179,6 +180,7 @@ const App = () => {
                 <Route path="/diarization/compare" element={<ProtectedRoute><DiarizationCompare /></ProtectedRoute>} />
                 <Route path="/video-to-mp3" element={<ProtectedRoute><VideoToMp3 /></ProtectedRoute>} />
                 <Route path="/audio-clean" element={<ProtectedRoute><AudioCleanLab /></ProtectedRoute>} />
+                <Route path="/harmonika" element={<ProtectedRoute><Harmonika /></ProtectedRoute>} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </Suspense>

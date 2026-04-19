@@ -56,26 +56,16 @@ const Dashboard = () => {
     <div className="min-h-screen bg-background p-4 md:p-8" dir="rtl">
       <div className="max-w-6xl mx-auto space-y-8">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="text-right flex-1">
-            <h1 className="text-4xl font-bold mb-2 bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
-              שלום{user?.user_metadata?.full_name ? `, ${user.user_metadata.full_name}` : ''} 👋
-            </h1>
-            <p className="text-muted-foreground">
-              מה תרצה לעשות היום?
-            </p>
-          </div>
-          <div className="flex gap-2">
-            {!isAuthenticated && (
-              <Button variant="outline" onClick={() => navigate("/login")}>
-                <LogIn className="h-4 w-4 ml-2" />
-                התחבר
-              </Button>
-            )}
-            <Button variant="outline" size="icon" onClick={() => navigate("/settings")}>
-              <Settings className="h-4 w-4 text-blue-900" />
+        <div className="flex items-center justify-end gap-2">
+          {!isAuthenticated && (
+            <Button variant="outline" onClick={() => navigate("/login")}>
+              <LogIn className="h-4 w-4 ml-2" />
+              התחבר
             </Button>
-          </div>
+          )}
+          <Button variant="outline" size="icon" onClick={() => navigate("/settings")}>
+            <Settings className="h-4 w-4 text-blue-900" />
+          </Button>
         </div>
 
         {/* Quick Actions */}

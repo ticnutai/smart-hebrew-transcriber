@@ -103,6 +103,10 @@ serve(async (req) => {
           fd.append('language', language);
           fd.append('response_format', 'verbose_json');
           fd.append('timestamp_granularities[]', 'word');
+          fd.append('temperature', '0');
+          if (language === 'he') {
+            fd.append('prompt', 'תמלול שיחה בעברית. דיבור ברור ומדויק.');
+          }
 
           console.log(`Trying model: ${model}, mime: ${mimeType}, size: ${typedBlob.size}`);
 
@@ -146,6 +150,17 @@ serve(async (req) => {
 
     if (!result) throw lastError!;
 
+    // ── Hallucination filtering ──
+    // Whisper often hallucinates repetitive phrases in silence
+    const hallucinationPatterns = /^(\s*(תודה רבה|תודה|שלום|להתראות|תודה לכם|תודה על הצפייה|תודה רבה לכם|שבוע טוב|ביי|בוקר טוב)[.,!\s]*)+$/i;
+    let cleanText = result.text?.trim() || '';
+    if (hallucinationPatterns.test(cleanText)) {
+      console.log('Filtered hallucinated text:', cleanText);
+      cleanText = '';
+    }
+    // Remove repeated phrases (e.g. "תודה רבה תודה רבה תודה רבה")
+    cleanText = cleanText.replace(/(\S+(?:\s+\S+){0,2})(?:\s+\1){2,}/g, '$1');
+
     // Extract word-level timestamps
     const wordTimings = (result.words || []).map((w: any) => ({
       word: w.word,
@@ -153,7 +168,7 @@ serve(async (req) => {
       end: w.end,
     }));
 
-    return new Response(JSON.stringify({ text: result.text, wordTimings }), {
+    return new Response(JSON.stringify({ text: cleanText, wordTimings }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (error) {
