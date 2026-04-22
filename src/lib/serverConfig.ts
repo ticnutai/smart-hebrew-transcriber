@@ -23,9 +23,8 @@ export function normalizeServerUrl(raw: string | null | undefined): string {
 
   if (typeof window !== 'undefined') {
     const isLocalPage = ['localhost', '127.0.0.1'].includes(window.location.hostname);
-    const isPort4000 = window.location.port === '4000';
     const isLegacy3000 = v.includes('localhost:3000') || v.includes('127.0.0.1:3000');
-    if (isLocalPage && isPort4000 && isLegacy3000) {
+    if (isLocalPage && isLegacy3000) {
       return DEFAULT_SERVER_URL;
     }
   }

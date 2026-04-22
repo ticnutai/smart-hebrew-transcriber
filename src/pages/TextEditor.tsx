@@ -208,6 +208,7 @@ const TextEditor = () => {
   const setPlayerLayout = useCallback((v: 'split' | 'stacked' | 'full' | 'wide' | 'eq-wide') => updatePreference('player_layout', v), [updatePreference]);
   const [isPlayerFloating, setIsPlayerFloating] = useState(false);
   const togglePlayerFloating = useCallback(() => setIsPlayerFloating(p => !p), []);
+  const [isMarkingActive, setIsMarkingActive] = useState(false);
   const [isEqFloating, setIsEqFloating] = useState(false);
   const toggleEqFloating = useCallback(() => setIsEqFloating(p => !p), []);
   const [eqPortalTarget, setEqPortalTarget] = useState<HTMLDivElement | null>(null);
@@ -1101,6 +1102,7 @@ const TextEditor = () => {
           </TabsContent>
 
           <TabsContent value="edit" className="space-y-5">
+            {/* Marking toolbar — always visible, text display only when active */}
             <LazyErrorBoundary label="סימון ויזואלי">
               <TextMarkingOverlay
                 text={text}
@@ -1108,27 +1110,32 @@ const TextEditor = () => {
                 fontSize={fontSize}
                 fontFamily={fontFamily}
                 lineHeight={lineHeight}
+                toolbarOnly={!isMarkingActive}
+                onActiveChange={setIsMarkingActive}
               />
             </LazyErrorBoundary>
-            <div
-              style={{
-                fontSize: `${fontSize}px`,
-                fontFamily: fontFamily,
-                color: textColor,
-                lineHeight: lineHeight,
-              }}
-            >
-              <RichTextEditor 
-                text={text} 
-                onChange={handleEditorChange}
-                columnStyle={columnStyle}
-                onSaveReplaceOriginal={() => handleSaveAndReplaceOriginal(text, 'manual', 'עורך טקסט', 'שמירה מסרגל העורך')}
-                onDuplicateSave={() => handleDuplicateAndSave(text, 'manual', 'עורך טקסט', 'שכפול מסרגל העורך')}
-                onWordCorrected={(original, corrected) => {
-                  debugLog.info('TextEditor', `Spell correction: "${original}" → "${corrected}"`);
+            {/* Editable text — hidden when marking analysis is shown */}
+            {!isMarkingActive && (
+              <div
+                style={{
+                  fontSize: `${fontSize}px`,
+                  fontFamily: fontFamily,
+                  color: textColor,
+                  lineHeight: lineHeight,
                 }}
-              />
-            </div>
+              >
+                <RichTextEditor 
+                  text={text} 
+                  onChange={handleEditorChange}
+                  columnStyle={columnStyle}
+                  onSaveReplaceOriginal={() => handleSaveAndReplaceOriginal(text, 'manual', 'עורך טקסט', 'שמירה מסרגל העורך')}
+                  onDuplicateSave={() => handleDuplicateAndSave(text, 'manual', 'עורך טקסט', 'שכפול מסרגל העורך')}
+                  onWordCorrected={(original, corrected) => {
+                    debugLog.info('TextEditor', `Spell correction: "${original}" → "${corrected}"`);
+                  }}
+                />
+              </div>
+            )}
           </TabsContent>
 
           <TabsContent value="speakers" className="space-y-5">

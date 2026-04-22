@@ -41,7 +41,42 @@ const RECOMMENDED_MODELS = [
   { name: 'gemma2:27b', label: 'Gemma 2 27B', description: 'מודל חזק של Google', vram: '~16 GB' },
   { name: 'qwen2.5:32b', label: 'Qwen 2.5 32B', description: 'רב-שפתי מתקדם — Alibaba', vram: '~19 GB' },
   { name: 'deepseek-v2:16b', label: 'DeepSeek V2 Lite 16B', description: 'MoE יעיל — DeepSeek', vram: '~10 GB' },
+  { name: 'hf.co/mradermacher/Zion_Alpha_Instruction_Tuned-GGUF:Q6_K', label: 'Zion Alpha Q6 Hebrew', description: 'מודל עברי מיוחד - Zion Alpha', vram: '~6 GB' },
 ];
+
+const inferModelHoverText = (modelName: string): string => {
+  const lower = modelName.toLowerCase();
+  let specialty = 'שימוש כללי ועריכת טקסט';
+  let hebrewTraining = 'לא ידוע';
+
+  if (lower.includes('zion_alpha')) {
+    specialty = 'עברית, הוראות, ניסוח ודיוק מקומי';
+    hebrewTraining = 'כן, מותאם ומאומן לעברית';
+  } else if (lower.includes('aya')) {
+    specialty = 'תרגום, רב-לשוניות ושפה טבעית';
+    hebrewTraining = lower.includes('hebrew') ? 'כן, גרסת Hebrew ייעודית' : 'לא ייעודי, אבל חזק בעברית';
+  } else if (lower.includes('qwen')) {
+    specialty = 'כתיבה, שכתוב, סיכום והוראות מורכבות';
+    hebrewTraining = lower.includes('hebrew') ? 'כן, גרסת Hebrew ייעודית' : 'לא ייעודי, אבל תומך היטב בעברית';
+  } else if (lower.includes('mistral')) {
+    specialty = 'מהירות, עריכה ותשובות קצרות';
+    hebrewTraining = lower.includes('hebrew') ? 'כן, גרסת Hebrew ייעודית' : 'לא ייעודי לעברית';
+  } else if (lower.includes('gemma')) {
+    specialty = 'טקסט כללי, עזרה וניתוח';
+    hebrewTraining = lower.includes('hebrew') ? 'כן, גרסת Hebrew ייעודית' : 'לא ייעודי לעברית';
+  } else if (lower.includes('llama')) {
+    specialty = 'שימוש כללי וצ׳אט';
+    hebrewTraining = lower.includes('hebrew') ? 'כן, גרסת Hebrew ייעודית' : 'לא ייעודי לעברית';
+  } else if (lower.includes('command-r')) {
+    specialty = 'RAG, עבודה עם מקורות ומסמכים';
+    hebrewTraining = 'לא ייעודי לעברית';
+  } else if (lower.includes('deepseek')) {
+    specialty = 'חשיבה, קוד ומשימות מורכבות';
+    hebrewTraining = 'לא ייעודי לעברית';
+  }
+
+  return `התמחות: ${specialty}\nעברית: ${hebrewTraining}`;
+};
 
 export const OllamaManager = () => {
   const {
@@ -60,9 +95,21 @@ export const OllamaManager = () => {
   const [detectedGpuLabel, setDetectedGpuLabel] = useState<string | null>(null);
 
   const installedNames = useMemo(() => new Set(models.map(m => m.name)), [models]);
+  const parseVramGb = (vramText: string): number => {
+    const n = Number.parseFloat(vramText.replace(/[^\d.]/g, ''));
+    return Number.isFinite(n) ? n : 999;
+  };
+  const isEightGbClassGpu = useMemo(
+    () => /RTX\s*(3050|4050|4060|5050)/i.test(detectedGpuLabel || ''),
+    [detectedGpuLabel]
+  );
+  const gpuRecommendedModels = useMemo(() => {
+    if (!isEightGbClassGpu) return RECOMMENDED_MODELS;
+    return RECOMMENDED_MODELS.filter(m => parseVramGb(m.vram) <= 10);
+  }, [isEightGbClassGpu]);
   const missingRecommended = useMemo(
-    () => RECOMMENDED_MODELS.filter(m => !installedNames.has(m.name)),
-    [installedNames]
+    () => gpuRecommendedModels.filter(m => !installedNames.has(m.name)),
+    [gpuRecommendedModels, installedNames]
   );
 
   useEffect(() => {
@@ -345,8 +392,8 @@ export const OllamaManager = () => {
                   <SelectValue placeholder="בחר מודל מומלץ..." />
                 </SelectTrigger>
                 <SelectContent dir="ltr">
-                  {RECOMMENDED_MODELS.map(rm => (
-                    <SelectItem key={rm.name} value={rm.name}>
+                  {gpuRecommendedModels.map(rm => (
+                    <SelectItem key={rm.name} value={rm.name} title={inferModelHoverText(rm.name)}>
                       <div className="flex items-center gap-2">
                         <span className="font-medium">{rm.label}</span>
                         <span className="text-muted-foreground">— {rm.description} ({rm.vram})</span>
@@ -413,11 +460,11 @@ export const OllamaManager = () => {
               </div>
             )}
 
-            {RECOMMENDED_MODELS.length > 0 && (
+            {gpuRecommendedModels.length > 0 && (
               <div className="space-y-2 pt-2 border-t">
                 <Label className="text-xs text-muted-foreground">ניהול הורדה פר מנוע (רקע, מקבילי, עם המשך)</Label>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                  {RECOMMENDED_MODELS.map((m) => {
+                  {gpuRecommendedModels.map((m) => {
                     const job = pullJobs[m.name];
                     const isInstalled = installedNames.has(m.name);
                     const isActive = job?.status === 'starting' || job?.status === 'pulling' || job?.status === 'retrying';
@@ -429,7 +476,7 @@ export const OllamaManager = () => {
                     const totalMB = (job?.totalBytes || 0) / (1024 * 1024);
 
                     return (
-                      <div key={m.name} className="rounded-md border p-2 bg-background space-y-1.5">
+                      <div key={m.name} className="rounded-md border p-2 bg-background space-y-1.5" title={inferModelHoverText(m.name)}>
                         <div className="flex items-center justify-between gap-2">
                           <div className="text-xs" dir="ltr">{m.name}</div>
                           {isInstalled ? (

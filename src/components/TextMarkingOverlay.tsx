@@ -41,6 +41,8 @@ interface Props {
   fontSize?: number;
   fontFamily?: string;
   lineHeight?: number;
+  toolbarOnly?: boolean;
+  onActiveChange?: (isActive: boolean) => void;
 }
 
 const BATCH_SIZE = 40;
@@ -77,7 +79,7 @@ const setLocalCache = (hash: string, data: CachedAnalysis) => {
   } catch { /* quota exceeded — ignore */ }
 };
 
-export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFamily = 'Assistant', lineHeight = 1.8 }: Props) => {
+export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFamily = 'Assistant', lineHeight = 1.8, toolbarOnly = false, onActiveChange }: Props) => {
   const [settings, setSettings] = useState<MarkingSettings>({
     showUnknown: true,
     showGrammar: true,
@@ -93,6 +95,9 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
   const [duplicates, setDuplicates] = useState<DuplicateGroup[]>([]);
   const [isActive, setIsActive] = useState(false);
   const [selectedDuplicate, setSelectedDuplicate] = useState<DuplicateGroup | null>(null);
+
+  // Notify parent about active state changes
+  useEffect(() => { onActiveChange?.(isActive); }, [isActive, onActiveChange]);
   const [selectedFixes, setSelectedFixes] = useState<Set<number>>(new Set());
   const [showFixPanel, setShowFixPanel] = useState(false);
   const [cacheSource, setCacheSource] = useState<'none' | 'local' | 'cloud'>('none');
@@ -776,7 +781,7 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
       )}
 
       {/* Marked text display — shown when AI active, local spell active, or analyzing */}
-      {(isActive || (isAnalyzing && wordResults.length > 0) || (settings.localSpellCheck && localIssueCount > 0)) && (
+      {!toolbarOnly && (isActive || (isAnalyzing && wordResults.length > 0) || (settings.localSpellCheck && localIssueCount > 0)) && (
         <TooltipProvider>
           <div className="p-4 rounded-xl border border-border/40 bg-muted/10 overflow-y-auto max-h-[50vh]" style={{ fontSize: `${fontSize}px`, fontFamily, lineHeight, direction: 'rtl' }} dir="rtl">
             {words.map((word, i) => {
@@ -823,7 +828,7 @@ export const TextMarkingOverlay = ({ text, onTextChange, fontSize = 18, fontFami
       )}
 
       {/* Fix selection panel */}
-      {isActive && showFixPanel && fixableResults.length > 0 && (
+      {!toolbarOnly && isActive && showFixPanel && fixableResults.length > 0 && (
         <div className="mt-3 rounded-xl border border-border/40 bg-muted/10 p-3" dir="rtl">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">

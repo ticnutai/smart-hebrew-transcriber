@@ -19,8 +19,9 @@ type LiveMode = "browser" | "cuda";
 const LIVE_CHUNK_MS = 2000;           // 2s chunks for lower latency
 const LIVE_RECORDING_TIMESLICE_MS = 150;
 const LIVE_MIN_BLOB_BYTES = 800;
-const SILENCE_THRESHOLD = 3;          // Skip chunks below this audio level
+const SILENCE_THRESHOLD = 5;          // Skip chunks below this audio level (averaged over chunk window)
 const MAX_CONSECUTIVE_ERRORS = 5;
+const SEND_TIMEOUT_MS = 18000;        // 18s timeout — allows for larger accumulated chunks
 
 interface LiveStats {
   chunksProcessed: number;
@@ -80,6 +81,9 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
   const processingRef = useRef(false);
   const gpuBusyToastAtRef = useRef(0);
   const consecutiveErrorsRef = useRef(0);
+  const pendingRetryRef = useRef<Blob | null>(null);
+  const audioLevelSamplesRef = useRef<number[]>([]);
+  const finalTextRef = useRef("");
 
   // Audio level indicator refs
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -97,6 +101,9 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
     chunksProcessed: 0, totalLatencyMs: 0, wordsTranscribed: 0, errorsCount: 0, silenceSkips: 0,
   });
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Keep finalTextRef in sync
+  useEffect(() => { finalTextRef.current = finalText; }, [finalText]);
 
   const appendDedupText = useCallback((prev: string, nextRaw: string) => {
     const next = nextRaw.trim();
@@ -213,8 +220,12 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
   const sendChunk = useCallback(async (blob: Blob) => {
     if (blob.size < LIVE_MIN_BLOB_BYTES || processingRef.current) return;
 
-    // Client-side silence skip — don't waste GPU on silence
-    if (audioLevelRef.current < SILENCE_THRESHOLD) {
+    // Client-side silence skip — use averaged audio level over chunk window
+    const avgLevel = audioLevelSamplesRef.current.length > 0
+      ? audioLevelSamplesRef.current.reduce((a, b) => a + b, 0) / audioLevelSamplesRef.current.length
+      : audioLevelRef.current;
+    audioLevelSamplesRef.current = []; // reset for next chunk window
+    if (avgLevel < SILENCE_THRESHOLD) {
       setStats(prev => ({ ...prev, silenceSkips: prev.silenceSkips + 1 }));
       setInterimText("שקט — ממתין לדיבור...");
       return;
@@ -231,11 +242,12 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
       const res = await fetch(`${getBaseUrl()}/transcribe-live`, {
         method: "POST",
         body: formData,
-        signal: AbortSignal.timeout(12000),
+        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
       });
 
       if (res.status === 429) {
-        chunksRef.current.unshift(blob);
+        // Save for retry — DON'T unshift back to chunksRef (avoids duplicate headers)
+        pendingRetryRef.current = blob;
         const now = Date.now();
         if (now - gpuBusyToastAtRef.current > 4000) {
           gpuBusyToastAtRef.current = now;
@@ -252,13 +264,14 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
           setInterimText("שגיאה — שרת לא מגיב");
           return;
         }
-        chunksRef.current.unshift(blob);
+        pendingRetryRef.current = blob;
         setStats(prev => ({ ...prev, errorsCount: prev.errorsCount + 1 }));
         return;
       }
 
       if (res.ok) {
         consecutiveErrorsRef.current = 0;
+        pendingRetryRef.current = null; // clear any pending retry on success
         const data = await res.json();
         const text = data.text?.trim();
         const latencyMs = Math.round(performance.now() - sendStart);
@@ -283,7 +296,7 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
     } catch (err) {
       console.error("Live chunk error:", err);
       consecutiveErrorsRef.current++;
-      chunksRef.current.unshift(blob);
+      pendingRetryRef.current = blob; // save for retry instead of unshift
       setStats(prev => ({ ...prev, errorsCount: prev.errorsCount + 1 }));
       if (consecutiveErrorsRef.current >= MAX_CONSECUTIVE_ERRORS) {
         setInterimText("שרת לא מגיב — בדוק חיבור");
@@ -374,6 +387,8 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
           const level = Math.min(100, Math.round((avg / 128) * 100));
           setAudioLevel(level);
           audioLevelRef.current = level;
+          // Collect samples for silence detection averaging (used by sendChunk)
+          audioLevelSamplesRef.current.push(level);
           animFrameRef.current = requestAnimationFrame(tick);
         };
         tick();
@@ -395,6 +410,10 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
           // Without it, later chunks are invalid standalone WebM files.
           if (!headerChunkRef.current) {
             headerChunkRef.current = e.data;
+            // Don't push header to chunksRef — it's prepended separately in the interval.
+            // Only add to allChunksRef for the final combined audio blob.
+            allChunksRef.current.push(e.data);
+            return;
           }
           chunksRef.current.push(e.data);
           allChunksRef.current.push(e.data);
@@ -406,10 +425,20 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
       // Send accumulated chunks every LIVE_CHUNK_MS.
       // Always prepend the WebM header chunk so each blob is a valid, standalone file.
       chunkIntervalRef.current = setInterval(() => {
-        if (chunksRef.current.length > 0 && !processingRef.current) {
+        if (processingRef.current) return; // wait for current processing to finish
+
+        // If there's a pending retry blob, send it first
+        if (pendingRetryRef.current) {
+          const retryBlob = pendingRetryRef.current;
+          pendingRetryRef.current = null;
+          sendChunk(retryBlob);
+          return;
+        }
+
+        if (chunksRef.current.length > 0) {
           const parts: Blob[] = [];
-          // If the batch doesn't start with the header chunk, prepend it
-          if (headerChunkRef.current && chunksRef.current[0] !== headerChunkRef.current) {
+          // Always prepend the WebM header for a valid standalone file
+          if (headerChunkRef.current) {
             parts.push(headerChunkRef.current);
           }
           parts.push(...chunksRef.current);
@@ -460,6 +489,8 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
     // NOTE: allChunksRef is NOT cleared here — used to build audio file
     headerChunkRef.current = null;
     processingRef.current = false;
+    pendingRetryRef.current = null;
+    audioLevelSamplesRef.current = [];
     consecutiveErrorsRef.current = 0;
     isListeningRef.current = false;
     isPausedRef.current = false;
@@ -529,6 +560,7 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
         const level = Math.min(100, Math.round((avg / 128) * 100));
         setAudioLevel(level);
         audioLevelRef.current = level;
+        audioLevelSamplesRef.current.push(level);
         animFrameRef.current = requestAnimationFrame(tick);
       };
       tick();
@@ -536,9 +568,16 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
     // Restart chunk sending
     const mimeType = mimeTypeRef.current;
     chunkIntervalRef.current = setInterval(() => {
-      if (chunksRef.current.length > 0 && !processingRef.current) {
+      if (processingRef.current) return;
+      if (pendingRetryRef.current) {
+        const retryBlob = pendingRetryRef.current;
+        pendingRetryRef.current = null;
+        sendChunk(retryBlob);
+        return;
+      }
+      if (chunksRef.current.length > 0) {
         const parts: Blob[] = [];
-        if (headerChunkRef.current && chunksRef.current[0] !== headerChunkRef.current) {
+        if (headerChunkRef.current) {
           parts.push(headerChunkRef.current);
         }
         parts.push(...chunksRef.current);
@@ -562,20 +601,36 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
 
   const stopListening = useCallback(async () => {
     if (mode === "cuda") {
-      // Build audio blob from all chunks BEFORE cleanup clears allChunksRef
+      // Stop recording FIRST so no new chunks arrive during refine
+      if (chunkIntervalRef.current) { clearInterval(chunkIntervalRef.current); chunkIntervalRef.current = null; }
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+        mediaRecorderRef.current.stop();
+      }
+      if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); }
+
+      // Build audio blob from all chunks BEFORE cleanup
       const mimeType = mimeTypeRef.current;
       const audioBlob = allChunksRef.current.length > 0
         ? new Blob(allChunksRef.current, { type: mimeType })
         : undefined;
       const duration = Math.floor((Date.now() - startTimeRef.current - totalPausedMsRef.current) / 1000);
 
+      // Preserve existing word timings as fallback
+      const prevTimings = [...wordTimingsRef.current];
       wordTimingsRef.current = [];
       const refinedText = await runFinalRefinePass();
+      // If refine failed, restore previous timings
+      if (!refinedText && wordTimingsRef.current.length === 0) {
+        wordTimingsRef.current = prevTimings;
+      }
+
+      // Use ref for current finalText to avoid stale closure
+      const currentFinalText = finalTextRef.current;
       const merged = refinedText
-        ? (refinedText.length >= Math.max(20, Math.floor(finalText.length * 0.8))
+        ? (refinedText.length >= Math.max(20, Math.floor(currentFinalText.length * 0.8))
           ? refinedText
-          : appendDedupText(finalText, refinedText))
-        : finalText;
+          : appendDedupText(currentFinalText, refinedText))
+        : currentFinalText;
       if (refinedText) {
         setFinalText(merged);
       }
@@ -592,14 +647,15 @@ export const LiveTranscriber = ({ onTranscriptComplete, serverConnected }: LiveT
       }
     } else {
       stopBrowser();
-      if (finalText.trim()) {
+      const currentText = finalTextRef.current;
+      if (currentText.trim()) {
         onTranscriptComplete({
-          text: finalText.trim(),
+          text: currentText.trim(),
           folder: selectedFolder || undefined,
         });
       }
     }
-  }, [appendDedupText, mode, finalText, selectedFolder, onTranscriptComplete, runFinalRefinePass, stopCudaCleanup, stopBrowser]);
+  }, [appendDedupText, mode, selectedFolder, onTranscriptComplete, runFinalRefinePass, stopCudaCleanup, stopBrowser]);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(finalText);

@@ -403,6 +403,61 @@ def _cleanup_gpu_memory():
         torch.cuda.empty_cache()
         _log.debug("GPU memory cleaned up (gc + empty_cache)")
 
+
+def _unload_ollama_models() -> int:
+    """Ask Ollama to unload all loaded models (free VRAM). Returns count unloaded."""
+    try:
+        import urllib.request, urllib.error
+        ollama_url = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
+        if not ollama_url.startswith("http"):
+            ollama_url = "http://" + ollama_url
+        # List currently loaded models
+        try:
+            with urllib.request.urlopen(f"{ollama_url}/api/ps", timeout=2) as resp:
+                data = json.loads(resp.read().decode("utf-8") or "{}")
+        except Exception:
+            return 0
+        loaded = data.get("models") or []
+        if not loaded:
+            return 0
+        unloaded = 0
+        for m in loaded:
+            name = m.get("name") or m.get("model")
+            if not name:
+                continue
+            try:
+                req = urllib.request.Request(
+                    f"{ollama_url}/api/generate",
+                    data=json.dumps({"model": name, "keep_alive": 0, "prompt": ""}).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=5) as r:
+                    r.read()
+                unloaded += 1
+                _log.info(f"Unloaded Ollama model to free VRAM: {name}")
+            except Exception as e:
+                _log.debug(f"Failed to unload Ollama model {name}: {e}")
+        return unloaded
+    except Exception as e:
+        _log.debug(f"Ollama unload skipped: {e}")
+        return 0
+
+
+def _evict_all_whisper_models():
+    """Evict every cached Whisper model to free VRAM."""
+    global _current_model_id
+    keys = list(_model_cache.keys())
+    for k in keys:
+        try:
+            del _model_cache[k]
+        except KeyError:
+            pass
+        _model_last_used.pop(k, None)
+    _current_model_id = None
+    if keys:
+        _log.info(f"Evicted {len(keys)} cached Whisper model(s) to free VRAM")
+
 def _log_memory_state(label: str):
     """Log current GPU + system memory state."""
     gpu = _get_gpu_mem()
@@ -453,14 +508,16 @@ MODEL_REGISTRY = {
     # ivrit-ai/whisper-large-v3-turbo — requires local HF→CT2 conversion (see MODELS_NEEDING_CONVERSION)
 }
 
-DEFAULT_MODEL = "large-v3-turbo"
+# Default to ivrit-ai for best Hebrew quality (per Interspeech 2025: Marmor et al.).
+# Override with --model on CLI for non-Hebrew use cases.
+DEFAULT_MODEL = "ivrit-ai/whisper-large-v3-turbo-ct2"
 
 
 def _default_model_for(language: str = "he") -> str:
     """Return the best default model, preferring ivrit-ai for Hebrew."""
     if language == "he":
         return "ivrit-ai/whisper-large-v3-turbo-ct2"
-    return DEFAULT_MODEL
+    return "large-v3-turbo"
 
 
 def get_device() -> str:
@@ -597,12 +654,17 @@ DEFAULT_PRESET = "balanced"
 
 def auto_batch_size() -> int:
     """Auto-detect optimal batch size based on GPU VRAM.
-    Rule: min(24, max(4, free_vram_mb // 512))
+    Conservative on small GPUs (≤10GB) to leave headroom for Ollama / browser.
     Falls back to 8 if VRAM cannot be determined.
     """
     gpu = _get_gpu_mem()
     if gpu and gpu.get("free_mb"):
-        return min(24, max(4, int(gpu["free_mb"] // 512)))
+        free_mb = int(gpu["free_mb"])
+        total_mb = int(gpu.get("total_mb") or 0)
+        # 8GB-class GPUs (RTX 3050/4050/5050 Laptop): cap batch at 8
+        if total_mb and total_mb <= 10240:
+            return min(8, max(2, free_mb // 768))
+        return min(24, max(4, free_mb // 512))
     return 8
 
 
@@ -677,6 +739,40 @@ def load_model(model_id: str, compute_type_override: str | None = None) -> faste
             device = "cpu"
             compute_type = "int8"
             model = _load(device, compute_type)
+        # GPU OOM — free VRAM (Ollama + cached models) and retry with lighter precision, then CPU
+        elif device == "cuda" and "out of memory" in err_str:
+            print(f"  ⚠️ GPU OOM while loading {model_id} — freeing VRAM and retrying...")
+            _evict_all_whisper_models()
+            freed = _unload_ollama_models()
+            _cleanup_gpu_memory()
+            if freed:
+                print(f"  Unloaded {freed} Ollama model(s) to reclaim VRAM")
+            try:
+                model = _load(device, compute_type)
+            except Exception as e2:
+                if "out of memory" not in str(e2).lower():
+                    raise
+                # Try lighter quantization
+                if compute_type != "int8":
+                    print(f"  ⚠️ Still OOM — retrying with compute_type=int8 (lighter)...")
+                    compute_type = "int8"
+                    cache_key = f"{model_id}::{compute_type}"
+                    try:
+                        model = _load(device, compute_type)
+                    except Exception as e3:
+                        if "out of memory" not in str(e3).lower():
+                            raise
+                        print(f"  ⚠️ Still OOM — falling back to CPU...")
+                        device = "cpu"
+                        compute_type = "int8"
+                        cache_key = f"{model_id}::{compute_type}"
+                        model = _load(device, compute_type)
+                else:
+                    print(f"  ⚠️ Still OOM — falling back to CPU...")
+                    device = "cpu"
+                    compute_type = "int8"
+                    cache_key = f"{model_id}::{compute_type}"
+                    model = _load(device, compute_type)
         else:
             raise
 
@@ -1276,6 +1372,18 @@ def transcribe_stream():
             # ── Log memory BEFORE transcription ──
             _log_memory_state(f"{request_id} PRE-TRANSCRIBE")
 
+            # ── Proactively free VRAM: unload Ollama models so Whisper has room ──
+            # On 8GB-class GPUs Ollama+Whisper together always OOM. Skip if
+            # client explicitly opts in to parallel mode (header).
+            share_mode = (request.headers.get("X-GPU-Share-Mode") or "serial").lower()
+            if share_mode != "parallel":
+                gpu_now = _get_gpu_mem()
+                if gpu_now and gpu_now.get("total_mb", 0) <= 10240:
+                    freed = _unload_ollama_models()
+                    if freed:
+                        _cleanup_gpu_memory()
+                        _log.info(f"[{request_id}] Pre-transcribe: freed {freed} Ollama model(s) from VRAM")
+
             # Tell client we're loading the model
             _log.info(f"[{request_id}] SSE: sending 'loading' event")
             yield f"data: {json.dumps({'type': 'loading', 'message': 'Loading model...', 'model': resolved})}\n\n"
@@ -1351,8 +1459,25 @@ def transcribe_stream():
                     # OOM with large batch — retry with smaller batch
                     retry_batch = 4
                     _log.warning(f"[{request_id}] GPU OOM with batch_size={batch_size}, retrying with batch_size={retry_batch}...")
+                    _evict_all_whisper_models()
+                    _unload_ollama_models()
                     _cleanup_gpu_memory()
                     yield f"data: {json.dumps({'type': 'loading', 'message': f'GPU memory full — retrying with smaller batch ({retry_batch})...', 'model': resolved})}\n\n"
+                    model = load_model(resolved, compute_type_override=compute_type_req)
+                    segments_gen, info = _do_transcribe(model, override_batch=retry_batch)
+                    segments_list = []
+                    first_seg = next(iter(segments_gen), None)
+                    if first_seg is not None:
+                        segments_list.append(first_seg)
+                elif "out of memory" in err_str_lower:
+                    # OOM with batch already small — free VRAM and retry once with batch=2
+                    retry_batch = 2
+                    _log.warning(f"[{request_id}] GPU OOM (batch={batch_size}) — freeing VRAM and retrying with batch_size={retry_batch}...")
+                    _evict_all_whisper_models()
+                    freed = _unload_ollama_models()
+                    _cleanup_gpu_memory()
+                    yield f"data: {json.dumps({'type': 'loading', 'message': f'GPU memory full — freed {freed} model(s), retrying...', 'model': resolved})}\n\n"
+                    model = load_model(resolved, compute_type_override=compute_type_req)
                     segments_gen, info = _do_transcribe(model, override_batch=retry_batch)
                     segments_list = []
                     first_seg = next(iter(segments_gen), None)

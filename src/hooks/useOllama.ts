@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { ACTION_PROMPTS, TONE_PROMPTS } from "@/lib/prompts";
+import { getGpuShareMode, waitUntilWhisperIdle } from "@/lib/gpuShareMode";
+import { buildHebrewGuardPrefix, isHebrewOnlyEnabled, containsForeignScript } from "@/lib/hebrewGuard";
 
 const DEFAULT_OLLAMA_URL = "http://localhost:11434";
 
@@ -397,6 +399,11 @@ export function useOllama() {
     const { text, action, model, customPrompt, toneStyle, targetLanguage } = params;
     const baseUrl = getOllamaUrl();
 
+    // ── GPU sharing: in 'serial' mode, wait for Whisper to finish first ──
+    if (getGpuShareMode() === 'serial') {
+      await waitUntilWhisperIdle(5 * 60 * 1000, 1500);
+    }
+
     let systemPrompt = '';
     if (action === 'custom' && customPrompt) {
       systemPrompt = customPrompt;
@@ -414,49 +421,94 @@ export function useOllama() {
       if (!systemPrompt) throw new Error(`Invalid action: ${action}`);
     }
 
-    // First try OpenAI-compatible endpoint (newer Ollama versions)
-    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: text },
-        ],
-        stream: false,
-      }),
-    });
+    // ── Hebrew-only output guard (skipped for action='translate') ──
+    const hebrewPrefix = buildHebrewGuardPrefix(action);
+    if (hebrewPrefix) systemPrompt = hebrewPrefix + '\n' + systemPrompt;
 
-    if (res.ok) {
-      const data = await res.json();
-      const content = data.choices?.[0]?.message?.content;
-      if (content) return content;
+    /** Run a single chat request. Returns the model output. */
+    const runOnce = async (sysPrompt: string, temperature: number): Promise<string> => {
+      // OpenAI-compatible endpoint first (newer Ollama versions)
+      const r1 = await fetch(`${baseUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: sysPrompt },
+            { role: 'user', content: text },
+          ],
+          stream: false,
+          temperature,
+        }),
+      });
+      if (r1.ok) {
+        const d1 = await r1.json();
+        const c1 = d1.choices?.[0]?.message?.content;
+        if (c1) return c1;
+      }
+      // Fallback to /api/chat for older Ollama versions
+      const r2 = await fetch(`${baseUrl}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: sysPrompt },
+            { role: 'user', content: text },
+          ],
+          stream: false,
+          options: { temperature, repeat_penalty: 1.15 },
+        }),
+      });
+      if (!r2.ok) {
+        const err = await r2.text().catch(() => r2.statusText);
+        throw new Error(`Ollama error: ${err}`);
+      }
+      const d2 = await r2.json();
+      const c2 = d2?.message?.content;
+      if (!c2) throw new Error('No response from Ollama model');
+      return c2;
+    };
+
+    // Lower temperature when Hebrew guard is on — reduces drift to other languages.
+    const guardOn = isHebrewOnlyEnabled() && action !== 'translate';
+    const initialTemp = guardOn ? 0.2 : 0.7;
+    let result = await runOnce(systemPrompt, initialTemp);
+
+    // Auto-retry once if the result contains foreign script while guard is on.
+    if (guardOn) {
+      const check = containsForeignScript(result);
+      if (check.found) {
+        const retryPrefix = [
+          '⚠️ הניסיון הקודם נכשל — הוסיף תווים בשפה זרה!',
+          `נמצאו תווים אסורים: ${check.samples.slice(0, 5).join(' ')}`,
+          'נסה שוב — הפעם רק עברית, ללא יוצאים מן הכלל.',
+          '',
+        ].join('\n');
+        result = await runOnce(retryPrefix + systemPrompt, 0.1);
+      }
     }
+    return result;
+  }, []);
 
-    // Fallback for older Ollama versions: /api/chat
-    const legacyRes = await fetch(`${baseUrl}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: text },
-        ],
-        stream: false,
-      }),
-    });
-
-    if (!legacyRes.ok) {
-      const errText = await legacyRes.text().catch(() => legacyRes.statusText);
-      throw new Error(`Ollama error: ${errText}`);
+  /**
+   * Warm up a model — load it into VRAM in the background so the first
+   * real request is fast. Uses an empty prompt with keep_alive=10m.
+   * Safe to call multiple times; Ollama is idempotent.
+   */
+  const warmupModel = useCallback(async (modelName: string): Promise<boolean> => {
+    if (!modelName) return false;
+    try {
+      const baseUrl = getOllamaUrl();
+      const res = await fetch(`${baseUrl}/api/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: modelName, prompt: '', keep_alive: '10m' }),
+      });
+      return res.ok;
+    } catch {
+      return false;
     }
-
-    const legacyData = await legacyRes.json();
-    const legacyContent = legacyData?.message?.content;
-    if (!legacyContent) throw new Error('No response from Ollama model');
-    return legacyContent;
   }, []);
 
   return {
@@ -473,6 +525,7 @@ export function useOllama() {
     resumePull,
     deleteModel,
     editText,
+    warmupModel,
   };
 }
 

@@ -1,6 +1,6 @@
 # ===========================================
 #  Ollama Setup Script - Smart Hebrew Transcriber
-#  RTX 4060 optimized
+#  RTX 5050 / 8GB-class optimized
 # ===========================================
 
 $ErrorActionPreference = "Stop"
@@ -80,10 +80,10 @@ try {
     Start-Sleep -Seconds 5
 }
 
-# --- 4. Pull recommended models for RTX 4060 (8GB VRAM) ---
+# --- 4. Pull recommended models for RTX 5050 / 8GB-class VRAM ---
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  Downloading AI Models for RTX 4060" -ForegroundColor Cyan
+Write-Host "  Downloading AI Models for RTX 5050 / 8GB-class" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 

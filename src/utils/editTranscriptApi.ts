@@ -1,4 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
+import { buildHebrewGuardPrefix } from "@/lib/hebrewGuard";
+import { ACTION_PROMPTS, TONE_PROMPTS } from "@/lib/prompts";
 
 interface EditTranscriptParams {
   text: string;
@@ -15,7 +17,20 @@ interface EditTranscriptParams {
  * Edge function = fallback if DB proxy fails (no API key, etc).
  */
 export async function editTranscriptCloud(params: EditTranscriptParams): Promise<string> {
-  const { text, action, model, customPrompt, toneStyle, targetLanguage } = params;
+  let { text, action, model, customPrompt, toneStyle, targetLanguage } = params;
+
+  // ── Hebrew-only output guard: convert to action='custom' with prefixed prompt ──
+  const hebrewPrefix = buildHebrewGuardPrefix(action);
+  if (hebrewPrefix) {
+    let basePrompt = '';
+    if (action === 'custom' && customPrompt) basePrompt = customPrompt;
+    else if (action === 'tone') basePrompt = TONE_PROMPTS[toneStyle || 'formal'] || TONE_PROMPTS.formal;
+    else basePrompt = (ACTION_PROMPTS as Record<string, string>)[action] || '';
+    if (basePrompt) {
+      action = 'custom';
+      customPrompt = hebrewPrefix + '\n' + basePrompt;
+    }
+  }
 
   // ── Try DB proxy first (latest code, no deployment needed) ──
   try {

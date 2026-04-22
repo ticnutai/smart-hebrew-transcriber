@@ -1,4 +1,4 @@
-import { useState, useMemo, memo, useEffect } from "react";
+import { useState, useMemo, memo, useEffect, useRef } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -15,14 +17,32 @@ import {
   Languages, Users, List, Heading, Maximize2, Minimize2,
   CheckCheck, Volume2, AlignJustify, Quote, Cpu, Save, Gauge, Trophy,
   Eye, EyeOff, GitCompareArrows, Download, PlayCircle, StopCircle, RotateCcw, Trash2,
-  Pencil, Plus, LayoutGrid, LayoutList, Rows3, RotateCw,
+  Pencil, Plus, LayoutGrid, LayoutList, Rows3, RotateCw, ShieldCheck, Star, Settings, GripVertical, Filter, ArrowUpDown, Plug,
   type LucideIcon
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { editTranscriptCloud } from "@/utils/editTranscriptApi";
-import { ACTION_PROMPTS } from "@/lib/prompts";
-import { useOllama, isOllamaModel, getOllamaModelName } from "@/hooks/useOllama";
+import { ACTION_PROMPTS, TONE_PROMPTS } from "@/lib/prompts";
+import {
+  parseProviderModel,
+  encodeProviderModel,
+  chatWithProvider,
+  getProviders,
+  subscribeProviders,
+  loadProviderKey,
+  type CustomProvider,
+} from "@/lib/customProviders";
+import { CustomProvidersDialog } from "@/components/CustomProvidersDialog";
+import { buildHebrewGuardPrefix } from "@/lib/hebrewGuard";
+import { useOllama, isOllamaModel, getOllamaModelName, getOllamaUrl } from "@/hooks/useOllama";
 import { useAIEditQueue } from "@/hooks/useAIEditQueue";
+import { getGpuShareMode, setGpuShareMode, subscribeGpuShareMode, type GpuShareMode } from "@/lib/gpuShareMode";
+import {
+  isHebrewOnlyEnabled, setHebrewOnlyEnabled,
+  getAllowedLangs, setAllowedLangs, subscribeHebrewGuard,
+  ALL_ALLOWED_LANGS, containsForeignScript, getAllowedLangLabel,
+  type AllowedLang,
+} from "@/lib/hebrewGuard";
 import { useCustomActions, type CustomAction } from "@/hooks/useCustomActions";
 import type { AIEditJob } from "@/lib/aiEditQueue";
 import DiffMatchPatch from "diff-match-patch";
@@ -73,14 +93,16 @@ const CLOUD_MODELS = [
 ];
 
 const RECOMMENDED_OLLAMA_MODELS = [
-  'aya:8b',
-  'aya:35b',
-  'qwen2.5:14b',
-  'qwen2.5:32b',
-  'mistral-nemo:12b',
-  'command-r:35b',
-  'gemma2:27b',
-  'deepseek-v2:16b',
+  // 🥇 DICTA — top-tier Hebrew-specialized model (Dec 2025 release)
+  'hf.co/dicta-il/DictaLM-3.0-Nemotron-12B-Instruct-GGUF:Q4_K_M',
+  // Hebrew-tuned community models
+  'aya:8b-hebrew',
+  'qwen2.5:7b-hebrew',
+  'qwen2.5:14b-hebrew',
+  'mistral:7b-hebrew',
+  'gemma2:9b-hebrew',
+  'llama3.1:8b-hebrew',
+  'hf.co/mradermacher/Zion_Alpha_Instruction_Tuned-GGUF:Q6_K',
 ];
 
 // --- Smart auto-select: best model per action category ---
@@ -88,26 +110,62 @@ const DEFAULT_MODEL_KEY = 'ai_editor_default_model';
 
 // Action → best model mapping (cloud + local considerations)
 // Categories: quality-heavy tasks get bigger models, speed tasks get lighter ones
+// NOTE: defaults use qwen2.5:7b-hebrew (4.7GB) — fits fully in 8GB VRAM (RTX 5050/3050/4050).
+//       14b (9GB) spills to CPU on 8GB GPUs and becomes 5-10x slower. Pick 14b manually if you have ≥12GB VRAM.
 const AUTO_MODEL_MAP: Record<string, { cloud: string; local: string }> = {
   // Quality-critical: grammar, improve, readable
-  improve:     { cloud: 'gemini-flash', local: 'command-r:35b' },
-  grammar:     { cloud: 'gemini-flash', local: 'command-r:35b' },
-  readable:    { cloud: 'gemini-flash', local: 'command-r:35b' },
-  punctuation: { cloud: 'gemini-flash', local: 'qwen2.5:14b' },
+  improve:     { cloud: 'gemini-flash', local: 'qwen2.5:7b-hebrew' },
+  grammar:     { cloud: 'gemini-flash', local: 'qwen2.5:7b-hebrew' },
+  readable:    { cloud: 'gemini-flash', local: 'qwen2.5:7b-hebrew' },
+  punctuation: { cloud: 'gemini-flash', local: 'qwen2.5:7b-hebrew' },
   // Structural: paragraphs, headings, bullets
-  paragraphs:  { cloud: 'gpt-4o', local: 'qwen2.5:14b' },
-  headings:    { cloud: 'gpt-4o', local: 'qwen2.5:14b' },
-  bullets:     { cloud: 'gpt-4o', local: 'qwen2.5:14b' },
+  paragraphs:  { cloud: 'gpt-4o', local: 'qwen2.5:7b-hebrew' },
+  headings:    { cloud: 'gpt-4o', local: 'qwen2.5:7b-hebrew' },
+  bullets:     { cloud: 'gpt-4o', local: 'qwen2.5:7b-hebrew' },
   // Length transforms
-  expand:      { cloud: 'gemini-flash', local: 'command-r:35b' },
-  shorten:     { cloud: 'gpt-4o-mini', local: 'mistral-nemo:12b' },
-  summarize:   { cloud: 'gemini-flash', local: 'command-r:35b' },
+  expand:      { cloud: 'gemini-flash', local: 'qwen2.5:7b-hebrew' },
+  shorten:     { cloud: 'gpt-4o-mini', local: 'qwen2.5:7b-hebrew' },
+  summarize:   { cloud: 'gemini-flash', local: 'qwen2.5:7b-hebrew' },
   // Specialized
-  sources:     { cloud: 'gemini-flash', local: 'command-r:35b' },
-  translate:   { cloud: 'gemini-flash', local: 'aya:8b' },
-  speakers:    { cloud: 'gpt-4o', local: 'command-r:35b' },
-  tone:        { cloud: 'gemini-flash', local: 'command-r:35b' },
-  custom:      { cloud: 'gemini-flash', local: 'command-r:35b' },
+  sources:     { cloud: 'gemini-flash', local: 'qwen2.5:7b-hebrew' },
+  translate:   { cloud: 'gemini-flash', local: 'aya:8b-hebrew' },
+  speakers:    { cloud: 'gpt-4o', local: 'qwen2.5:7b-hebrew' },
+  tone:        { cloud: 'gemini-flash', local: 'qwen2.5:7b-hebrew' },
+  custom:      { cloud: 'gemini-flash', local: 'qwen2.5:7b-hebrew' },
+};
+
+const inferModelHoverText = (modelName: string): string => {
+  const lower = modelName.toLowerCase();
+  let specialty = 'שימוש כללי';
+  let hebrewTraining = 'לא ידוע';
+
+  if (lower.includes('zion_alpha')) {
+    specialty = 'עברית, הוראות, שכתוב וניסוח';
+    hebrewTraining = 'כן, מותאם ומאומן לעברית';
+  } else if (lower.includes('aya')) {
+    specialty = 'תרגום, רב-לשוניות ושפה טבעית';
+    hebrewTraining = lower.includes('hebrew') || lower.includes('expanse') ? 'כן, חזק במיוחד בעברית' : 'לא ייעודי, אבל חזק בעברית';
+  } else if (lower.includes('qwen')) {
+    specialty = 'כתיבה, סיכום, עריכה והוראות מורכבות';
+    hebrewTraining = lower.includes('hebrew') ? 'כן, גרסת Hebrew ייעודית' : 'לא ייעודי, אבל תומך היטב בעברית';
+  } else if (lower.includes('mistral')) {
+    specialty = 'מהירות, ניסוח ועריכה';
+    hebrewTraining = lower.includes('hebrew') ? 'כן, גרסת Hebrew ייעודית' : 'לא ייעודי לעברית';
+  } else if (lower.includes('gemma')) {
+    specialty = 'טקסט כללי, עזרה וניתוח';
+    hebrewTraining = lower.includes('hebrew') ? 'כן, גרסת Hebrew ייעודית' : 'לא ייעודי לעברית';
+  } else if (lower.includes('llama')) {
+    specialty = 'שימוש כללי וצ׳אט';
+    hebrewTraining = lower.includes('hebrew') ? 'כן, גרסת Hebrew ייעודית' : 'לא ייעודי לעברית';
+  } else if (lower.includes('command-r')) {
+    specialty = 'RAG, עבודה עם מקורות ומסמכים';
+    hebrewTraining = 'לא ייעודי לעברית';
+  } else if (lower.includes('claude') || lower.includes('gpt') || lower.includes('gemini')) {
+    specialty = 'מודל ענן כללי חזק לכתיבה וחשיבה';
+    hebrewTraining = 'לא ייעודי לעברית';
+  }
+
+  return `התמחות: ${specialty}\nעברית: ${hebrewTraining}`;
 };
 
 function getSavedDefaultModel(): string | null {
@@ -116,6 +174,103 @@ function getSavedDefaultModel(): string | null {
 function saveDefaultModel(value: string | null) {
   if (value) localStorage.setItem(DEFAULT_MODEL_KEY, value);
   else localStorage.removeItem(DEFAULT_MODEL_KEY);
+}
+
+const FAVORITE_MODELS_KEY = 'ai_editor_favorite_models_v1';
+function getFavoriteModels(): string[] {
+  try {
+    const raw = localStorage.getItem(FAVORITE_MODELS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((v: unknown): v is string => typeof v === 'string') : [];
+  } catch { return []; }
+}
+function saveFavoriteModels(values: string[]): void {
+  try {
+    localStorage.setItem(FAVORITE_MODELS_KEY, JSON.stringify(values));
+    window.dispatchEvent(new CustomEvent('ai-favorite-models-changed'));
+  } catch { /* noop */ }
+}
+
+const HIDDEN_MODELS_KEY = 'ai_editor_hidden_models_v1';
+const MODEL_ORDER_KEY = 'ai_editor_model_order_v1';
+function getHiddenModels(): string[] {
+  try {
+    const raw = localStorage.getItem(HIDDEN_MODELS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((v: unknown): v is string => typeof v === 'string') : [];
+  } catch { return []; }
+}
+function saveHiddenModels(values: string[]): void {
+  try {
+    localStorage.setItem(HIDDEN_MODELS_KEY, JSON.stringify(values));
+    window.dispatchEvent(new CustomEvent('ai-model-visibility-changed'));
+  } catch { /* noop */ }
+}
+function getModelOrder(): string[] {
+  try {
+    const raw = localStorage.getItem(MODEL_ORDER_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((v: unknown): v is string => typeof v === 'string') : [];
+  } catch { return []; }
+}
+function saveModelOrder(values: string[]): void {
+  try {
+    localStorage.setItem(MODEL_ORDER_KEY, JSON.stringify(values));
+    window.dispatchEvent(new CustomEvent('ai-model-visibility-changed'));
+  } catch { /* noop */ }
+}
+
+// --- Model classification heuristics (for filter & sort in Settings panel) ---
+type ModelCategory = 'cloud' | 'local';
+type ModelDomain = 'general' | 'hebrew' | 'code' | 'reasoning' | 'multilingual';
+
+/** Estimate model size in billions of parameters from name. Returns 0 when unknown (cloud, etc.) */
+function estimateModelSizeB(label: string): number {
+  const m = label.match(/(\d+(?:\.\d+)?)\s*[bB]\b/);
+  if (m) return parseFloat(m[1]);
+  // Common heuristics for cloud models without explicit size
+  const l = label.toLowerCase();
+  if (l.includes('nano')) return 1;
+  if (l.includes('mini') || l.includes('haiku') || l.includes('lite') || l.includes('flash')) return 8;
+  if (l.includes('sonnet') || l.includes('command-r') && !l.includes('plus')) return 35;
+  if (l.includes('pro') || l.includes('large') || l.includes('plus')) return 100;
+  if (l.includes('gpt-5') || l.includes('gpt-4o')) return 200;
+  return 0;
+}
+
+/** Detect Hebrew-specialized models (by tag/name). */
+function isHebrewModel(label: string): boolean {
+  const l = label.toLowerCase();
+  return l.includes('hebrew') || l.includes('zion') || l.includes('aya') || l.includes('dolphin3-hebrew') || l.includes('dictalm') || l.includes('dicta-il');
+}
+
+/** Detect DICTA-built models — the gold standard for Hebrew (per HuggingFace dicta-il org). */
+function isDictaModel(label: string): boolean {
+  const l = label.toLowerCase();
+  return l.includes('dictalm') || l.includes('dicta-il') || l.includes('dictabert');
+}
+
+/** Detect rough training-domain category. */
+function getModelDomain(label: string): ModelDomain {
+  const l = label.toLowerCase();
+  if (isHebrewModel(label)) return 'hebrew';
+  if (l.includes('code') || l.includes('coder') || l.includes('deepseek')) return 'code';
+  if (l.includes('reason') || l.includes('o1') || l.includes('o3') || l.includes('claude') || l.includes('gpt-5')) return 'reasoning';
+  if (l.includes('aya') || l.includes('command-r') || l.includes('qwen') || l.includes('mistral') || l.includes('gemma')) return 'multilingual';
+  return 'general';
+}
+
+function getDomainLabel(d: ModelDomain): string {
+  switch (d) {
+    case 'hebrew': return '🇮🇱 עברית';
+    case 'code': return '💻 קוד';
+    case 'reasoning': return '🧠 הסקה';
+    case 'multilingual': return '🌐 רב-לשוני';
+    default: return '📦 כללי';
+  }
 }
 
 type CompareMetrics = {
@@ -285,7 +440,22 @@ const TRANSLATE_LANGS = [
   { value: 'גרמנית', label: '🇩🇪 גרמנית' },
 ];
 
-const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplaceOriginal, onDuplicateAndSave, onSyncToPlayer }: AIEditorDualProps) => {
+const AIEditorDualInner = ({ text: propText, onTextChange, onSaveVersion, onSaveAndReplaceOriginal, onDuplicateAndSave, onSyncToPlayer }: AIEditorDualProps) => {
+  // Local editable working copy of the source text. User can tweak words inline before/between AI runs;
+  // changes flow automatically into the next AI run because all edit code uses `text`.
+  const [text, setWorkingText] = useState(propText);
+  const [isUserEditedText, setIsUserEditedText] = useState(false);
+  // Sync from prop when it changes externally — but only if the user hasn't manually edited yet.
+  useEffect(() => {
+    if (!isUserEditedText) setWorkingText(propText);
+  }, [propText, isUserEditedText]);
+  const [showSourceEditor, setShowSourceEditor] = useState<boolean>(() => {
+    try { return localStorage.getItem('ai_editor_show_source') !== 'false'; } catch { return true; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('ai_editor_show_source', String(showSourceEditor)); } catch { /* noop */ }
+  }, [showSourceEditor]);
+
   const [isEditing1, setIsEditing1] = useState(false);
   const [isEditing2, setIsEditing2] = useState(false);
   const [isMerging, setIsMerging] = useState(false);
@@ -316,10 +486,98 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplace
   const [historySearch, setHistorySearch] = useState('');
   const [historySort, setHistorySort] = useState<'newest' | 'oldest' | 'best_quality' | 'best_latency'>('newest');
   const [lastAction, setLastAction] = useState<EditAction | null>(null);
+  const [pendingExtras, setPendingExtras] = useState<{ customPrompt?: string; toneStyle?: string; targetLanguage?: string } | undefined>(undefined);
   const [customPrompt, setCustomPrompt] = useState("");
   const [showCustomDialog, setShowCustomDialog] = useState(false);
   const [showDiffHighlight, setShowDiffHighlight] = useState(false);
   const [autoCompare, setAutoCompare] = useState(true);
+  const [activeRunCount, setActiveRunCount] = useState<0 | 1 | 2>(0);
+  const [gpuShareMode, setGpuShareModeState] = useState<GpuShareMode>(() => getGpuShareMode());
+  useEffect(() => subscribeGpuShareMode(setGpuShareModeState), []);
+  // Hebrew-only output guard
+  const [hebrewOnly, setHebrewOnly] = useState<boolean>(() => isHebrewOnlyEnabled());
+  const [allowedLangs, setAllowedLangsState] = useState<AllowedLang[]>(() => getAllowedLangs());
+  const [customLangInput, setCustomLangInput] = useState<string>('');
+  const updateAllowed = (next: AllowedLang[]) => {
+    setAllowedLangsState(next);
+    setAllowedLangs(next);
+  };
+  const toggleLang = (value: string, on: boolean) => {
+    updateAllowed(on ? [...allowedLangs, value] : allowedLangs.filter(v => v !== value));
+  };
+
+  // Favorite/pinned models
+  const [favoriteModels, setFavoriteModelsState] = useState<string[]>(() => getFavoriteModels());
+  useEffect(() => {
+    const handler = () => setFavoriteModelsState(getFavoriteModels());
+    window.addEventListener('ai-favorite-models-changed', handler);
+    window.addEventListener('storage', handler);
+    return () => {
+      window.removeEventListener('ai-favorite-models-changed', handler);
+      window.removeEventListener('storage', handler);
+    };
+  }, []);
+  const isFavorite = (v: string) => favoriteModels.includes(v);
+  const toggleFavorite = (v: string) => {
+    const next = isFavorite(v) ? favoriteModels.filter(x => x !== v) : [...favoriteModels, v];
+    setFavoriteModelsState(next);
+    saveFavoriteModels(next);
+  };
+
+  // Model visibility + custom order
+  const [hiddenModels, setHiddenModelsState] = useState<string[]>(() => getHiddenModels());
+  const [modelOrder, setModelOrderState] = useState<string[]>(() => getModelOrder());
+  useEffect(() => {
+    const handler = () => {
+      setHiddenModelsState(getHiddenModels());
+      setModelOrderState(getModelOrder());
+    };
+    window.addEventListener('ai-model-visibility-changed', handler);
+    window.addEventListener('storage', handler);
+    return () => {
+      window.removeEventListener('ai-model-visibility-changed', handler);
+      window.removeEventListener('storage', handler);
+    };
+  }, []);
+  const isHidden = (v: string) => hiddenModels.includes(v);
+  const toggleHidden = (v: string) => {
+    const next = isHidden(v) ? hiddenModels.filter(x => x !== v) : [...hiddenModels, v];
+    setHiddenModelsState(next);
+    saveHiddenModels(next);
+  };
+  const dragItemRef = useRef<string | null>(null);
+  // Filter & sort state for the Settings panel (per-session, not persisted)
+  const [filterCategory, setFilterCategory] = useState<'all' | ModelCategory>('all');
+  const [filterDomain, setFilterDomain] = useState<'all' | ModelDomain>('all');
+  const [sortMode, setSortMode] = useState<'custom' | 'name' | 'size-desc' | 'size-asc' | 'category'>('custom');
+  const reorderModel = (sourceValue: string, targetValue: string) => {
+    if (sourceValue === targetValue) return;
+    // Build complete current order based on existing modelOrder + any new models
+    const allCloud = CLOUD_MODELS.map(m => m.value);
+    const allOllama = ollama.models.map(m => `ollama:${m.name}`);
+    const all = [...allCloud, ...allOllama];
+    const ordered = [...modelOrder.filter(v => all.includes(v)), ...all.filter(v => !modelOrder.includes(v))];
+    const fromIdx = ordered.indexOf(sourceValue);
+    const toIdx = ordered.indexOf(targetValue);
+    if (fromIdx === -1 || toIdx === -1) return;
+    ordered.splice(toIdx, 0, ordered.splice(fromIdx, 1)[0]);
+    setModelOrderState(ordered);
+    saveModelOrder(ordered);
+  };
+  /** Apply custom order + filter hidden, used in the Select dropdown. */
+  const applyOrderAndVisibility = <T extends { value: string }>(items: T[]): T[] => {
+    const visible = items.filter(m => !isHidden(m.value));
+    if (modelOrder.length === 0) return visible;
+    const indexOf = (v: string) => {
+      const i = modelOrder.indexOf(v);
+      return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+    };
+    return [...visible].sort((a, b) => indexOf(a.value) - indexOf(b.value));
+  };
+  useEffect(() => subscribeHebrewGuard(() => {
+    setHebrewOnly(isHebrewOnlyEnabled());
+    setAllowedLangsState(getAllowedLangs());
+  }), []);
   const ollama = useOllama();
   const bgQueue = useAIEditQueue();
   const customActions = useCustomActions();
@@ -337,7 +595,77 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplace
   const installedOllamaNames = new Set(ollama.models.map(m => m.name));
   const missingRecommended = RECOMMENDED_OLLAMA_MODELS.filter(m => !installedOllamaNames.has(m));
 
-  // Build unified model list: cloud + local Ollama models
+  // ── Pre-warm the default local model so the first edit is fast ──
+  // Picks the smallest installed Hebrew model that fits in 8GB VRAM.
+  useEffect(() => {
+    if (!ollama.isConnected || ollama.models.length === 0) return;
+    const candidates = ['qwen2.5:7b-hebrew', 'aya:8b-hebrew', 'mistral:7b-hebrew', 'gemma2:9b-hebrew', 'llama3.1:8b-hebrew'];
+    const target = candidates.find(c => installedOllamaNames.has(c));
+    if (!target) return;
+    // Fire-and-forget; Ollama handles concurrency
+    void ollama.warmupModel(target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ollama.isConnected, ollama.models.length]);
+
+  // ── VRAM conflict detection: poll Whisper /health + Ollama /api/ps ──
+  const [vramConflict, setVramConflict] = useState<{ whisperBusy: boolean; ollamaModels: string[]; gpuFreeMb: number | null }>({
+    whisperBusy: false, ollamaModels: [], gpuFreeMb: null,
+  });
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const [whisperRes, ollamaRes] = await Promise.allSettled([
+          fetch('http://localhost:3000/health', { signal: AbortSignal.timeout(2000) }).then(r => r.ok ? r.json() : null),
+          fetch(`${getOllamaUrl()}/api/ps`, { signal: AbortSignal.timeout(2000) }).then(r => r.ok ? r.json() : null),
+        ]);
+        if (cancelled) return;
+        const whisperData: { transcribe_active?: boolean; gpu_memory?: { free_mb?: number } } | null =
+          whisperRes.status === 'fulfilled' ? whisperRes.value : null;
+        const ollamaData: { models?: Array<{ name?: string; model?: string }> } | null =
+          ollamaRes.status === 'fulfilled' ? ollamaRes.value : null;
+        setVramConflict({
+          whisperBusy: !!whisperData?.transcribe_active,
+          ollamaModels: (ollamaData?.models || []).map(m => m.name || m.model || '').filter(Boolean),
+          gpuFreeMb: whisperData?.gpu_memory?.free_mb ?? null,
+        });
+      } catch {
+        if (!cancelled) setVramConflict(prev => prev);
+      }
+    };
+    poll();
+    const id = setInterval(poll, 5000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
+  // Custom OpenAI-compatible providers (LM Studio, Groq, DeepSeek, xAI, OpenRouter, etc.)
+  const [customProviders, setCustomProviders] = useState<CustomProvider[]>(() => getProviders());
+  useEffect(() => {
+    // Load encrypted keys for enabled providers into in-memory cache
+    (async () => {
+      for (const p of getProviders()) {
+        if (p.enabled && p.requiresKey) {
+          try { await loadProviderKey(p.id); } catch { /* ignore */ }
+        }
+      }
+    })();
+    return subscribeProviders(() => setCustomProviders(getProviders()));
+  }, []);
+
+  // Flatten enabled providers + their discovered models into Select-compatible items
+  const customProviderModels = customProviders
+    .filter(p => p.enabled && p.models && p.models.length > 0)
+    .flatMap(p =>
+      p.models!.map(m => ({
+        value: encodeProviderModel(p.id, m.id),
+        label: `${p.icon || "🔌"} ${p.name} · ${m.id}`,
+        apiModel: m.id,
+        local: !p.requiresKey,
+        custom: true as const,
+      })),
+    );
+
+  // Build unified model list: cloud + local Ollama models + custom providers
   const AI_MODELS = [
     ...CLOUD_MODELS,
     ...ollama.models.map(m => ({
@@ -346,6 +674,7 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplace
       apiModel: m.name,
       local: true,
     })),
+    ...customProviderModels,
   ];
 
   const getModelApi = (v: string) => AI_MODELS.find(m => m.value === v)?.apiModel || 'google/gemini-2.5-flash';
@@ -374,7 +703,25 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplace
     const startedAt = performance.now();
     let resultText: string;
 
-    if (isOllamaModel(resolved)) {
+    // Custom OpenAI-compatible provider (LM Studio, Groq, DeepSeek, xAI, OpenRouter, etc.)
+    const parsed = parseProviderModel(resolved);
+    if (parsed) {
+      // Build the system prompt from action + Hebrew guard
+      let systemPrompt = '';
+      if (action === 'custom' && extra?.customPrompt) systemPrompt = extra.customPrompt;
+      else if (action === 'tone') systemPrompt = TONE_PROMPTS[extra?.toneStyle || 'formal'] || TONE_PROMPTS.formal;
+      else if (action === 'translate') systemPrompt = `אתה מתרגם מקצועי. תרגם את הטקסט הבא ל${extra?.targetLanguage || 'אנגלית'}. שמור על המשמעות והסגנון. החזר רק את התרגום.`;
+      else systemPrompt = (ACTION_PROMPTS as Record<string, string>)[action] || '';
+      const guardPrefix = buildHebrewGuardPrefix(action);
+      if (guardPrefix) systemPrompt = guardPrefix + '\n' + systemPrompt;
+      resultText = await chatWithProvider({
+        providerId: parsed.providerId,
+        modelId: parsed.modelId,
+        systemPrompt,
+        userText: text,
+        temperature: guardPrefix ? 0.2 : 0.7,
+      });
+    } else if (isOllamaModel(resolved)) {
       resultText = await ollama.editText({
         text,
         action,
@@ -423,6 +770,17 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplace
         setLatency?.(latencyMs);
         setResult(resultText);
         toast({ title: "הצלחה", description: `עריכה עם ${resolvedLabel} הושלמה` });
+        // Hebrew-only guard: warn if foreign script slipped through
+        if (isHebrewOnlyEnabled() && action !== 'translate') {
+          const check = containsForeignScript(resultText);
+          if (check.found) {
+            toast({
+              title: 'אזהרה: זוהה טקסט בשפה לא מורשית',
+              description: `המודל ${resolvedLabel} החזיר תווים זרים: ${check.samples.slice(0, 5).join(' ')} — שקול הרצה מחדש או החלפת מודל`,
+              variant: 'destructive',
+            });
+          }
+        }
       }
     } catch (error) {
       const resolved = resolveModel(modelValue, action);
@@ -456,9 +814,68 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplace
       }
     }
     setLastAction(action as EditAction);
+    setActiveRunCount(2);
     setMergedResult('');
-    handleEdit(resolvedAction, model1, setIsEditing1, setResult1, setLatency1Ms, resolvedExtra);
-    handleEdit(resolvedAction, model2, setIsEditing2, setResult2, setLatency2Ms, resolvedExtra);
+    setResult1('');
+    setResult2('');
+    setLatency1Ms(0);
+    setLatency2Ms(0);
+    toast({ title: 'מפעיל שני מנועים יחד', description: `${getModelLabel(model1)} מול ${getModelLabel(model2)}` });
+    void Promise.allSettled([
+      handleEdit(resolvedAction, model1, setIsEditing1, setResult1, setLatency1Ms, resolvedExtra),
+      handleEdit(resolvedAction, model2, setIsEditing2, setResult2, setLatency2Ms, resolvedExtra),
+    ]).finally(() => setActiveRunCount(0));
+  };
+
+  /** Just select an action — does NOT run the engines. User triggers run via per-engine buttons. */
+  const selectAction = (action: EditAction | string, extras?: { customPrompt?: string; toneStyle?: string; targetLanguage?: string }) => {
+    setLastAction(action as EditAction);
+    setPendingExtras(extras);
+    const label = (() => {
+      if (extras?.targetLanguage) return `תרגם → ${extras.targetLanguage}`;
+      if (extras?.toneStyle) return `שנה טון → ${extras.toneStyle}`;
+      const builtin = customActions.actions.find(a => a.id === action);
+      return builtin?.label || String(action);
+    })();
+    toast({ title: 'פעולה נבחרה', description: `${label} · בחר "הפעל מנוע 1/2/שניהם" למטה` });
+  };
+
+  /** Run only one engine (1 or 2) using the last selected action */
+  const runSingle = (engineNum: 1 | 2, actionOverride?: EditAction | string) => {
+    const action = (actionOverride || lastAction) as EditAction | string | undefined;
+    if (!action) {
+      toast({ title: 'בחר פעולה תחילה', description: 'לחץ על אחת מפעולות העריכה למעלה', variant: 'destructive' });
+      return;
+    }
+    let resolvedAction = action as EditAction;
+    let resolvedExtra: { customPrompt?: string; toneStyle?: string; targetLanguage?: string } | undefined = pendingExtras;
+    if (typeof action === 'string' && action.startsWith('custom_')) {
+      const actionPrompt = customActions.getActionPrompt(action);
+      resolvedAction = 'custom' as EditAction;
+      resolvedExtra = { ...resolvedExtra, customPrompt: actionPrompt };
+    } else {
+      const storedPrompt = customActions.getActionPrompt(action as string);
+      const builtinAction = customActions.actions.find(a => a.id === action && a.builtin);
+      if (builtinAction && storedPrompt && storedPrompt !== (ACTION_PROMPTS as Record<string, string>)[action as string]) {
+        resolvedAction = 'custom' as EditAction;
+        resolvedExtra = { ...resolvedExtra, customPrompt: storedPrompt };
+      }
+    }
+    setLastAction(action as EditAction);
+    setActiveRunCount(1);
+    if (engineNum === 1) {
+      setResult1('');
+      setLatency1Ms(0);
+      toast({ title: 'מפעיל מנוע 1', description: getModelLabel(model1) });
+      void handleEdit(resolvedAction, model1, setIsEditing1, setResult1, setLatency1Ms, resolvedExtra)
+        .finally(() => setActiveRunCount(0));
+    } else {
+      setResult2('');
+      setLatency2Ms(0);
+      toast({ title: 'מפעיל מנוע 2', description: getModelLabel(model2) });
+      void handleEdit(resolvedAction, model2, setIsEditing2, setResult2, setLatency2Ms, resolvedExtra)
+        .finally(() => setActiveRunCount(0));
+    }
   };
 
   const handleSmartMerge = async () => {
@@ -516,6 +933,79 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplace
       });
     } finally {
       setIsMerging(false);
+    }
+  };
+
+  /**
+   * Draft + Polish pipeline:
+   * 1. Engine 1 produces a fast draft
+   * 2. Engine 2 polishes the draft (typically a stronger Hebrew/cloud model)
+   * Final polished output appears in result2.
+   */
+  const handleDraftPolish = async () => {
+    if (!text.trim()) {
+      toast({ title: 'אין טקסט', description: 'הזן טקסט לפני הפעלת ה-Pipeline', variant: 'destructive' });
+      return;
+    }
+    const action = (lastAction || 'improve') as EditAction;
+    setActiveRunCount(2);
+    setResult1('');
+    setResult2('');
+    setMergedResult('');
+    setLatency1Ms(0);
+    setLatency2Ms(0);
+    setIsEditing1(true);
+    toast({
+      title: '🔗 Pipeline החל: טיוטא → ליטוש',
+      description: `שלב 1: ${getModelLabel(model1)} מכין טיוטא · שלב 2: ${getModelLabel(model2)} מלטש`,
+    });
+    try {
+      // Stage 1 — fast draft
+      const draftStart = performance.now();
+      const draft = await runEditOnce(action, model1, pendingExtras);
+      const draftLatency = Math.round(performance.now() - draftStart);
+      setResult1(draft.text);
+      setLatency1Ms(draftLatency);
+      setIsEditing1(false);
+      setIsEditing2(true);
+
+      // Stage 2 — polish the draft (treat draft as the source text)
+      const polishStart = performance.now();
+      const polishPrompt = [
+        'קיבלת טיוטא ראשונית של עריכה. תפקידך ללטש אותה לאיכות מקצועית בעברית בלבד.',
+        'תקן דקדוק, פיסוק, זרימה וניסוח. שמר על המשמעות המקורית.',
+        'החזר אך ורק את הטקסט המלוטש, ללא הערות, ללא הסברים, ללא כותרות.',
+      ].join('\n');
+      const polished = isOllamaModel(model2)
+        ? await ollama.editText({
+            text: draft.text,
+            action: 'custom',
+            model: getOllamaModelName(model2),
+            customPrompt: polishPrompt,
+          })
+        : await editTranscriptCloud({
+            text: draft.text,
+            action: 'custom',
+            model: getModelApi(model2),
+            customPrompt: polishPrompt,
+          });
+      const polishLatency = Math.round(performance.now() - polishStart);
+      setResult2(polished);
+      setLatency2Ms(polishLatency);
+      toast({
+        title: '✅ Pipeline הושלם',
+        description: `טיוטא: ${(draftLatency / 1000).toFixed(1)}s · ליטוש: ${(polishLatency / 1000).toFixed(1)}s`,
+      });
+    } catch (error) {
+      toast({
+        title: 'שגיאה ב-Pipeline',
+        description: error instanceof Error ? error.message : 'שגיאה לא ידועה',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsEditing1(false);
+      setIsEditing2(false);
+      setActiveRunCount(0);
     }
   };
 
@@ -828,8 +1318,7 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplace
     onSave: () => void;
     onSaveReplace: () => Promise<void> | void;
     onDuplicateSave: () => Promise<void> | void;
-  }) => {
-    let diffElements: React.ReactNode = null;
+  }) => {    let diffElements: React.ReactNode = null;
     if (showDiffHighlight && result && text) {
       const d = dmp.diff_main(text, result);
       dmp.diff_cleanupSemantic(d);
@@ -859,6 +1348,204 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplace
           {modelValue === getSavedDefaultModel() && (
             <Badge variant="outline" className="text-[9px] h-4 px-1">ברירת מחדל</Badge>
           )}
+          {modelValue !== '_auto' && !modelValue.startsWith('_') && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className={`h-6 w-6 p-0 ${isFavorite(modelValue) ? 'text-amber-500' : 'text-muted-foreground hover:text-amber-500'}`}
+              title={isFavorite(modelValue) ? 'הסר מהמועדפים' : 'הוסף למועדפים'}
+              onClick={() => toggleFavorite(modelValue)}
+            >
+              <Star className={`w-3.5 h-3.5 ${isFavorite(modelValue) ? 'fill-current' : ''}`} />
+            </Button>
+          )}
+          {/* Custom OpenAI-compatible providers (LM Studio, Groq, DeepSeek, xAI, OpenRouter, etc.) */}
+          <CustomProvidersDialog
+            trigger={
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0 text-muted-foreground hover:text-primary"
+                title="ספקי AI נוספים — LM Studio, Groq, DeepSeek, xAI, OpenRouter ועוד"
+              >
+                <Plug className="w-3.5 h-3.5" />
+              </Button>
+            }
+          />
+          {/* Settings cog: open visibility + drag-and-drop manager */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0 text-muted-foreground hover:text-primary"
+                title="הגדרות מנועים — בחר מה להציג ושנה סדר"
+              >
+                <Settings className="w-3.5 h-3.5" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent dir="rtl" className="w-80 p-0 max-h-[85vh] overflow-y-auto" align="end" side="top" sideOffset={8} collisionPadding={16} onOpenAutoFocus={(e) => e.preventDefault()}>
+              <div className="flex items-center justify-between p-3 border-b bg-muted/30">
+                <div>
+                  <Label className="text-sm font-semibold">ניהול מנועים</Label>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">סנן · מיין · סמן · גרור</p>
+                </div>
+                <div className="flex gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 text-[10px] px-1.5"
+                    onClick={() => { setHiddenModelsState([]); saveHiddenModels([]); }}
+                    title="הצג את כל המנועים"
+                  >
+                    הצג הכל
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 text-[10px] px-1.5 text-muted-foreground"
+                    onClick={() => { setModelOrderState([]); saveModelOrder([]); setSortMode('custom'); }}
+                    title="אפס לסדר ברירת המחדל"
+                  >
+                    אפס סדר
+                  </Button>
+                </div>
+              </div>
+              {/* Filter + Sort bar */}
+              <div className="p-2 border-b bg-muted/10 space-y-1.5">
+                <div className="flex items-center gap-1.5">
+                  <Filter className="w-3 h-3 text-muted-foreground shrink-0" />
+                  <Select value={filterCategory} onValueChange={(v) => setFilterCategory(v as 'all' | ModelCategory)}>
+                    <SelectTrigger className="h-6 text-[10px] flex-1"><SelectValue /></SelectTrigger>
+                    <SelectContent dir="rtl">
+                      <SelectItem value="all">הכל (ענן + מקומי)</SelectItem>
+                      <SelectItem value="cloud">☁️ מקוון</SelectItem>
+                      <SelectItem value="local">🖥️ מקומי</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={filterDomain} onValueChange={(v) => setFilterDomain(v as 'all' | ModelDomain)}>
+                    <SelectTrigger className="h-6 text-[10px] flex-1"><SelectValue /></SelectTrigger>
+                    <SelectContent dir="rtl">
+                      <SelectItem value="all">כל התחומים</SelectItem>
+                      <SelectItem value="hebrew">🇮🇱 עברית</SelectItem>
+                      <SelectItem value="multilingual">🌐 רב-לשוני</SelectItem>
+                      <SelectItem value="reasoning">🧠 הסקה</SelectItem>
+                      <SelectItem value="code">💻 קוד</SelectItem>
+                      <SelectItem value="general">📦 כללי</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <ArrowUpDown className="w-3 h-3 text-muted-foreground shrink-0" />
+                  <Select value={sortMode} onValueChange={(v) => setSortMode(v as typeof sortMode)}>
+                    <SelectTrigger className="h-6 text-[10px] flex-1"><SelectValue /></SelectTrigger>
+                    <SelectContent dir="rtl">
+                      <SelectItem value="custom">סדר מותאם אישית (גרירה)</SelectItem>
+                      <SelectItem value="name">לפי שם (א-ת)</SelectItem>
+                      <SelectItem value="size-desc">לפי גודל (גדול → קטן)</SelectItem>
+                      <SelectItem value="size-asc">לפי גודל (קטן → גדול)</SelectItem>
+                      <SelectItem value="category">לפי קטגוריה (ענן/מקומי)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <ScrollArea className="h-[340px]">
+                <div className="p-2 space-y-0.5">
+                  {(() => {
+                    // Build complete model list with metadata
+                    const cloud = CLOUD_MODELS.map(m => ({
+                      value: m.value, label: m.label, icon: '☁️', category: 'cloud' as ModelCategory,
+                      domain: getModelDomain(m.label), sizeB: estimateModelSizeB(m.label),
+                    }));
+                    const local = ollama.models.map(m => ({
+                      value: `ollama:${m.name}`, label: m.name, icon: '🖥️', category: 'local' as ModelCategory,
+                      domain: getModelDomain(m.name), sizeB: estimateModelSizeB(m.name),
+                    }));
+                    let all = [...cloud, ...local];
+                    // Apply filters
+                    if (filterCategory !== 'all') all = all.filter(m => m.category === filterCategory);
+                    if (filterDomain !== 'all') all = all.filter(m => m.domain === filterDomain);
+                    // Apply sort
+                    if (sortMode === 'name') {
+                      all = [...all].sort((a, b) => a.label.localeCompare(b.label, 'he'));
+                    } else if (sortMode === 'size-desc') {
+                      all = [...all].sort((a, b) => b.sizeB - a.sizeB);
+                    } else if (sortMode === 'size-asc') {
+                      all = [...all].sort((a, b) => a.sizeB - b.sizeB);
+                    } else if (sortMode === 'category') {
+                      all = [...all].sort((a, b) => a.category.localeCompare(b.category));
+                    } else if (modelOrder.length > 0) {
+                      const indexOf = (v: string) => {
+                        const i = modelOrder.indexOf(v);
+                        return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+                      };
+                      all = [...all].sort((a, b) => indexOf(a.value) - indexOf(b.value));
+                    }
+                    if (all.length === 0) {
+                      return (
+                        <p className="text-[11px] text-muted-foreground text-center py-6">
+                          אין מנועים מתאימים לסינון הנוכחי
+                        </p>
+                      );
+                    }
+                    return all.map(m => {
+                      const hidden = isHidden(m.value);
+                      const dragEnabled = sortMode === 'custom';
+                      return (
+                        <div
+                          key={m.value}
+                          draggable={dragEnabled}
+                          onDragStart={(e) => { if (!dragEnabled) return; dragItemRef.current = m.value; e.dataTransfer.effectAllowed = 'move'; }}
+                          onDragOver={(e) => { if (!dragEnabled) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+                          onDrop={(e) => {
+                            if (!dragEnabled) return;
+                            e.preventDefault();
+                            const src = dragItemRef.current;
+                            if (src) reorderModel(src, m.value);
+                            dragItemRef.current = null;
+                          }}
+                          className={`flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/60 ${dragEnabled ? 'cursor-move' : ''} ${hidden ? 'opacity-50' : ''}`}
+                          title={dragEnabled ? 'גרור כדי לשנות מיקום' : 'מצב מיון אוטומטי — בטל כדי לגרור'}
+                        >
+                          <GripVertical className={`w-3.5 h-3.5 shrink-0 ${dragEnabled ? 'text-muted-foreground' : 'text-muted-foreground/30'}`} />
+                          <Checkbox
+                            checked={!hidden}
+                            onCheckedChange={() => toggleHidden(m.value)}
+                            id={`vis-${m.value}`}
+                          />
+                          <label htmlFor={`vis-${m.value}`} className="text-xs flex-1 cursor-pointer truncate">
+                            {m.icon} {m.label}
+                          </label>
+                          {isDictaModel(m.label) && (
+                            <Badge className="text-[9px] px-1 py-0 h-4 shrink-0 bg-blue-600 hover:bg-blue-600 text-white border-0" title="DICTA — המרכז הישראלי לניתוח טקסט · הסטנדרט המקצועי לעברית">
+                              🇮🇱 DICTA
+                            </Badge>
+                          )}
+                          <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 shrink-0">
+                            {getDomainLabel(m.domain).split(' ')[0]}
+                          </Badge>
+                          {m.sizeB > 0 && (
+                            <span className="text-[9px] text-muted-foreground shrink-0 tabular-nums">
+                              {m.sizeB >= 100 ? '100B+' : `${m.sizeB}B`}
+                            </span>
+                          )}
+                          {isFavorite(m.value) && <Star className="w-3 h-3 fill-current text-amber-500 shrink-0" />}
+                        </div>
+                      );
+                    });
+                  })()}
+                  {ollama.models.length === 0 && (
+                    <p className="text-[10px] text-muted-foreground text-center py-2">
+                      💡 הפעל את Ollama כדי לראות גם מנועים מקומיים
+                    </p>
+                  )}
+                </div>
+              </ScrollArea>
+              <div className="p-2 border-t text-[10px] text-muted-foreground text-center bg-muted/20">
+                {CLOUD_MODELS.length + ollama.models.length} מנועים סה"כ · {hiddenModels.length} מוסתרים
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
         <Select value={modelValue} onValueChange={setModelValue}>
           <SelectTrigger className="w-[200px] text-xs" dir="rtl">
@@ -866,20 +1553,72 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplace
           </SelectTrigger>
           <SelectContent dir="rtl">
             <SelectItem value="_auto" className="text-xs font-semibold">🤖 אוטומטי (הכי טוב לפעולה)</SelectItem>
-            <SelectItem disabled value="_cloud_header" className="text-xs font-semibold text-muted-foreground">☁️ ענן</SelectItem>
-            {CLOUD_MODELS.map(m => (
-              <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
-            ))}
-            {ollama.models.length > 0 && (
+            {favoriteModels.length > 0 && (
               <>
-                <SelectItem disabled value="_local_header" className="text-xs font-semibold text-muted-foreground">🖥️ מקומי (Ollama)</SelectItem>
-                {ollama.models.map(m => (
-                  <SelectItem key={`ollama:${m.name}`} value={`ollama:${m.name}`}>🖥️ {m.name}</SelectItem>
-                ))}
+                <SelectItem disabled value="_fav_header" className="text-xs font-semibold text-amber-600">⭐ מועדפים</SelectItem>
+                {favoriteModels.map(fv => {
+                  const cloud = CLOUD_MODELS.find(m => m.value === fv);
+                  if (cloud) {
+                    return <SelectItem key={`fav:${fv}`} value={fv} className="text-xs">⭐ {cloud.label}</SelectItem>;
+                  }
+                  if (fv.startsWith('ollama:')) {
+                    const name = fv.slice('ollama:'.length);
+                    const exists = ollama.models.some(m => m.name === name);
+                    if (exists) return <SelectItem key={`fav:${fv}`} value={fv} className="text-xs">⭐ 🖥️ {name}</SelectItem>;
+                  }
+                  return null;
+                })}
               </>
             )}
+            <SelectItem disabled value="_all_header" className="text-xs font-semibold text-muted-foreground">
+              🎯 כל המנועים ({CLOUD_MODELS.length + ollama.models.length + customProviderModels.length}) — סדר מותאם אישית
+            </SelectItem>
+            {(() => {
+              const cloud = CLOUD_MODELS.map(m => ({ value: m.value, label: m.label, isLocal: false, isCustom: false, icon: '☁️' }));
+              const local = ollama.models.map(m => ({ value: `ollama:${m.name}`, label: m.name, isLocal: true, isCustom: false, icon: '🖥️' }));
+              const custom = customProviderModels.map(m => {
+                const parsed = parseProviderModel(m.value);
+                const provider = parsed ? customProviders.find(p => p.id === parsed.providerId) : undefined;
+                return { value: m.value, label: m.label, isLocal: !provider?.requiresKey, isCustom: true, icon: provider?.icon || '🔌' };
+              });
+              const combined = [...cloud, ...local, ...custom];
+              return applyOrderAndVisibility(combined).map(m => (
+                <SelectItem key={m.value} value={m.value} title={inferModelHoverText(m.label)}>
+                  {isFavorite(m.value) ? '⭐ ' : ''}{m.isCustom ? m.icon : (m.isLocal ? '🖥️' : '☁️')} {m.label}
+                </SelectItem>
+              ));
+            })()}
           </SelectContent>
         </Select>
+      </div>
+
+      {/* Per-engine run controls */}
+      <div className="flex items-center gap-2 flex-wrap pt-1">
+        <Button
+          size="sm"
+          variant="default"
+          className="h-8 gap-1.5"
+          disabled={isEditingState || !text.trim()}
+          onClick={() => runSingle(num as 1 | 2)}
+          title={lastAction ? `הפעל מנוע ${num} בלבד עם ${getModelLabel(modelValue)}` : 'בחר פעולה תחילה'}
+        >
+          <PlayCircle className="w-4 h-4" />
+          הפעל מנוע {num}
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-8 gap-1.5"
+          disabled={isEditing1 || isEditing2 || !text.trim()}
+          onClick={() => lastAction && runBoth(lastAction, pendingExtras)}
+          title={lastAction ? 'הפעל את שני המנועים יחד' : 'בחר פעולה תחילה'}
+        >
+          <PlayCircle className="w-4 h-4" />
+          הפעל שניהם
+        </Button>
+        {lastAction && (
+          <Badge variant="secondary" className="text-[10px]">פעולה: {lastAction}</Badge>
+        )}
       </div>
 
       {isEditingState && (
@@ -941,7 +1680,7 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplace
 
   return (
     <Card className="p-6" dir="rtl">
-      <div className="flex items-center gap-2 mb-4">
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
         <Sparkles className="w-5 h-5 text-primary" />
         <h2 className="text-xl font-semibold">עריכה עם AI — השוואת מנועים</h2>
         <Badge variant="secondary" className="text-xs">{AI_MODELS.length} מודלים</Badge>
@@ -950,6 +1689,237 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplace
             <Cpu className="w-3 h-3 ml-1" />
             Ollama ({ollama.models.length})
           </Badge>
+        )}
+        <div className="ms-auto flex items-center gap-2">
+          <Label htmlFor="gpu-share-mode" className="text-xs text-muted-foreground cursor-pointer" title="ברירת מחדל: תמלול ועריכה רצים בזה אחר זה כדי לא להעמיס. הפעל מקבילי רק אם יש לך GPU עם 12GB+">
+            שיתוף GPU:
+          </Label>
+          <Select value={gpuShareMode} onValueChange={(v) => { setGpuShareModeState(v as 'serial' | 'parallel'); setGpuShareMode(v as 'serial' | 'parallel'); }}>
+            <SelectTrigger id="gpu-share-mode" className="w-[140px] h-7 text-xs" dir="rtl">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent dir="rtl">
+              <SelectItem value="serial" className="text-xs">🔁 בזה אחר זה (מומלץ)</SelectItem>
+              <SelectItem value="parallel" className="text-xs">⚡ מקבילי (12GB+ VRAM)</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {/* Hebrew-only output guard */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant={hebrewOnly ? "default" : "outline"}
+                size="sm"
+                className="h-7 text-xs gap-1"
+                title="כפיית פלט בעברית בלבד — מונע מהמודל להחזיר טקסט בשפה אחרת"
+              >
+                <ShieldCheck className="w-3.5 h-3.5" />
+                {hebrewOnly ? `עברית בלבד${allowedLangs.length ? ` +${allowedLangs.length}` : ''}` : 'עברית בלבד: כבוי'}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent dir="rtl" className="w-80 p-3 space-y-3" onOpenAutoFocus={(e) => e.preventDefault()}>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="heb-only-toggle" className="text-sm font-semibold cursor-pointer">
+                  כפה פלט בעברית בלבד
+                </Label>
+                <Switch
+                  id="heb-only-toggle"
+                  checked={hebrewOnly}
+                  onCheckedChange={(v) => { setHebrewOnly(v); setHebrewOnlyEnabled(v); }}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                מוסיף לפרומפט הוראה חזקה לכתוב רק בעברית, בלי תרגום, בלי מילים בלועזית, בלי סימונים זרים.
+                לא חל על פעולת "תרגם".
+              </p>
+
+              <div className={hebrewOnly ? '' : 'opacity-50 pointer-events-none'}>
+                <div className="flex items-center justify-between mb-1.5">
+                  <Label className="text-xs font-semibold">שפות מותרות לחריגה:</Label>
+                  {allowedLangs.length > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-5 text-[10px] px-1.5 text-muted-foreground hover:text-destructive"
+                      onClick={() => updateAllowed([])}
+                      title="נקה את כל השפות (עברית בלבד מוחלט)"
+                    >
+                      נקה הכל
+                    </Button>
+                  )}
+                </div>
+
+                {/* Currently allowed (chips with X) */}
+                {allowedLangs.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mb-2 p-2 rounded border bg-muted/30">
+                    {allowedLangs.map(v => (
+                      <Badge key={v} variant="secondary" className="text-[10px] gap-1 pr-1.5">
+                        {getAllowedLangLabel(v)}
+                        <button
+                          type="button"
+                          className="hover:text-destructive ml-0.5"
+                          onClick={() => toggleLang(v, false)}
+                          title="הסר"
+                        >
+                          ✕
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+
+                {/* Built-in presets — checkboxes */}
+                <Label className="text-[10px] text-muted-foreground mb-1 block">בחר מהרשימה:</Label>
+                <div className="grid grid-cols-2 gap-x-2 gap-y-1 mb-3">
+                  {ALL_ALLOWED_LANGS.map(lang => {
+                    const checked = allowedLangs.includes(lang.value);
+                    return (
+                      <div key={lang.value} className="flex items-center gap-1.5 hover:bg-muted/50 rounded px-1.5 py-1">
+                        <Checkbox
+                          id={`lang-${lang.value}`}
+                          checked={checked}
+                          onCheckedChange={(v) => toggleLang(lang.value, v === true)}
+                        />
+                        <label htmlFor={`lang-${lang.value}`} className="text-xs cursor-pointer flex-1">
+                          {lang.label}
+                        </label>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Custom language input */}
+                <Label className="text-[10px] text-muted-foreground mb-1 block">הוסף שפה מותאמת אישית:</Label>
+                <div className="flex gap-1.5">
+                  <input
+                    type="text"
+                    value={customLangInput}
+                    onChange={(e) => setCustomLangInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const trimmed = customLangInput.trim();
+                        if (trimmed) {
+                          toggleLang(`custom:${trimmed}`, true);
+                          setCustomLangInput('');
+                        }
+                      }
+                    }}
+                    placeholder="למשל: יידיש, ארמית, סלאנג טכני..."
+                    className="flex-1 h-7 text-xs px-2 rounded border bg-background"
+                    dir="rtl"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs px-2"
+                    onClick={() => {
+                      const trimmed = customLangInput.trim();
+                      if (trimmed) {
+                        toggleLang(`custom:${trimmed}`, true);
+                        setCustomLangInput('');
+                      }
+                    }}
+                  >
+                    הוסף
+                  </Button>
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
+        </div>
+      </div>
+
+      {/* VRAM-conflict warning: only relevant in 'parallel' mode */}
+      {gpuShareMode === 'parallel' && (vramConflict.whisperBusy && vramConflict.ollamaModels.length > 0) && (
+        <div className="mb-4 rounded-lg border border-amber-400/60 bg-amber-50 dark:bg-amber-950/30 p-3 flex items-start gap-2">
+          <Cpu className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+          <div className="text-xs space-y-1 flex-1">
+            <div className="font-semibold text-amber-700 dark:text-amber-400">
+              ⚠️ עומס VRAM — תמלול Whisper פעיל יחד עם {vramConflict.ollamaModels.length} מודל(ים) של Ollama
+            </div>
+            <div className="text-amber-700/80 dark:text-amber-400/80">
+              מודלים טעונים: {vramConflict.ollamaModels.join(', ')}
+              {vramConflict.gpuFreeMb !== null && ` · GPU פנוי: ${vramConflict.gpuFreeMb} MB`}
+            </div>
+            <div className="text-muted-foreground">
+              עריכת AI עלולה להיות איטית. אפשר לפנות זיכרון:
+            </div>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs"
+            onClick={async () => {
+              const baseUrl = getOllamaUrl();
+              await Promise.allSettled(vramConflict.ollamaModels.map(name =>
+                fetch(`${baseUrl}/api/generate`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ model: name, prompt: '', keep_alive: 0 }),
+                })
+              ));
+              toast({ title: 'פונה זיכרון', description: `שוחררו ${vramConflict.ollamaModels.length} מודלים מה-VRAM` });
+            }}
+          >
+            פנה Ollama מה-VRAM
+          </Button>
+        </div>
+      )}
+
+      {/* Serial mode hint: editor is queued behind active transcription */}
+      {gpuShareMode === 'serial' && vramConflict.whisperBusy && (isEditing1 || isEditing2) && (
+        <div className="mb-4 rounded-lg border border-blue-400/60 bg-blue-50 dark:bg-blue-950/30 p-3 flex items-center gap-2 text-xs">
+          <Loader2 className="w-4 h-4 text-blue-600 animate-spin shrink-0" />
+          <span className="text-blue-700 dark:text-blue-300">
+            עריכת AI ממתינה לסיום תמלול Whisper (מצב "בזה אחר זה"). תרוץ אוטומטית כשה-GPU יתפנה.
+          </span>
+        </div>
+      )}
+
+      {/* ── Editable source-text preview ── */}
+      <div className="mb-4 rounded-lg border bg-background/60">
+        <div className="flex items-center justify-between gap-2 px-3 py-1.5 border-b bg-muted/30">
+          <div className="flex items-center gap-2">
+            <FileText className="w-3.5 h-3.5 text-muted-foreground" />
+            <Label className="text-xs font-semibold">טקסט לעריכה (ניתן לשנות לפני/בין הרצות):</Label>
+            {isUserEditedText && (
+              <Badge variant="outline" className="text-[9px] h-4 px-1 text-amber-600 border-amber-400">נערך ידנית</Badge>
+            )}
+            <span className="text-[10px] text-muted-foreground">{text.length.toLocaleString()} תווים</span>
+          </div>
+          <div className="flex items-center gap-1">
+            {isUserEditedText && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 text-[10px] px-1.5 text-muted-foreground hover:text-primary"
+                onClick={() => { setWorkingText(propText); setIsUserEditedText(false); toast({ title: 'שוחזר למקור' }); }}
+                title="שחזר את הטקסט המקורי"
+              >
+                <RotateCcw className="w-3 h-3 ml-1" />
+                שחזר מקור
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0"
+              onClick={() => setShowSourceEditor(v => !v)}
+              title={showSourceEditor ? 'מזער' : 'הצג'}
+            >
+              {showSourceEditor ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            </Button>
+          </div>
+        </div>
+        {showSourceEditor && (
+          <Textarea
+            value={text}
+            onChange={(e) => { setWorkingText(e.target.value); setIsUserEditedText(true); }}
+            className="min-h-[80px] max-h-[160px] text-right border-0 rounded-t-none focus-visible:ring-0 text-sm resize-y"
+            dir="rtl"
+            placeholder="הטקסט יופיע כאן..."
+          />
         )}
       </div>
 
@@ -1143,6 +2113,12 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplace
               onClick={() => customActions.setViewMode('compact')}
               title="תצוגה מצומצמת"
             ><Rows3 className="w-3.5 h-3.5" /></Button>
+            <Button
+              variant={customActions.viewMode === 'masonry' ? 'default' : 'ghost'}
+              size="sm" className="h-7 w-7 p-0"
+              onClick={() => customActions.setViewMode('masonry')}
+              title="תצוגת אבנים"
+            ><AlignJustify className="w-3.5 h-3.5" /></Button>
           </div>
           <div className="flex items-center gap-1">
             <Button
@@ -1160,6 +2136,13 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplace
           </div>
         </div>
 
+        <div className="flex items-center justify-between gap-2 rounded-md border border-dashed bg-background/80 px-3 py-2 text-xs text-muted-foreground">
+          <span>כל פעולה מפעילה את מנוע 1 ואת מנוע 2 יחד.</span>
+          <Badge variant={activeRunCount === 2 ? 'default' : 'outline'} className="text-[10px]">
+            {activeRunCount === 2 ? '2 מנועים פעילים' : 'מוכן להפעלה כפולה'}
+          </Badge>
+        </div>
+
         {/* Dynamic action categories */}
         {customActions.groupedActions.map(group => (
           <div key={group.category}>
@@ -1167,6 +2150,7 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplace
             <div className={
               customActions.viewMode === 'grid' ? 'flex flex-wrap gap-1.5' :
               customActions.viewMode === 'list' ? 'flex flex-col gap-1' :
+              customActions.viewMode === 'masonry' ? 'columns-2 md:columns-3 xl:columns-4 gap-2 space-y-2' :
               'flex flex-wrap gap-0.5'
             }>
               {group.actions.map(action => {
@@ -1174,7 +2158,7 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplace
                 if (action.id === 'translate' || action.id === 'tone') return null;
                 const IconComp = getIconComponent(action.icon);
                 return (
-                  <div key={action.id} className="group relative inline-flex">
+                  <div key={action.id} className={customActions.viewMode === 'masonry' ? 'group relative mb-2 break-inside-avoid' : 'group relative inline-flex'}>
                     {customActions.viewMode === 'list' ? (
                       <div className="flex items-center gap-2 w-full">
                         <Button
@@ -1182,7 +2166,7 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplace
                           size="sm"
                           disabled={isLoading || noText}
                           className="text-xs flex-1 justify-start"
-                          onClick={() => runBoth(action.id as EditAction)}
+                          onClick={() => selectAction(action.id as EditAction)}
                         >
                           <IconComp className="w-3 h-3 ml-1 flex-shrink-0" />
                           {action.label}
@@ -1201,12 +2185,29 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplace
                           size="sm"
                           disabled={isLoading || noText}
                           className="text-xs h-7 px-1.5"
-                          onClick={() => runBoth(action.id as EditAction)}
+                          onClick={() => selectAction(action.id as EditAction)}
                           title={action.label}
                         >
                           <IconComp className="w-3.5 h-3.5" />
                         </Button>
                         <div className="absolute -top-1 -left-1 hidden group-hover:flex gap-0.5 z-10 bg-background rounded shadow-sm border p-0.5">
+                          <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => setEditingAction(action)}><Pencil className="w-2.5 h-2.5" /></Button>
+                          <Button variant="ghost" size="sm" className="h-5 w-5 p-0 text-destructive" onClick={() => customActions.deleteAction(action.id)}><Trash2 className="w-2.5 h-2.5" /></Button>
+                        </div>
+                      </>
+                    ) : customActions.viewMode === 'masonry' ? (
+                      <>
+                        <Button
+                          variant={lastAction === action.id ? "default" : "secondary"}
+                          size="sm"
+                          disabled={isLoading || noText}
+                          className="text-xs w-full justify-start px-3 py-2 h-auto whitespace-normal"
+                          onClick={() => selectAction(action.id as EditAction)}
+                        >
+                          <IconComp className="w-3 h-3 ml-1 mt-0.5 flex-shrink-0" />
+                          <span className="text-right leading-5">{action.label}</span>
+                        </Button>
+                        <div className="absolute -top-1 -right-1 hidden group-hover:flex gap-0.5 z-10 bg-background rounded shadow-sm border p-0.5">
                           <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => setEditingAction(action)}><Pencil className="w-2.5 h-2.5" /></Button>
                           <Button variant="ghost" size="sm" className="h-5 w-5 p-0 text-destructive" onClick={() => customActions.deleteAction(action.id)}><Trash2 className="w-2.5 h-2.5" /></Button>
                         </div>
@@ -1219,7 +2220,7 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplace
                           size="sm"
                           disabled={isLoading || noText}
                           className="text-xs"
-                          onClick={() => runBoth(action.id as EditAction)}
+                          onClick={() => selectAction(action.id as EditAction)}
                         >
                           <IconComp className="w-3 h-3 ml-1" />
                           {action.label}
@@ -1266,7 +2267,7 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplace
                       variant="ghost"
                       size="sm"
                       className="w-full justify-start text-xs"
-                      onClick={() => runBoth('translate', { targetLanguage: lang.value })}
+                      onClick={() => selectAction('translate', { targetLanguage: lang.value })}
                     >
                       {lang.label}
                     </Button>
@@ -1297,7 +2298,7 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplace
                       variant="ghost"
                       size="sm"
                       className="w-full justify-start text-xs"
-                      onClick={() => runBoth('tone', { toneStyle: tone.value })}
+                      onClick={() => selectAction('tone', { toneStyle: tone.value })}
                     >
                       {tone.label}
                     </Button>
@@ -1331,13 +2332,12 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplace
               <Button
                 onClick={() => {
                   if (!customPrompt.trim()) return;
-                  runBoth('custom', { customPrompt });
+                  selectAction('custom', { customPrompt });
                   setShowCustomDialog(false);
                 }}
-                disabled={isLoading || !customPrompt.trim()}
+                disabled={!customPrompt.trim()}
               >
-                {isLoading ? <Loader2 className="w-4 h-4 animate-spin ml-2" /> : null}
-                בצע עריכה
+                שמור פרומפט (לחץ "הפעל מנוע" למטה)
               </Button>
             </DialogContent>
           </Dialog>
@@ -1505,6 +2505,18 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplace
           >
             {isMerging ? <Loader2 className="w-4 h-4 animate-spin ml-1" /> : <Sparkles className="w-3 h-3 ml-1" />}
             מיזוג חכם (שתי תוצאות)
+          </Button>
+
+          <Button
+            variant="default"
+            size="sm"
+            className="mr-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white"
+            onClick={handleDraftPolish}
+            disabled={isLoading || !text.trim()}
+            title={`Pipeline: ${getModelLabel(model1)} (טיוטא) → ${getModelLabel(model2)} (ליטוש סופי). מומלץ: מנוע מהיר ב-1 ומנוע איכותי לעברית ב-2 (DictaLM/Claude).`}
+          >
+            <RotateCw className="w-3 h-3 ml-1" />
+            🔗 Pipeline (טיוטא → ליטוש)
           </Button>
 
           <Dialog>
@@ -1866,30 +2878,30 @@ const AIEditorDualInner = ({ text, onTextChange, onSaveVersion, onSaveAndReplace
         </div>
       </div>
 
-      {/* Engine comparison panels */}
+      {/* Engine comparison panels — call as functions (not <EnginePanel/>) so React doesn't remount on every parent re-render and close open Selects */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <EnginePanel
-          num={1}
-          modelValue={model1}
-          setModelValue={setModel1}
-          isEditingState={isEditing1}
-          result={result1}
-          onApply={() => onTextChange(result1, `ai-${lastAction || 'improve'}`, `${getModelLabel(model1)}`)}
-          onSave={() => onSaveVersion?.(result1, `ai-${lastAction || 'improve'}`, getModelLabel(model1), lastAction || 'improve')}
-          onSaveReplace={() => onSaveAndReplaceOriginal?.(result1, `ai-${lastAction || 'improve'}`, getModelLabel(model1), lastAction || 'improve')}
-          onDuplicateSave={() => onDuplicateAndSave?.(result1, `ai-${lastAction || 'improve'}`, getModelLabel(model1), lastAction || 'improve')}
-        />
-        <EnginePanel
-          num={2}
-          modelValue={model2}
-          setModelValue={setModel2}
-          isEditingState={isEditing2}
-          result={result2}
-          onApply={() => onTextChange(result2, `ai-${lastAction || 'improve'}`, `${getModelLabel(model2)}`)}
-          onSave={() => onSaveVersion?.(result2, `ai-${lastAction || 'improve'}`, getModelLabel(model2), lastAction || 'improve')}
-          onSaveReplace={() => onSaveAndReplaceOriginal?.(result2, `ai-${lastAction || 'improve'}`, getModelLabel(model2), lastAction || 'improve')}
-          onDuplicateSave={() => onDuplicateAndSave?.(result2, `ai-${lastAction || 'improve'}`, getModelLabel(model2), lastAction || 'improve')}
-        />
+        {EnginePanel({
+          num: 1,
+          modelValue: model1,
+          setModelValue: setModel1,
+          isEditingState: isEditing1,
+          result: result1,
+          onApply: () => onTextChange(result1, `ai-${lastAction || 'improve'}`, `${getModelLabel(model1)}`),
+          onSave: () => onSaveVersion?.(result1, `ai-${lastAction || 'improve'}`, getModelLabel(model1), lastAction || 'improve'),
+          onSaveReplace: () => onSaveAndReplaceOriginal?.(result1, `ai-${lastAction || 'improve'}`, getModelLabel(model1), lastAction || 'improve'),
+          onDuplicateSave: () => onDuplicateAndSave?.(result1, `ai-${lastAction || 'improve'}`, getModelLabel(model1), lastAction || 'improve'),
+        })}
+        {EnginePanel({
+          num: 2,
+          modelValue: model2,
+          setModelValue: setModel2,
+          isEditingState: isEditing2,
+          result: result2,
+          onApply: () => onTextChange(result2, `ai-${lastAction || 'improve'}`, `${getModelLabel(model2)}`),
+          onSave: () => onSaveVersion?.(result2, `ai-${lastAction || 'improve'}`, getModelLabel(model2), lastAction || 'improve'),
+          onSaveReplace: () => onSaveAndReplaceOriginal?.(result2, `ai-${lastAction || 'improve'}`, getModelLabel(model2), lastAction || 'improve'),
+          onDuplicateSave: () => onDuplicateAndSave?.(result2, `ai-${lastAction || 'improve'}`, getModelLabel(model2), lastAction || 'improve'),
+        })}
       </div>
 
       {/* Diff Highlight Toggle + Save Both + Auto-Compare */}

@@ -12,7 +12,7 @@ import {
   AlignRight, AlignCenter, AlignLeft, AlignJustify, 
   Palette, List, ListOrdered, Eraser,
   Maximize2, Minimize2, SplitSquareVertical, Eye,
-  Search, X, ChevronDown, SpellCheck, Save
+  Search, X, ChevronDown, SpellCheck, Save, Trash2
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { FloatingFormatToolbar } from "@/components/FloatingFormatToolbar";
@@ -629,9 +629,17 @@ export const RichTextEditor = memo(({ text, onChange, columnStyle, onWordCorrect
 
           <Separator orientation="vertical" className="h-6 mx-1" />
 
-          {/* העתק / גזור */}
+          {/* העתק / גזור / מחק */}
           <ToolBtn icon={Copy} label="העתק" onClick={handleCopy} />
           <ToolBtn icon={Scissors} label="גזור" onClick={handleCut} />
+          <ToolBtn icon={Trash2} label="מחק נבחר" onClick={() => execCommand('delete')} />
+          <ToolBtn icon={Eraser} label="נקה הכל" onClick={() => {
+            if (editorRef.current) {
+              editorRef.current.innerHTML = '';
+              syncContent();
+              toast({ title: 'הטקסט נוקה' });
+            }
+          }} />
 
           {(onSaveReplaceOriginal || onDuplicateSave) && (
             <>

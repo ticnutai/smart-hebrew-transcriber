@@ -85,6 +85,38 @@ function savePartialDebounced(partial: any) {
 
 export type TranscriptionPhase = 'idle' | 'loading-model' | 'transcribing';
 
+// ── Client-side serialization queue ──
+// The Whisper server has GPU concurrency = 1; sending parallel requests just
+// causes 503s. We chain transcription requests on the client so the UI can
+// queue up multiple files without hitting OOM or busy errors.
+let _transcribeQueueTail: Promise<unknown> = Promise.resolve();
+let _transcribeQueueDepth = 0;
+type QueueListener = (depth: number) => void;
+const _queueListeners = new Set<QueueListener>();
+export function getTranscribeQueueDepth(): number {
+  return _transcribeQueueDepth;
+}
+export function subscribeTranscribeQueue(fn: QueueListener): () => void {
+  _queueListeners.add(fn);
+  fn(_transcribeQueueDepth);
+  return () => { _queueListeners.delete(fn); };
+}
+function _notifyQueue() {
+  for (const fn of _queueListeners) {
+    try { fn(_transcribeQueueDepth); } catch { /* ignore */ }
+  }
+}
+function enqueueTranscription<T>(task: () => Promise<T>): Promise<T> {
+  _transcribeQueueDepth++;
+  _notifyQueue();
+  const next = _transcribeQueueTail.then(task, task);
+  _transcribeQueueTail = next.catch(() => undefined).finally(() => {
+    _transcribeQueueDepth = Math.max(0, _transcribeQueueDepth - 1);
+    _notifyQueue();
+  });
+  return next as Promise<T>;
+}
+
 export const useLocalServer = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [serverStatus, setServerStatus] = useState<ServerStatus | null>(null);
@@ -92,6 +124,8 @@ export const useLocalServer = () => {
   const [progress, setProgress] = useState(0);
   const [phase, setPhase] = useState<TranscriptionPhase>('idle');
   const [partialTranscript, setPartialTranscript] = useState<PartialTranscript | null>(null);
+  const [audioDurationSec, setAudioDurationSec] = useState<number>(0);   // total audio duration (from server 'info' event)
+  const [audioProcessedSec, setAudioProcessedSec] = useState<number>(0); // audio seconds already transcribed (from segment 'segEnd')
   const [modelReady, setModelReady] = useState(false);
   const [modelLoading, setModelLoading] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval>>();
@@ -120,7 +154,13 @@ export const useLocalServer = () => {
 
   const getApiHeaders = (): Record<string, string> => {
     const key = getApiKey('whisper_api_key');
-    return key ? { 'X-API-Key': key } : {};
+    const headers: Record<string, string> = key ? { 'X-API-Key': key } : {};
+    // Tell server whether to free Ollama VRAM before transcribing
+    try {
+      const mode = localStorage.getItem('gpu_share_mode') === 'parallel' ? 'parallel' : 'serial';
+      headers['X-GPU-Share-Mode'] = mode;
+    } catch { /* ignore */ }
+    return headers;
   };
 
   const setDisconnected = useCallback(() => {
@@ -339,6 +379,7 @@ export const useLocalServer = () => {
     resumeFrom?: { startFrom: number; existingText: string; existingWords: WordTiming[] },
     cudaOptions?: CudaOptions,
   ): Promise<ServerTranscriptionResult> => {
+    return enqueueTranscription(async () => {
     setIsLoading(true);
     setPhase('loading-model');
     setProgress(0);
@@ -451,6 +492,8 @@ export const useLocalServer = () => {
             setPhase('loading-model');
           } else if (evt.type === 'info') {
             audioDuration = evt.duration || 0;
+            setAudioDurationSec(audioDuration);
+            setAudioProcessedSec(0);
             if (evt.model) resolvedModel = evt.model;
             setPhase('transcribing');
           } else if (evt.type === 'segment') {
@@ -458,7 +501,10 @@ export const useLocalServer = () => {
             if (evt.paragraphBreak) accText.push('\n\n');
             accText.push(evt.text);
             if (evt.words) accWords.push(...evt.words);
-            if (evt.segEnd) lastSegEnd = evt.segEnd;
+            if (evt.segEnd) {
+              lastSegEnd = evt.segEnd;
+              setAudioProcessedSec(evt.segEnd);
+            }
             const realProgress = evt.progress ?? 0;
             setProgress(realProgress);
             const partial: PartialTranscript = {
@@ -523,6 +569,7 @@ export const useLocalServer = () => {
       setPhase('idle');
       abortRef.current = null;
     }
+    });
   };
 
   // ─── Streaming transcribe with real progress + incremental saves ───
@@ -534,6 +581,7 @@ export const useLocalServer = () => {
     resumeFrom?: { startFrom: number; existingText: string; existingWords: WordTiming[] },
     cudaOptions?: CudaOptions,
   ): Promise<ServerTranscriptionResult> => {
+    return enqueueTranscription(async () => {
     setIsLoading(true);
     setPhase('loading-model');
     setProgress(resumeFrom ? Math.round((resumeFrom.startFrom / 1) * 0) : 0);
@@ -633,6 +681,8 @@ export const useLocalServer = () => {
             setPhase('loading-model');
           } else if (evt.type === 'info') {
             audioDuration = evt.duration || 0;
+            setAudioDurationSec(audioDuration);
+            setAudioProcessedSec(0);
             if (evt.model) resolvedModel = evt.model;
             setPhase('transcribing');
           } else if (evt.type === 'segment') {
@@ -640,7 +690,10 @@ export const useLocalServer = () => {
             if (evt.paragraphBreak) accText.push('\n\n');
             accText.push(evt.text);
             if (evt.words) accWords.push(...evt.words);
-            if (evt.segEnd) lastSegEnd = evt.segEnd;
+            if (evt.segEnd) {
+              lastSegEnd = evt.segEnd;
+              setAudioProcessedSec(evt.segEnd);
+            }
 
             const realProgress = evt.progress ?? 0;
             setProgress(realProgress);
@@ -719,6 +772,7 @@ export const useLocalServer = () => {
       setPhase('idle');
       abortRef.current = null;
     }
+    });
   };
 
   /**
@@ -746,6 +800,8 @@ export const useLocalServer = () => {
     }
     setIsLoading(false);
     setProgress(0);
+    setAudioDurationSec(0);
+    setAudioProcessedSec(0);
   };
 
   const loadModel = async (modelId: string) => {
@@ -889,6 +945,8 @@ export const useLocalServer = () => {
     progress,
     phase,
     partialTranscript,
+    audioDurationSec,
+    audioProcessedSec,
     modelReady,
     modelLoading,
     transcribe,

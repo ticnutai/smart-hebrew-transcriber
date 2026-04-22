@@ -100,7 +100,7 @@ const Index = () => {
   const [queuePlayingId, setQueuePlayingId] = useState<string | null>(null);
 
   const { transcribe: localTranscribe, isLoading: isLocalLoading, progress: localProgress } = useLocalTranscription();
-  const { transcribeStream: serverTranscribeStream, transcribeStreamParallel: serverTranscribeParallel, isLoading: isServerLoading, progress: serverProgress, phase: serverPhase, isConnected: serverConnected, modelReady: serverModelReady, recoverPartial, clearPartial, cancelStream: cancelServerStream, checkConnection, startPolling, stopPolling } = useLocalServer();
+  const { transcribeStream: serverTranscribeStream, transcribeStreamParallel: serverTranscribeParallel, isLoading: isServerLoading, progress: serverProgress, phase: serverPhase, audioDurationSec: serverAudioDur, audioProcessedSec: serverAudioProcessed, isConnected: serverConnected, modelReady: serverModelReady, recoverPartial, clearPartial, cancelStream: cancelServerStream, checkConnection, startPolling, stopPolling } = useLocalServer();
   const bgTask = useBackgroundTask();
   const { transcripts, isLoading: isCloudLoading, saveTranscript, updateTranscript, deleteTranscript, deleteAll, isCloud, getAudioUrl } = useCloudTranscripts();
   const { jobs, submitJob, submitBatchJobs, retryJob, deleteJob } = useTranscriptionJobs();
@@ -1989,6 +1989,20 @@ const Index = () => {
                   </span>
                 </div>
 
+                {/* Big percentage + audio second tracker (CUDA only) */}
+                {engine === 'local-server' && progress !== undefined && progress > 0 && (
+                  <div className="flex items-baseline justify-between gap-2 px-1">
+                    <span className="text-2xl font-bold tabular-nums text-primary">{progress}<span className="text-sm text-muted-foreground">%</span></span>
+                    {serverAudioDur > 0 && (
+                      <span className="text-xs text-muted-foreground tabular-nums">
+                        🎵 {Math.floor(serverAudioProcessed / 60)}:{String(Math.floor(serverAudioProcessed % 60)).padStart(2, '0')}
+                        {' / '}
+                        {Math.floor(serverAudioDur / 60)}:{String(Math.floor(serverAudioDur % 60)).padStart(2, '0')}
+                      </span>
+                    )}
+                  </div>
+                )}
+
                 {/* Progress bar */}
                 <div className="relative h-3 rounded-full bg-muted overflow-hidden">
                   {progress !== undefined && progress > 0 ? (
@@ -2011,12 +2025,21 @@ const Index = () => {
 
                 {/* Bottom row: timer + ETA */}
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>
+                  <span className="flex items-center gap-2">
                     {engine === 'local-server' && progress !== undefined && progress >= 5 && progress < 100 && transcribeElapsed > 3 && (() => {
                       const etaSec = Math.round((transcribeElapsed / progress) * (100 - progress));
                       const etaMin = Math.floor(etaSec / 60);
                       const etaSecRem = etaSec % 60;
-                      return `נותרו ~${etaMin > 0 ? `${etaMin}:${String(etaSecRem).padStart(2, '0')}` : `${etaSecRem}s`}`;
+                      return <span>נותרו ~{etaMin > 0 ? `${etaMin}:${String(etaSecRem).padStart(2, '0')}` : `${etaSecRem}s`}</span>;
+                    })()}
+                    {engine === 'local-server' && serverAudioProcessed > 0 && transcribeElapsed > 2 && (() => {
+                      const rtf = transcribeElapsed / serverAudioProcessed;
+                      const speedX = serverAudioProcessed / Math.max(1, transcribeElapsed);
+                      return (
+                        <span className="tabular-nums" title={`RTF=${rtf.toFixed(2)} (1 שנייה אודיו = ${rtf.toFixed(2)} שניות עיבוד)`}>
+                          ⚡ {speedX.toFixed(1)}x
+                        </span>
+                      );
                     })()}
                   </span>
                   <span className="font-mono tabular-nums">
