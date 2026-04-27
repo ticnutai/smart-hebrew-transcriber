@@ -48,6 +48,7 @@ const AppLayout = ({ children }: { children: ReactNode }) => {
       <ConnectionStatusBanner serverConnected={serverConnected} />
       <PWAInstallBanner />
       {children}
+      <GlobalJobsWidget />
     </div>
   );
 };
