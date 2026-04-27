@@ -631,7 +631,18 @@ export default function VideoToMp3() {
   // Navigate to transcription page with the converted MP3
   const handleTranscribe = useCallback((job: ConversionJob) => {
     const outputFile = toOutputFile(job);
-    if (!outputFile) return;
+    console.log('[VideoToMp3] handleTranscribe', {
+      jobId: job.id,
+      hasOutputFile: !!outputFile,
+      isFile: outputFile instanceof File,
+      name: outputFile?.name,
+      size: outputFile?.size,
+      type: outputFile?.type,
+    });
+    if (!outputFile) {
+      toast({ title: "❌ אין קובץ פלט", description: "ההמרה לא הסתיימה כראוי", variant: "destructive" });
+      return;
+    }
     navigate("/transcribe", { state: { file: outputFile } });
   }, [navigate, toOutputFile]);
 

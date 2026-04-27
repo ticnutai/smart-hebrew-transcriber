@@ -163,27 +163,55 @@ const Index = () => {
   // Accept incoming file from other pages (e.g., VideoToMp3 converter)
   // We track the file we already consumed so re-renders can't trigger duplicate runs.
   const consumedIncomingFileRef = useRef<File | null>(null);
+  const [incomingFileBanner, setIncomingFileBanner] = useState<{ name: string; size: number } | null>(null);
   useEffect(() => {
     const state = location.state as { file?: File; fileName?: string; filePath?: string } | null;
-    const incomingFile = state?.file;
-    if (!incomingFile) return;
-    if (!prefsLoaded) return; // wait for prefs, but DON'T block on isLoading
-    if (consumedIncomingFileRef.current === incomingFile) return;
-    consumedIncomingFileRef.current = incomingFile;
+    debugLog.info('IncomingFile', `🔍 effect run | hasState=${!!state} | hasFile=${!!state?.file} | prefsLoaded=${prefsLoaded} | pathname=${location.pathname}`);
 
-    // Clear router state so a refresh / re-render won't re-process the file.
-    try {
-      window.history.replaceState({}, document.title);
-    } catch {
-      // ignore
+    const incomingFile = state?.file;
+    if (!incomingFile) {
+      if (state) {
+        debugLog.warn('IncomingFile', `⚠️ state present but no File. keys=${Object.keys(state).join(',')} | file type=${typeof state.file}`);
+      }
+      return;
     }
 
-    toast({ title: "📎 קובץ התקבל", description: `${incomingFile.name} — מתחיל תמלול...` });
+    // Validate it's a real File object (it might have been serialized through history.state)
+    const isRealFile = (incomingFile as unknown) instanceof File || (incomingFile as unknown) instanceof Blob;
+    if (!isRealFile) {
+      debugLog.error('IncomingFile', `❌ incomingFile is NOT a File/Blob! type=${typeof incomingFile} | constructor=${(incomingFile as any)?.constructor?.name}`);
+      toast({ title: "❌ שגיאה בקבלת הקובץ", description: "הקובץ אבד במעבר בין דפים. נסה שוב.", variant: "destructive" });
+      consumedIncomingFileRef.current = incomingFile as File;
+      return;
+    }
+
+    if (!prefsLoaded) {
+      debugLog.info('IncomingFile', `⏳ Waiting for prefs to load before processing ${incomingFile.name}`);
+      return;
+    }
+    if (consumedIncomingFileRef.current === incomingFile) {
+      debugLog.info('IncomingFile', `↩️ already consumed ${incomingFile.name}, skipping`);
+      return;
+    }
+    consumedIncomingFileRef.current = incomingFile;
+
+    debugLog.info('IncomingFile', `✅ Consuming incoming file: ${incomingFile.name} (${incomingFile.size}b, type=${incomingFile.type}) | engine=${engine}`);
+    setIncomingFileBanner({ name: incomingFile.name, size: incomingFile.size });
+
+    toast({ title: "📎 קובץ התקבל", description: `${incomingFile.name} — מתחיל תמלול עם ${engine}...` });
     debugLog.info('Transcription', `קובץ נכנס מדף אחר: ${incomingFile.name} (${formatFileSize(incomingFile.size)})`);
 
     // Defer to next tick so React state from prior page settles first.
     setTimeout(() => {
-      handleFileSelect(incomingFile);
+      debugLog.info('IncomingFile', `🚀 Calling handleFileSelect for ${incomingFile.name}`);
+      try {
+        handleFileSelect(incomingFile);
+      } catch (err) {
+        debugLog.error('IncomingFile', `💥 handleFileSelect threw: ${err instanceof Error ? err.message : String(err)}`);
+        toast({ title: "❌ שגיאה", description: err instanceof Error ? err.message : "כשל בהפעלת תמלול", variant: "destructive" });
+      }
+      // Clear banner after a delay so the loading card takes over visually
+      setTimeout(() => setIncomingFileBanner(null), 4000);
     }, 50);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state, prefsLoaded]);
@@ -474,6 +502,7 @@ const Index = () => {
   };
 
   const handleFileSelect = async (file: File) => {
+    debugLog.info('handleFileSelect', `🎬 ENTER: ${file.name} | size=${file.size} | type=${file.type} | engine=${engine} | bgTask.isRunning=${bgTask.isRunning}`);
     currentFileRef.current = file;
     lastFileRef.current = file;
     pendingServerFileRef.current = null; // Clear pending queue when new file is selected
@@ -653,7 +682,9 @@ const Index = () => {
     perfMonitor.startTimer();
 
     // Run in background — doesn't block tab, sends notification on complete
+    debugLog.info('handleFileSelect', `🟢 Dispatching bgTask for engine=${engine} | file=${fileToTranscribe.name}`);
     bgTask.run(`${engine} — ${file.name}`, async () => {
+      debugLog.info('bgTask', `▶️ Inside bgTask runner for ${engine}`);
       if (engine === 'openai') {
         await transcribeWithOpenAI(fileToTranscribe, url);
       } else if (engine === 'groq') {
@@ -669,8 +700,9 @@ const Index = () => {
       } else {
         await transcribeLocally(fileToTranscribe, url);
       }
-    }).catch(() => {
-      // Already logged by bgTask
+      debugLog.info('bgTask', `✅ bgTask runner finished for ${engine}`);
+    }).catch((err) => {
+      debugLog.error('bgTask', `❌ bgTask rejected: ${err instanceof Error ? err.message : String(err)}`);
     });
   };
 
@@ -1791,6 +1823,21 @@ const Index = () => {
             </TabsTrigger>
           </TabsList>
         </Tabs>
+
+        {/* Incoming file banner — shows immediately when a file is received from another page */}
+        {incomingFileBanner && (
+          <Card className="p-3 border-primary/40 bg-primary/10 shadow-sm animate-pulse" dir="rtl">
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-lg">📎</span>
+              <div className="flex-1">
+                <div className="font-semibold">קובץ התקבל מדף אחר — מתחיל תמלול...</div>
+                <div className="text-xs text-muted-foreground">
+                  {incomingFileBanner.name} ({(incomingFileBanner.size / 1024 / 1024).toFixed(1)} MB) — מנוע: {engine}
+                </div>
+              </div>
+            </div>
+          </Card>
+        )}
 
         <TranscriptionEngine 
           selected={engine} 
