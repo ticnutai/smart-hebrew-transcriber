@@ -161,14 +161,30 @@ const Index = () => {
   }, []);
 
   // Accept incoming file from other pages (e.g., VideoToMp3 converter)
+  // We track the file we already consumed so re-renders can't trigger duplicate runs.
+  const consumedIncomingFileRef = useRef<File | null>(null);
   useEffect(() => {
-    const incomingFile = (location.state as { file?: File } | null)?.file;
-    if (incomingFile && prefsLoaded && !isLoading) {
-      // Clear the state so it doesn't re-trigger on navigation
+    const state = location.state as { file?: File; fileName?: string; filePath?: string } | null;
+    const incomingFile = state?.file;
+    if (!incomingFile) return;
+    if (!prefsLoaded) return; // wait for prefs, but DON'T block on isLoading
+    if (consumedIncomingFileRef.current === incomingFile) return;
+    consumedIncomingFileRef.current = incomingFile;
+
+    // Clear router state so a refresh / re-render won't re-process the file.
+    try {
       window.history.replaceState({}, document.title);
-      toast({ title: "📎 קובץ התקבל", description: incomingFile.name });
-      handleFileSelect(incomingFile);
+    } catch {
+      // ignore
     }
+
+    toast({ title: "📎 קובץ התקבל", description: `${incomingFile.name} — מתחיל תמלול...` });
+    debugLog.info('Transcription', `קובץ נכנס מדף אחר: ${incomingFile.name} (${formatFileSize(incomingFile.size)})`);
+
+    // Defer to next tick so React state from prior page settles first.
+    setTimeout(() => {
+      handleFileSelect(incomingFile);
+    }, 50);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state, prefsLoaded]);
 
