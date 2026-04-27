@@ -177,7 +177,7 @@ const Index = () => {
     }
 
     // Validate it's a real File object (it might have been serialized through history.state)
-    const isRealFile = incomingFile instanceof File || incomingFile instanceof Blob;
+    const isRealFile = (incomingFile as unknown) instanceof File || (incomingFile as unknown) instanceof Blob;
     if (!isRealFile) {
       debugLog.error('IncomingFile', `❌ incomingFile is NOT a File/Blob! type=${typeof incomingFile} | constructor=${(incomingFile as any)?.constructor?.name}`);
       toast({ title: "❌ שגיאה בקבלת הקובץ", description: "הקובץ אבד במעבר בין דפים. נסה שוב.", variant: "destructive" });
