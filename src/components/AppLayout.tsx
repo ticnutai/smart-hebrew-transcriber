@@ -1,6 +1,7 @@
 import { useState, useEffect, ReactNode } from "react";
 import { ConnectionStatusBanner } from "./ConnectionStatusBanner";
 import { PWAInstallBanner } from "./PWAInstallBanner";
+import { GlobalJobsWidget } from "./GlobalJobsWidget";
 
 const SIDEBAR_WIDTH = 260;
 
@@ -47,6 +48,7 @@ const AppLayout = ({ children }: { children: ReactNode }) => {
       <ConnectionStatusBanner serverConnected={serverConnected} />
       <PWAInstallBanner />
       {children}
+      <GlobalJobsWidget />
     </div>
   );
 };
