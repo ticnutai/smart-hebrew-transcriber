@@ -1824,6 +1824,21 @@ const Index = () => {
           </TabsList>
         </Tabs>
 
+        {/* Incoming file banner — shows immediately when a file is received from another page */}
+        {incomingFileBanner && (
+          <Card className="p-3 border-primary/40 bg-primary/10 shadow-sm animate-pulse" dir="rtl">
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-lg">📎</span>
+              <div className="flex-1">
+                <div className="font-semibold">קובץ התקבל מדף אחר — מתחיל תמלול...</div>
+                <div className="text-xs text-muted-foreground">
+                  {incomingFileBanner.name} ({(incomingFileBanner.size / 1024 / 1024).toFixed(1)} MB) — מנוע: {engine}
+                </div>
+              </div>
+            </div>
+          </Card>
+        )}
+
         <TranscriptionEngine 
           selected={engine} 
           onChange={setEngine}
