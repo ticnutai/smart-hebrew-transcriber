@@ -1024,8 +1024,23 @@ export default function VideoToMp3() {
                   <span className="flex items-center gap-2">
                     <History className="w-4 h-4 text-primary" />
                     היסטוריית המרות ({history.items.length})
+                    {selectedHistoryIds.size > 0 && (
+                      <Badge variant="secondary" className="text-[10px]">
+                        {selectedHistoryIds.size} נבחרו
+                      </Badge>
+                    )}
                   </span>
                   <div className="flex items-center gap-1">
+                    {selectedHistoryIds.size > 0 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs text-destructive"
+                        onClick={handleDeleteSelectedHistory}
+                      >
+                        <Trash2 className="w-3 h-3 ml-1" /> מחק נבחרים ({selectedHistoryIds.size})
+                      </Button>
+                    )}
                     <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground" onClick={() => history.refresh()}>
                       <RefreshCw className="w-3 h-3 ml-1" /> רענן
                     </Button>
@@ -1042,6 +1057,13 @@ export default function VideoToMp3() {
                   <Table dir="rtl">
                     <TableHeader>
                       <TableRow>
+                        <TableHead className="text-center w-10">
+                          <Checkbox
+                            checked={history.items.length > 0 && selectedHistoryIds.size === history.items.length}
+                            onCheckedChange={toggleSelectAllHistory}
+                            aria-label="בחר הכל"
+                          />
+                        </TableHead>
                         <TableHead className="text-right">שם קובץ</TableHead>
                         <TableHead className="text-right">מקור</TableHead>
                         <TableHead className="text-center">פורמט</TableHead>
