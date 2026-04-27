@@ -368,6 +368,88 @@ export default function VideoToMp3() {
     return filePath;
   }, [isAuthenticated, user]);
 
+  // Download a history item's converted file (from cloud storage if available, otherwise from active job's local blob)
+  const handleDownloadHistoryItem = useCallback(async (item: ConversionHistoryItem) => {
+    try {
+      // Try cloud storage first
+      if (item.file_path) {
+        const { data, error } = await supabase.storage
+          .from("permanent-audio")
+          .download(item.file_path);
+        if (error) throw error;
+        const url = URL.createObjectURL(data);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = item.file_name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+        return;
+      }
+      // Fallback: search active jobs for matching output blob
+      const matchingJob = jobs.find((j) =>
+        j.status === "done" &&
+        j.outputUrl &&
+        getOutputFileName(j.fileName, j.outputFormat) === item.file_name
+      );
+      if (matchingJob?.outputUrl) {
+        const a = document.createElement("a");
+        a.href = matchingJob.outputUrl;
+        a.download = item.file_name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        return;
+      }
+      toast({
+        title: "הקובץ אינו זמין להורדה",
+        description: "קובץ ההמרה לא נשמר בענן. השתמש בכפתור 'שמור + תמלל + ענן' כדי לשמור את הקובץ.",
+        variant: "destructive",
+      });
+    } catch (err) {
+      toast({
+        title: "שגיאה בהורדה",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
+    }
+  }, [jobs]);
+
+  const toggleSelectHistory = useCallback((id: string) => {
+    setSelectedHistoryIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleSelectAllHistory = useCallback(() => {
+    setSelectedHistoryIds((prev) => {
+      if (prev.size === history.items.length) return new Set();
+      return new Set(history.items.map((it) => it.id));
+    });
+  }, [history.items]);
+
+  const handleDeleteSelectedHistory = useCallback(async () => {
+    const ids = Array.from(selectedHistoryIds);
+    if (ids.length === 0) return;
+    if (!confirm(`למחוק ${ids.length} פריטים מההיסטוריה?`)) return;
+    try {
+      await history.removeMany(ids);
+      setSelectedHistoryIds(new Set());
+      toast({ title: `${ids.length} פריטים נמחקו` });
+    } catch (err) {
+      toast({
+        title: "שגיאה במחיקה",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
+    }
+  }, [selectedHistoryIds, history]);
+
+
   // Preload FFmpeg on mount + restore persisted jobs + check server
   useEffect(() => {
     localStorage.setItem("video_to_audio_output_format", outputFormat);
