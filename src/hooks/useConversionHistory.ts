@@ -87,6 +87,15 @@ export function useConversionHistory() {
     setItems((prev) => prev.map((it) => it.id === id ? { ...it, file_name: newName } : it));
   }, []);
 
+  const updateOriginalName = useCallback(async (id: string, newName: string) => {
+    const { error } = await supabase
+      .from("conversion_history" as any)
+      .update({ original_name: newName, updated_at: new Date().toISOString() } as any)
+      .eq("id", id);
+    if (error) throw error;
+    setItems((prev) => prev.map((it) => it.id === id ? { ...it, original_name: newName } : it));
+  }, []);
+
   const updateFolder = useCallback(async (id: string, folder: string) => {
     const { error } = await supabase
       .from("conversion_history" as any)
@@ -95,6 +104,17 @@ export function useConversionHistory() {
     if (error) throw error;
     setItems((prev) => prev.map((it) => it.id === id ? { ...it, folder } : it));
   }, []);
+
+  const removeMany = useCallback(async (ids: string[]) => {
+    if (ids.length === 0) return;
+    const { error } = await supabase
+      .from("conversion_history" as any)
+      .delete()
+      .in("id", ids);
+    if (error) throw error;
+    setItems((prev) => prev.filter((it) => !ids.includes(it.id)));
+  }, []);
+
 
   const removeItem = useCallback(async (id: string) => {
     const { error } = await supabase
@@ -120,8 +140,10 @@ export function useConversionHistory() {
     loading,
     addItem,
     updateName,
+    updateOriginalName,
     updateFolder,
     removeItem,
+    removeMany,
     removeAll,
     refresh: fetchHistory,
   };

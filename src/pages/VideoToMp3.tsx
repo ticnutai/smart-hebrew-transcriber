@@ -30,6 +30,7 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -340,8 +341,11 @@ export default function VideoToMp3() {
   const history = useConversionHistory();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
+  const [editingOriginalId, setEditingOriginalId] = useState<string | null>(null);
+  const [editOriginalName, setEditOriginalName] = useState("");
   const [folderEditId, setFolderEditId] = useState<string | null>(null);
   const [folderName, setFolderName] = useState("");
+  const [selectedHistoryIds, setSelectedHistoryIds] = useState<Set<string>>(new Set());
   const savedJobIdsRef = useRef<Set<string>>(new Set());
 
   const toOutputFile = useCallback((job: ConversionJob): File | null => {
@@ -363,6 +367,88 @@ export default function VideoToMp3() {
     if (error) throw error;
     return filePath;
   }, [isAuthenticated, user]);
+
+  // Download a history item's converted file (from cloud storage if available, otherwise from active job's local blob)
+  const handleDownloadHistoryItem = useCallback(async (item: ConversionHistoryItem) => {
+    try {
+      // Try cloud storage first
+      if (item.file_path) {
+        const { data, error } = await supabase.storage
+          .from("permanent-audio")
+          .download(item.file_path);
+        if (error) throw error;
+        const url = URL.createObjectURL(data);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = item.file_name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+        return;
+      }
+      // Fallback: search active jobs for matching output blob
+      const matchingJob = jobs.find((j) =>
+        j.status === "done" &&
+        j.outputUrl &&
+        getOutputFileName(j.fileName, j.outputFormat) === item.file_name
+      );
+      if (matchingJob?.outputUrl) {
+        const a = document.createElement("a");
+        a.href = matchingJob.outputUrl;
+        a.download = item.file_name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        return;
+      }
+      toast({
+        title: "הקובץ אינו זמין להורדה",
+        description: "קובץ ההמרה לא נשמר בענן. השתמש בכפתור 'שמור + תמלל + ענן' כדי לשמור את הקובץ.",
+        variant: "destructive",
+      });
+    } catch (err) {
+      toast({
+        title: "שגיאה בהורדה",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
+    }
+  }, [jobs]);
+
+  const toggleSelectHistory = useCallback((id: string) => {
+    setSelectedHistoryIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleSelectAllHistory = useCallback(() => {
+    setSelectedHistoryIds((prev) => {
+      if (prev.size === history.items.length) return new Set();
+      return new Set(history.items.map((it) => it.id));
+    });
+  }, [history.items]);
+
+  const handleDeleteSelectedHistory = useCallback(async () => {
+    const ids = Array.from(selectedHistoryIds);
+    if (ids.length === 0) return;
+    if (!confirm(`למחוק ${ids.length} פריטים מההיסטוריה?`)) return;
+    try {
+      await history.removeMany(ids);
+      setSelectedHistoryIds(new Set());
+      toast({ title: `${ids.length} פריטים נמחקו` });
+    } catch (err) {
+      toast({
+        title: "שגיאה במחיקה",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
+    }
+  }, [selectedHistoryIds, history]);
+
 
   // Preload FFmpeg on mount + restore persisted jobs + check server
   useEffect(() => {
@@ -938,8 +1024,23 @@ export default function VideoToMp3() {
                   <span className="flex items-center gap-2">
                     <History className="w-4 h-4 text-primary" />
                     היסטוריית המרות ({history.items.length})
+                    {selectedHistoryIds.size > 0 && (
+                      <Badge variant="secondary" className="text-[10px]">
+                        {selectedHistoryIds.size} נבחרו
+                      </Badge>
+                    )}
                   </span>
                   <div className="flex items-center gap-1">
+                    {selectedHistoryIds.size > 0 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs text-destructive"
+                        onClick={handleDeleteSelectedHistory}
+                      >
+                        <Trash2 className="w-3 h-3 ml-1" /> מחק נבחרים ({selectedHistoryIds.size})
+                      </Button>
+                    )}
                     <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground" onClick={() => history.refresh()}>
                       <RefreshCw className="w-3 h-3 ml-1" /> רענן
                     </Button>
@@ -956,6 +1057,13 @@ export default function VideoToMp3() {
                   <Table dir="rtl">
                     <TableHeader>
                       <TableRow>
+                        <TableHead className="text-center w-10">
+                          <Checkbox
+                            checked={history.items.length > 0 && selectedHistoryIds.size === history.items.length}
+                            onCheckedChange={toggleSelectAllHistory}
+                            aria-label="בחר הכל"
+                          />
+                        </TableHead>
                         <TableHead className="text-right">שם קובץ</TableHead>
                         <TableHead className="text-right">מקור</TableHead>
                         <TableHead className="text-center">פורמט</TableHead>
@@ -967,7 +1075,16 @@ export default function VideoToMp3() {
                     </TableHeader>
                     <TableBody>
                       {history.items.map((item) => (
-                        <TableRow key={item.id}>
+                        <TableRow key={item.id} data-state={selectedHistoryIds.has(item.id) ? "selected" : undefined}>
+                          {/* Selection checkbox */}
+                          <TableCell className="text-center">
+                            <Checkbox
+                              checked={selectedHistoryIds.has(item.id)}
+                              onCheckedChange={() => toggleSelectHistory(item.id)}
+                              aria-label={`בחר ${item.file_name}`}
+                            />
+                          </TableCell>
+
                           {/* File name - editable */}
                           <TableCell className="font-medium max-w-[200px]">
                             {editingId === item.id ? (
@@ -1006,9 +1123,46 @@ export default function VideoToMp3() {
                             )}
                           </TableCell>
 
-                          {/* Original name */}
-                          <TableCell className="text-xs text-muted-foreground max-w-[150px] truncate" title={item.original_name}>
-                            {item.original_name}
+                          {/* Original name - editable */}
+                          <TableCell className="text-xs text-muted-foreground max-w-[180px]">
+                            {editingOriginalId === item.id ? (
+                              <div className="flex items-center gap-1">
+                                <Input
+                                  value={editOriginalName}
+                                  onChange={(e) => setEditOriginalName(e.target.value)}
+                                  className="h-7 text-xs"
+                                  autoFocus
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      history.updateOriginalName(item.id, editOriginalName);
+                                      setEditingOriginalId(null);
+                                    } else if (e.key === 'Escape') {
+                                      setEditingOriginalId(null);
+                                    }
+                                  }}
+                                />
+                                <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => {
+                                  history.updateOriginalName(item.id, editOriginalName);
+                                  setEditingOriginalId(null);
+                                }}>
+                                  <Check className="w-3 h-3" />
+                                </Button>
+                                <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => setEditingOriginalId(null)}>
+                                  <X className="w-3 h-3" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <span
+                                className="truncate block cursor-pointer hover:text-primary"
+                                onClick={() => {
+                                  setEditingOriginalId(item.id);
+                                  setEditOriginalName(item.original_name);
+                                }}
+                                title={`${item.original_name} — לחץ לעריכה`}
+                              >
+                                {item.original_name}
+                              </span>
+                            )}
                           </TableCell>
 
                           {/* Format */}
@@ -1070,6 +1224,15 @@ export default function VideoToMp3() {
                           {/* Actions */}
                           <TableCell>
                             <div className="flex items-center justify-center gap-0.5">
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7"
+                                title="הורד קובץ"
+                                onClick={() => handleDownloadHistoryItem(item)}
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                              </Button>
                               <Button size="icon" variant="ghost" className="h-7 w-7" title="שנה שם" onClick={() => {
                                 setEditingId(item.id);
                                 setEditName(item.file_name);
