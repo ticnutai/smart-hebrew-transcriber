@@ -502,6 +502,7 @@ const Index = () => {
   };
 
   const handleFileSelect = async (file: File) => {
+    debugLog.info('handleFileSelect', `🎬 ENTER: ${file.name} | size=${file.size} | type=${file.type} | engine=${engine} | bgTask.isRunning=${bgTask.isRunning}`);
     currentFileRef.current = file;
     lastFileRef.current = file;
     pendingServerFileRef.current = null; // Clear pending queue when new file is selected
