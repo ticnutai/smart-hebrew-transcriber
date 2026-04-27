@@ -1075,7 +1075,16 @@ export default function VideoToMp3() {
                     </TableHeader>
                     <TableBody>
                       {history.items.map((item) => (
-                        <TableRow key={item.id}>
+                        <TableRow key={item.id} data-state={selectedHistoryIds.has(item.id) ? "selected" : undefined}>
+                          {/* Selection checkbox */}
+                          <TableCell className="text-center">
+                            <Checkbox
+                              checked={selectedHistoryIds.has(item.id)}
+                              onCheckedChange={() => toggleSelectHistory(item.id)}
+                              aria-label={`בחר ${item.file_name}`}
+                            />
+                          </TableCell>
+
                           {/* File name - editable */}
                           <TableCell className="font-medium max-w-[200px]">
                             {editingId === item.id ? (
@@ -1114,9 +1123,46 @@ export default function VideoToMp3() {
                             )}
                           </TableCell>
 
-                          {/* Original name */}
-                          <TableCell className="text-xs text-muted-foreground max-w-[150px] truncate" title={item.original_name}>
-                            {item.original_name}
+                          {/* Original name - editable */}
+                          <TableCell className="text-xs text-muted-foreground max-w-[180px]">
+                            {editingOriginalId === item.id ? (
+                              <div className="flex items-center gap-1">
+                                <Input
+                                  value={editOriginalName}
+                                  onChange={(e) => setEditOriginalName(e.target.value)}
+                                  className="h-7 text-xs"
+                                  autoFocus
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      history.updateOriginalName(item.id, editOriginalName);
+                                      setEditingOriginalId(null);
+                                    } else if (e.key === 'Escape') {
+                                      setEditingOriginalId(null);
+                                    }
+                                  }}
+                                />
+                                <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => {
+                                  history.updateOriginalName(item.id, editOriginalName);
+                                  setEditingOriginalId(null);
+                                }}>
+                                  <Check className="w-3 h-3" />
+                                </Button>
+                                <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => setEditingOriginalId(null)}>
+                                  <X className="w-3 h-3" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <span
+                                className="truncate block cursor-pointer hover:text-primary"
+                                onClick={() => {
+                                  setEditingOriginalId(item.id);
+                                  setEditOriginalName(item.original_name);
+                                }}
+                                title={`${item.original_name} — לחץ לעריכה`}
+                              >
+                                {item.original_name}
+                              </span>
+                            )}
                           </TableCell>
 
                           {/* Format */}
@@ -1178,6 +1224,15 @@ export default function VideoToMp3() {
                           {/* Actions */}
                           <TableCell>
                             <div className="flex items-center justify-center gap-0.5">
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7"
+                                title="הורד קובץ"
+                                onClick={() => handleDownloadHistoryItem(item)}
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                              </Button>
                               <Button size="icon" variant="ghost" className="h-7 w-7" title="שנה שם" onClick={() => {
                                 setEditingId(item.id);
                                 setEditName(item.file_name);
