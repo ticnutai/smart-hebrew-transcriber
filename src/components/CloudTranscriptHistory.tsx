@@ -118,9 +118,13 @@ export const CloudTranscriptHistory = memo(({
 
 
   // Highlight search matches in text
-  const highlightText = (text: string, query: string, maxLen: number = 200) => {
-    const truncated = text.substring(0, maxLen);
-    if (!query || query.length < 2) return truncated + '...';
+  const highlightText = (text: string | null | undefined, query: string, maxLen: number = 200) => {
+    const safeText = text ?? '';
+    const truncated = safeText.substring(0, maxLen);
+    if (!query || query.length < 2) return truncated + (safeText.length > maxLen ? '...' : '');
+
+    const idx = safeText.toLowerCase().indexOf(query.toLowerCase());
+    if (idx === -1) return truncated + (safeText.length > maxLen ? '...' : '');
     
     const idx = text.toLowerCase().indexOf(query.toLowerCase());
     if (idx === -1) return truncated + '...';
