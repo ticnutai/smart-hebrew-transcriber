@@ -126,13 +126,10 @@ export const CloudTranscriptHistory = memo(({
     const idx = safeText.toLowerCase().indexOf(query.toLowerCase());
     if (idx === -1) return truncated + (safeText.length > maxLen ? '...' : '');
     
-    const idx = text.toLowerCase().indexOf(query.toLowerCase());
-    if (idx === -1) return truncated + '...';
-    
     // Show context around the match
     const start = Math.max(0, idx - 60);
-    const end = Math.min(text.length, idx + query.length + 60);
-    const snippet = (start > 0 ? '...' : '') + text.substring(start, end) + (end < text.length ? '...' : '');
+    const end = Math.min(safeText.length, idx + query.length + 60);
+    const snippet = (start > 0 ? '...' : '') + safeText.substring(start, end) + (end < safeText.length ? '...' : '');
     
     // Bold the match
     const parts = snippet.split(new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'));
