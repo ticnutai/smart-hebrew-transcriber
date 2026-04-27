@@ -682,7 +682,9 @@ const Index = () => {
     perfMonitor.startTimer();
 
     // Run in background — doesn't block tab, sends notification on complete
+    debugLog.info('handleFileSelect', `🟢 Dispatching bgTask for engine=${engine} | file=${fileToTranscribe.name}`);
     bgTask.run(`${engine} — ${file.name}`, async () => {
+      debugLog.info('bgTask', `▶️ Inside bgTask runner for ${engine}`);
       if (engine === 'openai') {
         await transcribeWithOpenAI(fileToTranscribe, url);
       } else if (engine === 'groq') {
@@ -698,8 +700,9 @@ const Index = () => {
       } else {
         await transcribeLocally(fileToTranscribe, url);
       }
-    }).catch(() => {
-      // Already logged by bgTask
+      debugLog.info('bgTask', `✅ bgTask runner finished for ${engine}`);
+    }).catch((err) => {
+      debugLog.error('bgTask', `❌ bgTask rejected: ${err instanceof Error ? err.message : String(err)}`);
     });
   };
 
