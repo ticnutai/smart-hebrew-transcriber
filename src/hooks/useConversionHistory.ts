@@ -140,8 +140,10 @@ export function useConversionHistory() {
     loading,
     addItem,
     updateName,
+    updateOriginalName,
     updateFolder,
     removeItem,
+    removeMany,
     removeAll,
     refresh: fetchHistory,
   };
