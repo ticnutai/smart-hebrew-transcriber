@@ -341,8 +341,11 @@ export default function VideoToMp3() {
   const history = useConversionHistory();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
+  const [editingOriginalId, setEditingOriginalId] = useState<string | null>(null);
+  const [editOriginalName, setEditOriginalName] = useState("");
   const [folderEditId, setFolderEditId] = useState<string | null>(null);
   const [folderName, setFolderName] = useState("");
+  const [selectedHistoryIds, setSelectedHistoryIds] = useState<Set<string>>(new Set());
   const savedJobIdsRef = useRef<Set<string>>(new Set());
 
   const toOutputFile = useCallback((job: ConversionJob): File | null => {
